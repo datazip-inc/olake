@@ -18,6 +18,9 @@ on:
       sources:
         description: 'JSON array of source stacks: one entry per driver, plus one per alternate server compose file.'
         value: ${{ jobs.preflight.outputs.sources }}
+      drivers-with-compatibility-tests:
+        description: 'JSON array of drivers whose tests define a compatibility test and, on a PR, that exist at the base commit.'
+        value: ${{ jobs.preflight.outputs.drivers-with-compatibility-tests }}
       base-image-misses:
         description: 'JSON array of drivers whose base branch image is not in the registry yet; [] or empty means nothing to build.'
         value: ${{ jobs.preflight.outputs.base-image-misses }}
@@ -35,6 +38,7 @@ jobs:
       drivers: ${{ steps.drivers.outputs.drivers }}
       driver-labels: ${{ steps.drivers.outputs.driver-labels }}
       sources: ${{ steps.sources.outputs.sources }}
+      drivers-with-compatibility-tests: ${{ steps.compat.outputs.drivers }}
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-checks-changed: ${{ steps.go-checks.outputs.changed }}
@@ -70,6 +74,21 @@ jobs:
           echo "sources=$sources" >> "$GITHUB_OUTPUT"
           echo "Source stacks: $sources"
 
+      - name: Resolve drivers with backward compatibility test
+        id: compat
+        env:
+          DRIVERS: ${{ steps.drivers.outputs.drivers }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          drivers=$(for d in $(jq -r '.[]' <<<"$DRIVERS"); do
+            grep -qsE '^func Test[A-Za-z0-9_]*Compatibility\(' tests/"$d"/*_test.go || continue
+            [ -z "$BASE_SHA" ] || git cat-file -e "$BASE_SHA:drivers/$d/go.mod" 2>/dev/null || continue
+            echo "$d"
+          done | jq -Rsc 'split("\n") | map(select(length > 0))')
+          echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
+          echo "Compatibility drivers: $drivers"
+
       - name: Detect go-check input changes
         id: go-checks
         env:
@@ -95,7 +114,7 @@ jobs:
         env:
           DOCKER_CLI_EXPERIMENTAL: enabled
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          DRIVERS: ${{ steps.drivers.outputs.drivers }}
+          DRIVERS: ${{ steps.compat.outputs.drivers }}
         run: |
           set -euo pipefail
           echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin

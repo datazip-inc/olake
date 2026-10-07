@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       baseline:
-        description: 'Compat baseline: a release tag (v0.6.5), a full image ref, or a commit sha. Empty = the full manifest sweep.'
+        description: 'Compat baseline: a release tag (v0.6.5), a full image ref, or a commit sha. Empty = all the older releases with a state version update.'
         required: false
         default: ''
         type: string
@@ -61,6 +61,7 @@ jobs:
       drivers: ${{ needs.preflight.outputs.drivers }}
       driver-labels: ${{ needs.preflight.outputs.driver-labels }}
       sources: ${{ needs.preflight.outputs.sources }}
+      drivers-with-compatibility-tests: ${{ needs.preflight.outputs.drivers-with-compatibility-tests }}
       base-image-misses: ${{ needs.preflight.outputs.base-image-misses }}
     steps:
       - run: echo "Approved -- running the end to end tests"
@@ -102,18 +103,6 @@ jobs:
         background: true
         timeout-minutes: 15
         run: make ${{ matrix.make_vars }} -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
-
-      - &docker-login
-        name: Log in to Docker Hub
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-        run: |
-          if [ -n "$DOCKER_USERNAME" ]; then
-            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-          else
-            echo "::notice::no Docker Hub credentials configured; pulling anonymously"
-          fi
 
       - &buildx
         name: Set up Docker Buildx
@@ -201,7 +190,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - *checkout
-      - *docker-login
       - *buildx
 
       - name: Build base branch images
@@ -215,9 +203,9 @@ jobs:
           path: tests/.compat-base
 
   test-backward-compatibility:
-    name: Backwards Compatibility with ${{ github.event.pull_request.base.ref }}
+    name: Backward Compatibility with ${{ github.event.pull_request.base.ref }}
     needs: [approve, integration-tests, base-images]
-    if: ${{ !cancelled() && needs.integration-tests.result == 'success' && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && needs.integration-tests.result == 'success' && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -229,7 +217,7 @@ jobs:
     environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
     timeout-minutes: 90
     env:
-      DRIVERS: ${{ join(fromJSON(needs.approve.outputs.drivers), ' ') }}
+      DRIVERS: ${{ join(fromJSON(needs.approve.outputs.drivers-with-compatibility-tests), ' ') }}
     steps:
       - *checkout
       - *data-dirs
@@ -241,7 +229,6 @@ jobs:
         timeout-minutes: 20
         run: make -j --output-sync=target olake.all.up DRIVERS="$DRIVERS"
 
-      - *docker-login
       - *buildx
       - *jar
 
@@ -259,7 +246,7 @@ jobs:
         timeout-minutes: 30
         uses: ./.github/actions/commit-image
         with:
-          drivers: ${{ join(fromJSON(needs.approve.outputs.drivers), ' ') }}
+          drivers: ${{ join(fromJSON(needs.approve.outputs.drivers-with-compatibility-tests), ' ') }}
           sha: ${{ matrix.baseline }}
           cache-repo: ghcr.io/${{ github.repository }}
           username: ${{ github.actor }}
@@ -296,10 +283,10 @@ jobs:
       - name: Run the compatibility tests
         env:
           OLAKE_PRE_BUILT_IMAGE: "true"
-        run: make -k -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ matrix.baseline }}"
+        run: make -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ matrix.baseline }}"
 
-  compatibility-sweep:
-    name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility Sweep
+  backward-compatibility-with-old-releases:
+    name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility with All Older Releases with a State Version Update
     needs: approve
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
@@ -307,13 +294,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        driver: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'master')) && needs.approve.outputs.drivers || '[]') }}
+        driver: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'master')) && needs.approve.outputs.drivers-with-compatibility-tests || '[]') }}
     steps:
       - *checkout
       - *data-dirs
       - *driver-deps
       - *containers
-      - *docker-login
       - *buildx
       - *jar
       - *driver-image
@@ -324,7 +310,7 @@ jobs:
       - *wait-ready
       - *catalog
 
-      - name: Run the compatibility sweep
+      - name: Run the compatibility tests against all the older releases with a state version update
         env:
           OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
         run: make test.compatibility.${{ matrix.driver }} COMPATIBILITY_BASELINE="${{ inputs.baseline }}"

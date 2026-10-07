@@ -3,11 +3,11 @@ package compatibility
 // What a failed compatibility run reports.
 //
 // The evidence a run produces -- the columns that differ, the rows only one side has -- is found
-// deep inside the variant subtests, and Go attributes it to them. The assertion CI shows in red is
-// the one at the end of runCompatibilityBaseline, which knew only that something below it had
-// failed. The two types here carry the evidence back up to it: diagnostics collects a variant's
-// findings as they are produced, and failureReport gathers every failed variant into the single
-// message that assertion reports.
+// deep inside the sync mode subtests, and Go attributes it to them. The failure CI shows in red is
+// reported by runCompatibilityBaseline's cleanup, which knows only that something below it
+// failed. The two types here carry the evidence back up to it: diagnostics collects a sync mode's
+// findings as they are produced, and failureReport gathers every failed sync mode into the single
+// message that cleanup reports.
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils"
 )
 
-// diagnostics is one variant's account of its own failure: the reason it stopped, and whatever
+// diagnostics is one sync mode's account of its own failure: the reason it stopped, and whatever
 // detail was gathered before it did.
 type diagnostics struct {
 	mu     sync.Mutex
@@ -27,7 +27,7 @@ type diagnostics struct {
 }
 
 // logf logs a line of detail, in the red a failure is reported in, and keeps a plain copy. The
-// subtest's own output remains the fuller story -- it carries the passing variants too -- but
+// subtest's own output remains the fuller story -- it carries the passing sync modes too -- but
 // everything logged through here also survives into the final report, which paints itself.
 func (d *diagnostics) logf(t *testing.T, format string, args ...any) {
 	t.Helper()
@@ -38,7 +38,7 @@ func (d *diagnostics) logf(t *testing.T, format string, args ...any) {
 	d.lines = append(d.lines, line)
 }
 
-// fatalf records why the variant stopped and then stops it. The reason leads the report, ahead of
+// fatalf records why the sync mode stopped and then stops it. The reason leads the report, ahead of
 // the detail, however late it was discovered.
 func (d *diagnostics) fatalf(t *testing.T, format string, args ...any) {
 	t.Helper()
@@ -55,28 +55,28 @@ func (d *diagnostics) collected() (string, []string) {
 	return d.reason, d.lines
 }
 
-// variantFailure is one broken variant of one writer group.
-type variantFailure struct {
-	group, variant string
-	reason         string
-	detail         []string
+// syncModeFailure is one broken sync mode of one writer group.
+type syncModeFailure struct {
+	group, syncMode string
+	reason          string
+	detail          []string
 }
 
-// failureReport accumulates the variants that failed one baseline and renders the message the
-// run's final assertion reports. Written from the group goroutines, which run in parallel.
+// failureReport accumulates the sync modes that failed one baseline and renders the message the
+// run's cleanup reports. Written from the group goroutines, which run in parallel.
 type failureReport struct {
 	mu              sync.Mutex
 	driver          string
 	baselineVersion string // version both sides start on
 	upgradedVersion string // version the upgrade side hands off to
-	failures        []variantFailure
+	failures        []syncModeFailure
 }
 
-func (r *failureReport) add(group, variant string, d *diagnostics) {
+func (r *failureReport) add(group, syncMode string, d *diagnostics) {
 	reason, detail := d.collected()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.failures = append(r.failures, variantFailure{group: group, variant: variant, reason: reason, detail: detail})
+	r.failures = append(r.failures, syncModeFailure{group: group, syncMode: syncMode, reason: reason, detail: detail})
 }
 
 // render is the whole of what CI shows in red.
@@ -85,7 +85,7 @@ func (r *failureReport) add(group, variant string, d *diagnostics) {
 // about: "v0.3.15 failed" names the release we compared against, not what about it matters, while
 // the state version IS the contract under test -- it is what a state file written by that release
 // tells this build to honor. The manifest's note for the bump says what that meant, then every
-// failed variant with the detail it gathered, then what the two runs actually were.
+// failed sync mode with the detail it gathered, then what the two runs actually were.
 func (r *failureReport) render() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -99,7 +99,7 @@ func (r *failureReport) render() string {
 
 	fmt.Fprintf(&b, "\n%s failed:\n", testutils.Plural(len(r.failures), "scenario"))
 	for _, f := range r.failures {
-		fmt.Fprintf(&b, "\n  %s/%s\n", f.group, f.variant)
+		fmt.Fprintf(&b, "\n  %s/%s\n", f.group, f.syncMode)
 		if f.reason != "" {
 			fmt.Fprintf(&b, "%s\n", indent(f.reason, "    "))
 		}

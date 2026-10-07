@@ -70,9 +70,23 @@ func TestStateVersionReleaseTagsAreValid(t *testing.T) {
 	}
 }
 
+// A release bumps the state version at most once, so the compatibility suite can run each manifest
+// entry as its own baseline without deduplicating releases.
+func TestStateVersionReleaseTagsAreUnique(t *testing.T) {
+	_, baselines := parseStateVersionManifest(t)
+
+	introduced := make(map[string]int, len(baselines))
+	for _, baseline := range baselines {
+		previous, duplicate := introduced[baseline.ReleaseTag]
+		assert.Falsef(t, duplicate, "release %s is listed for state versions %d and %d; a release bumps the state version once",
+			baseline.ReleaseTag, previous, baseline.StateVersion)
+		introduced[baseline.ReleaseTag] = baseline.StateVersion
+	}
+}
+
 // Which drivers a bump changed semantics for: "*" for all of them, otherwise a comma separated list
 // of driver names. The suite skips a baseline whose bump touched no driver it is testing, so a name
-// that matches nothing silently drops that baseline from the sweep.
+// that matches nothing silently drops that baseline from the compatibility tests.
 func TestStateVersionDriversAreKnown(t *testing.T) {
 	_, baselines := parseStateVersionManifest(t)
 

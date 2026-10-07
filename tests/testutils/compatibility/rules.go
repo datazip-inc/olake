@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log"
 	"maps"
 	"slices"
 
@@ -15,7 +16,7 @@ import (
 // compatibility_rules.json is the compatibility suite's whole configuration: per-driver and per-group
 // baseline gates, and the column rules that decide what each column can be asserted on. Adding a
 // driver, a gate or a rule is an edit to that file alone. What stays in code is only what binds a
-// name to behavior: the group list in compatibilityGroupSpecs, since each variant calls a harness func.
+// name to behavior: the group list in compatibilityGroupSpecs, since each sync mode calls a harness func.
 
 // compatibilityGate bounds which baselines a scope runs against. Empty fields mean no bound.
 type compatibilityGate struct {
@@ -48,15 +49,15 @@ type compatibilityTypeRule struct {
 }
 
 // compatibilityDestination is one destination's gates. A destination may gate itself (parquet) and/or
-// carry named modes (iceberg's arrow and legacy); both shapes decode into this one type, so adding
-// a destination or a mode is a config edit.
+// carry named modes under "modes" (iceberg's arrow and legacy), so adding a destination or a mode
+// is a config edit.
 type compatibilityDestination struct {
 	compatibilityGate
-	Modes map[string]compatibilityGate
+	Modes map[string]compatibilityGate `json:"modes"`
 }
 
-// compatibilityVariantRules gates and rules for one source data format (s3's csv/json/parquet).
-type compatibilityVariantRules struct {
+// compatibilityFormatRules gates and rules for one source data format (s3's csv/json/parquet).
+type compatibilityFormatRules struct {
 	compatibilityGate
 	Rules []compatibilityTypeRule `json:"rules"`
 }
@@ -67,8 +68,8 @@ type compatibilityDriverRules struct {
 	Rules        []compatibilityTypeRule             `json:"rules"`
 	// DestinationRules covers the columns this driver makes APPEAR in the destination (its
 	// materialized key, olake's metadata) as opposed to the source columns its fixture seeds.
-	DestinationRules []compatibilityTypeRule              `json:"destination_rules"`
-	Variants         map[string]compatibilityVariantRules `json:"variants"`
+	DestinationRules []compatibilityTypeRule             `json:"destination_rules"`
+	Formats          map[string]compatibilityFormatRules `json:"formats"`
 }
 
 // compatibilityDestinationsRules is the destinations block: the rules for the columns every
@@ -85,25 +86,12 @@ type compatibilityRulesConfig struct {
 }
 
 var (
-	compatibilityGateFields = map[string]bool{"min_baseline": true, "skip_baselines": true, "note": true}
-
 	//go:embed compatibility_rules.json
 	rawCompatibilityRules []byte
 
 	// compatibilityRules is parsed and validated at package init, so a malformed or misspelled rules file
 	// fails every suite loudly instead of silently under-enforcing.
-	compatibilityRules = func() compatibilityRulesConfig {
-		var cfg compatibilityRulesConfig
-		dec := json.NewDecoder(bytes.NewReader(rawCompatibilityRules))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&cfg); err != nil {
-			panic("tests/testutils/compatibility_rules.json: " + err.Error())
-		}
-		if err := cfg.validate(); err != nil {
-			panic("tests/testutils/compatibility_rules.json: " + err.Error())
-		}
-		return cfg
-	}()
+	compatibilityRules compatibilityRulesConfig
 
 	knownCompatibilityDrivers = []constants.DriverType{
 		constants.MongoDB, constants.Postgres, constants.MySQL, constants.Oracle,
@@ -111,40 +99,15 @@ var (
 	}
 )
 
-func (d *compatibilityDestination) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	gate := map[string]json.RawMessage{}
-	d.Modes = map[string]compatibilityGate{}
-	for key, value := range raw {
-		if compatibilityGateFields[key] {
-			gate[key] = value
-			continue
-		}
-		var mode compatibilityGate
-		if err := strictUnmarshal(value, &mode); err != nil {
-			return fmt.Errorf("mode %q: %w", key, err)
-		}
-		d.Modes[key] = mode
-	}
-	if len(gate) == 0 {
-		return nil
-	}
-	encoded, err := json.Marshal(gate)
-	if err != nil {
-		return err
-	}
-	return strictUnmarshal(encoded, &d.compatibilityGate)
-}
-
-// strictUnmarshal rejects unknown keys. A custom UnmarshalJSON does not inherit the outer
-// decoder's strictness, so nested gates re-apply it here; a typo must never fail open.
-func strictUnmarshal(data []byte, target any) error {
-	dec := json.NewDecoder(bytes.NewReader(data))
+func init() {
+	dec := json.NewDecoder(bytes.NewReader(rawCompatibilityRules))
 	dec.DisallowUnknownFields()
-	return dec.Decode(target)
+	if err := dec.Decode(&compatibilityRules); err != nil {
+		log.Fatalf("tests/testutils/compatibility/compatibility_rules.json: %s", err)
+	}
+	if err := compatibilityRules.validate(); err != nil {
+		log.Fatalf("tests/testutils/compatibility/compatibility_rules.json: %s", err)
+	}
 }
 
 // gates keys the destinations the way the writer groups look them up.
@@ -195,12 +158,12 @@ func (c compatibilityRulesConfig) validate() error {
 		if err := checkDestinations("driver "+name, driver.Destinations); err != nil {
 			return err
 		}
-		for format, variant := range driver.Variants {
-			scope := fmt.Sprintf("driver %s variant %s", name, format)
-			if err := variant.validate(scope); err != nil {
+		for format, formatRules := range driver.Formats {
+			scope := fmt.Sprintf("driver %s format %s", name, format)
+			if err := formatRules.validate(scope); err != nil {
 				return err
 			}
-			if err := validateRules(scope, variant.Rules); err != nil {
+			if err := validateRules(scope, formatRules.Rules); err != nil {
 				return err
 			}
 		}
@@ -249,8 +212,8 @@ func validateRules(scope string, rules []compatibilityTypeRule) error {
 	return nil
 }
 
-// validateThresholds rejects a rule threshold at or below the sweep's oldest baseline, which could
-// never fire. The floor comes from state-versions.json.
+// validateThresholds rejects a rule threshold at or below the oldest release with a state version
+// update, which could never fire. The floor comes from state-versions.json.
 func (c compatibilityRulesConfig) validateThresholds() error {
 	floorTag, err := compatibilityGlobalFloor()
 	if err != nil {
@@ -259,8 +222,8 @@ func (c compatibilityRulesConfig) validateThresholds() error {
 	lists := [][]compatibilityTypeRule{c.Destinations.Rules}
 	for _, driver := range c.Drivers {
 		lists = append(lists, driver.Rules, driver.DestinationRules)
-		for _, variant := range driver.Variants {
-			lists = append(lists, variant.Rules)
+		for _, formatRules := range driver.Formats {
+			lists = append(lists, formatRules.Rules)
 		}
 	}
 	for _, rules := range lists {

@@ -16,17 +16,17 @@ import (
 )
 
 const (
-	scenarioCDC         = "cdc"
-	scenarioIncremental = "inc"
+	syncModeCDC         = "cdc"
+	syncModeIncremental = "inc"
 )
 
-// compatibilityVariant is one scenario, run once per side. Each pair gets its own destination
-// namespace through its subtest-derived suite, so every scenario's output survives to be compared.
-type compatibilityVariant struct {
+// compatibilitySyncMode is one sync mode of a writer group, run once per side. Each pair gets its own
+// destination namespace through its subtest-derived suite, so every scenario's output survives to be compared.
+type compatibilitySyncMode struct {
 	name string
 	kind string
-	// emptyFinalState marks a variant whose LAST case writes no output; both sides ending empty is
-	// then the asserted outcome, for every other variant it is a failure no row diff would catch.
+	// emptyFinalState marks a sync mode whose LAST case writes no output; both sides ending empty is
+	// then the asserted outcome, for every other sync mode it is a failure no row diff would catch.
 	emptyFinalState bool
 }
 
@@ -34,9 +34,9 @@ type compatibilityVariant struct {
 // the unit of the writer-level version gates from compatibility_rules.json.
 type compatibilityGroup struct {
 	compatibilityGroupSpec
-	gate     compatibilityGate
-	rules    []compatibilityTypeRule
-	variants []compatibilityVariant
+	gate      compatibilityGate
+	rules     []compatibilityTypeRule
+	syncModes []compatibilitySyncMode
 }
 
 type compatibilityGroupSpec struct {
@@ -84,7 +84,7 @@ func (s compatibilityGroupSpec) gateFrom(destinations map[string]compatibilityDe
 	return mergedGate(dest.compatibilityGate, dest.Modes[s.mode])
 }
 
-func compatibilityVariantGroups(driver string) []compatibilityGroup {
+func compatibilitySyncModeGroups(driver string) []compatibilityGroup {
 	// Same fan-out as TestSync, and the same two skips.
 	cdc := !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(driver))
 	inc := driver != string(constants.Kafka)
@@ -92,21 +92,21 @@ func compatibilityVariantGroups(driver string) []compatibilityGroup {
 	driverDestinations := compatibilityRules.Drivers[driver].Destinations
 	var groups []compatibilityGroup
 	for _, spec := range compatibilityGroupSpecs() {
-		var variants []compatibilityVariant
+		var syncModes []compatibilitySyncMode
 		if cdc {
 			// The parquet CDC scenario ends on a delete-only batch, and parquet holds only its
 			// last case's files -- so both sides ending with none is its verified outcome.
-			variants = append(variants, compatibilityVariant{name: "cdc", kind: scenarioCDC, emptyFinalState: spec.destination == "parquet"})
+			syncModes = append(syncModes, compatibilitySyncMode{name: "cdc", kind: syncModeCDC, emptyFinalState: spec.destination == "parquet"})
 		}
 		if inc {
-			variants = append(variants, compatibilityVariant{name: "inc", kind: scenarioIncremental})
+			syncModes = append(syncModes, compatibilitySyncMode{name: "inc", kind: syncModeIncremental})
 		}
-		if len(variants) == 0 {
+		if len(syncModes) == 0 {
 			continue
 		}
 		gate := mergedGate(spec.gateFrom(compatibilityRules.Destinations.gates()), spec.gateFrom(driverDestinations))
 		rules := compatibilityRules.Destinations.gates()[spec.destination].Modes[spec.mode].Rules
-		groups = append(groups, compatibilityGroup{compatibilityGroupSpec: spec, gate: gate, rules: rules, variants: variants})
+		groups = append(groups, compatibilityGroup{compatibilityGroupSpec: spec, gate: gate, rules: rules, syncModes: syncModes})
 	}
 	return groups
 }
@@ -114,7 +114,7 @@ func compatibilityVariantGroups(driver string) []compatibilityGroup {
 // syncCasesForDriver is the sequence of operations TestSync runs
 func syncCasesForDriver(driver, kind string) []syncCase {
 	switch {
-	case kind == scenarioIncremental:
+	case kind == syncModeIncremental:
 		return []syncCase{{operation: "", useState: false}, {operation: "insert", useState: true}, {operation: "update", useState: true}}
 	case driver == string(constants.Kafka):
 		// Kafka is strict-CDC: no stateless full load, and no deletes to replay.
@@ -129,11 +129,6 @@ func syncCasesForDriver(driver, kind string) []syncCase {
 	}
 }
 
-// getDriverVersionFoSync gives what driver version the sync should run with in case of stateful version upgrade
-func getDriverVersionForSync(useState bool, oldVersion, newVersion string) string {
-	return testutils.Ternary(useState, newVersion, oldVersion).(string)
-}
-
 // prepareSourceTable seeds the side's source table and builds its catalog before the first stateless
 // sync. The catalog is what the baseline's discover writes for the seeded table, because a pipeline
 // upgrades on the streams.json its older build discovered, never on one this build would write.
@@ -141,7 +136,7 @@ func perpareSourceTable(
 	t *testing.T,
 	cfg *testutils.TestConfig,
 	group compatibilityGroup,
-	v compatibilityVariant,
+	v compatibilitySyncMode,
 	policies *assertionPolicies,
 ) {
 	ctx := t.Context()
@@ -168,7 +163,7 @@ func perpareSourceTable(
 	// suite compares what a sync produces, and either would only narrow both sides equally.
 	require.NoError(t, testutils.UpdateSelectedStreams(cfg, cfg.Namespace, cfg.PartitionRegex, "", []string{table}, policies.seedExcluded),
 		"failed to select the compatibility stream")
-	if v.kind == scenarioIncremental {
+	if v.kind == syncModeIncremental {
 		require.NoError(t, setIncrementalMode(cfg, table), "failed to patch streams.json for incremental")
 	}
 	logSelectedStreams(t, cfg)
@@ -291,7 +286,7 @@ func (b *outputComparisonCheckpoint) stopIfFailed(t *testing.T) {
 	}
 }
 
-// runSync seeds, syncs and tears down one side of a variant on its own config. pick routes each
+// runSync seeds, syncs and tears down one side of a sync mode on its own config. pick routes each
 // sync to a driver version: the reference side always answers the baseline, the upgrade side
 // hands stateful syncs to the candidate.
 func runSync(
@@ -313,7 +308,7 @@ func runSync(
 
 	// Successive syncs write the same parquet column with different types, which Spark refuses
 	// to read together (CANNOT_MERGE_SCHEMAS; F2 in docs/backward-compatibility.md) -- so a
-	// parquet variant holds, and compares, only its last case's files.
+	// parquet sync mode holds, and compares, only its last case's files.
 	if group.destination == "parquet" {
 		require.NoErrorf(t, testutils.DeleteParquetFiles(t, cfg.DestinationDB, cfg.GetTableName()), "failed to clear parquet files before %q", syncCase.operation)
 	}
@@ -352,7 +347,7 @@ func setIncrementalMode(cfg *testutils.TestConfig, table string) error {
 	})
 }
 
-// clearDestination drops whatever a previous invocation of this test name left at the variant's
+// clearDestination drops whatever a previous invocation of this test name left at the sync mode's
 // destination; missing tables and empty prefixes are simply nothing to clear.
 func clearDestination(t *testing.T, group compatibilityGroup, db, table string) {
 	switch group.destination {

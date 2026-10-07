@@ -52,7 +52,7 @@ func getSparkSession(ctx context.Context, t *testing.T) sql.SparkSession {
 
 func refreshTable(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) {
 	t.Helper()
-	if _, err := spark.Sql(ctx, fmt.Sprintf("REFRESH TABLE %s", fullTableName)); err != nil {
+	if err := testutils.RefreshTable(ctx, spark, fullTableName); err != nil {
 		t.Logf("REFRESH TABLE %s failed (non-fatal): %v", fullTableName, err)
 	}
 }

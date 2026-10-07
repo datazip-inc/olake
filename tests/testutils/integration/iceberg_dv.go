@@ -14,6 +14,20 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
+// DVUnpartTable and DVPartTable are the two source tables the deletion-vector suite drives.
+// They are narrow and purpose-built (5 columns, not the ~50-column datatype-matrix table every
+// other suite uses) because these tests need precise control over which DATA FILE a delete
+// lands on, and over how many partitions exist - not datatype coverage.
+//
+// Both tables are always created, seeded and synced together: every scenario below runs one
+// sync that advances both streams, then checks both. DVPartTable is not a special case with its
+// own logic - it is exactly DVUnpartTable's schema, with a partition_regex set on its stream
+// (see dvCatalogDoc). That is what makes it "the partitioned one."
+const (
+	DVUnpartTable = "dv_unpart"
+	DVPartTable   = "dv_part"
+)
+
 // icebergDVTestDrivers gates the deletion-vector suite the same way icebergTableIndexTestDrivers
 // gates the pos/table-index suite (see hasIcebergTableIndexTest). One CDC-capable driver is
 // enough - these exercise destination behavior, not source specifics.
@@ -81,20 +95,20 @@ func dvSelectedEntry(table, updateType, partitionRegex string) map[string]interf
 }
 
 // dvCatalogDoc builds a whole streams.json selecting both dv tables under CDC, in the given
-// update_type, with testutils.DVPartTable's stream carrying a partition_regex (identity on `status`) and
-// testutils.DVUnpartTable's carrying none. Written directly rather than derived from a discover run or a
+// update_type, with DVPartTable's stream carrying a partition_regex (identity on `status`) and
+// DVUnpartTable's carrying none. Written directly rather than derived from a discover run or a
 // checked-in fixture, since the shape needed here (two narrow, purpose-built tables) has nothing
 // in common with the wide datatype-matrix fixture every other suite seeds from.
 func dvCatalogDoc(namespace, destinationDatabase, updateType string) map[string]interface{} {
 	return map[string]interface{}{
 		"streams": []interface{}{
-			dvStreamEntry(namespace, testutils.DVUnpartTable, destinationDatabase),
-			dvStreamEntry(namespace, testutils.DVPartTable, destinationDatabase),
+			dvStreamEntry(namespace, DVUnpartTable, destinationDatabase),
+			dvStreamEntry(namespace, DVPartTable, destinationDatabase),
 		},
 		"selected_streams": map[string]interface{}{
 			namespace: []interface{}{
-				dvSelectedEntry(testutils.DVUnpartTable, updateType, ""),
-				dvSelectedEntry(testutils.DVPartTable, updateType, "/{status,identity}"),
+				dvSelectedEntry(DVUnpartTable, updateType, ""),
+				dvSelectedEntry(DVPartTable, updateType, "/{status,identity}"),
 			},
 		},
 	}
@@ -136,7 +150,7 @@ func (th *TestHandler) prepareDVSync(ctx context.Context, t *testing.T, updateTy
 // dvSetUpdateType flips update_type for both dv streams between syncs - the two-table
 // equivalent of setUpdateType.
 func dvSetUpdateType(config *testutils.TestConfig, namespace, updateType string) error {
-	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		if err := setUpdateType(config, namespace, table, updateType); err != nil {
 			return fmt.Errorf("failed to set update_type on %s: %w", table, err)
 		}
@@ -307,8 +321,8 @@ func requireLiveRowsEqual(t *testing.T, want map[string]string, got dvTableState
 // very first sync (never 2, upgraded later), and every delete it produces should show up as a
 // Puffin file, never a Parquet one.
 func (th *TestHandler) testIcebergDVBackfillAndCore(ctx context.Context, t *testing.T, useArrow bool) error {
-	defer testutils.DropIcebergTable(t, testutils.DVUnpartTable, th.TestConfig.DestinationDB)
-	defer testutils.DropIcebergTable(t, testutils.DVPartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, DVUnpartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, DVPartTable, th.TestConfig.DestinationDB)
 
 	if err := th.prepareDVSync(ctx, t, "dv"); err != nil {
 		return err
@@ -317,7 +331,7 @@ func (th *TestHandler) testIcebergDVBackfillAndCore(ctx context.Context, t *test
 	th.dvSync(ctx, t, useArrow, false, "backfill")
 
 	spark := getSparkSession(ctx, t)
-	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		full := dvFullTableName(th, table)
 		state := dvState(ctx, t, spark, full)
 		require.Equal(t, int64(3), state.formatVersion, "%s: table created under dv must start at format version 3", table)
@@ -335,7 +349,7 @@ func (th *TestHandler) testIcebergDVBackfillAndCore(ctx context.Context, t *test
 	// _op_type='d' - the same convention every other suite's delete checks rely on
 	// (test_utils.go's "WHERE _op_type = 'd'" verification). id=5 is "d", not absent.
 	wantRows := map[string]string{"1": "u", "2": "r", "3": "r", "4": "r", "5": "d"}
-	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		full := dvFullTableName(th, table)
 		state := dvState(ctx, t, spark, full)
 		requireLiveRowsEqual(t, wantRows, state, table)
@@ -357,8 +371,8 @@ func (th *TestHandler) testIcebergDVBackfillAndCore(ctx context.Context, t *test
 // shared vector writer used for the whole commit handles more than one partition's data files
 // correctly, not just the one dv_unpart happens to have.
 func (th *TestHandler) testIcebergDVMergeAcrossSyncs(ctx context.Context, t *testing.T, useArrow bool) error {
-	defer testutils.DropIcebergTable(t, testutils.DVUnpartTable, th.TestConfig.DestinationDB)
-	defer testutils.DropIcebergTable(t, testutils.DVPartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, DVUnpartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, DVPartTable, th.TestConfig.DestinationDB)
 
 	if err := th.prepareDVSync(ctx, t, "dv"); err != nil {
 		return err
@@ -377,7 +391,7 @@ func (th *TestHandler) testIcebergDVMergeAcrossSyncs(ctx context.Context, t *tes
 	// Same tombstone convention as testIcebergDVBackfillAndCore: id=2 and id=3 stay present
 	// with _op_type='d', they don't disappear.
 	wantRows := map[string]string{"1": "r", "2": "d", "3": "d", "4": "r", "5": "r"}
-	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		full := dvFullTableName(th, table)
 		state := dvState(ctx, t, spark, full)
 
@@ -405,8 +419,8 @@ func (th *TestHandler) testIcebergDVMergeAcrossSyncs(ctx context.Context, t *tes
 // must come out identical to what it was under eq - a migration that changes what a query
 // returns is a correctness bug regardless of which representation it lands on.
 func (th *TestHandler) testIcebergEqToDVMigration(ctx context.Context, t *testing.T, useArrow bool) error {
-	defer testutils.DropIcebergTable(t, testutils.DVUnpartTable, th.TestConfig.DestinationDB)
-	defer testutils.DropIcebergTable(t, testutils.DVPartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, DVUnpartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, DVPartTable, th.TestConfig.DestinationDB)
 
 	if err := th.prepareDVSync(ctx, t, "eq"); err != nil {
 		return err
@@ -421,7 +435,7 @@ func (th *TestHandler) testIcebergEqToDVMigration(ctx context.Context, t *testin
 
 	spark := getSparkSession(ctx, t)
 	rowsBefore := map[string]dvTableState{}
-	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		state := dvState(ctx, t, spark, dvFullTableName(th, table))
 		require.Equal(t, int64(2), state.formatVersion, "%s: eq mode does not need v3 yet", table)
 		require.Greaterf(t, state.eqDeleteFiles, int64(0), "%s: eq mode should have produced equality deletes to migrate", table)
@@ -435,7 +449,7 @@ func (th *TestHandler) testIcebergEqToDVMigration(ctx context.Context, t *testin
 	// sync exercises, triggered purely by the update_type flip.
 	th.dvSync(ctx, t, useArrow, true, "migrate eq to dv")
 
-	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		full := dvFullTableName(th, table)
 		after := dvState(ctx, t, spark, full)
 		require.Equal(t, int64(3), after.formatVersion, "%s: migrating to dv must raise format version to 3", table)
@@ -448,7 +462,7 @@ func (th *TestHandler) testIcebergEqToDVMigration(ctx context.Context, t *testin
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-unpart-delete-id2")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-part-delete-id2")
 	th.dvSync(ctx, t, useArrow, true, "post-migration delete")
-	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		state := dvState(ctx, t, spark, dvFullTableName(th, table))
 		require.Equal(t, int64(0), state.parquetPosFiles, "%s: post-migration deletes must still be vectors, not Parquet", table)
 	}

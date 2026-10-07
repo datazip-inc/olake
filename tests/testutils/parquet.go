@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -44,6 +45,20 @@ func ListParquetObjects(ctx context.Context, client *minio.Client, parquetDB, ta
 // parquetTablePath is the MinIO key prefix a stream's parquet files are written under.
 func parquetTablePath(parquetDB, tableName string) string {
 	return fmt.Sprintf("%s/%s/", parquetDB, tableName)
+}
+
+// CreateParquetView stands a temp view over a table's parquet files, dropped when the test ends. The
+// error is returned as is: PATH_NOT_FOUND means no files were written, which some callers expect.
+func CreateParquetView(ctx context.Context, t *testing.T, spark sql.SparkSession, view, parquetDB, tableName string) error {
+	t.Helper()
+	path := fmt.Sprintf("s3a://%s/%s*.parquet", ParquetTestBucket, parquetTablePath(parquetDB, tableName))
+	if _, err := spark.Sql(ctx, fmt.Sprintf("CREATE OR REPLACE TEMP VIEW %s AS SELECT * FROM parquet.`%s`", view, path)); err != nil {
+		return err
+	}
+	// t.Context() is canceled before cleanups run, so the drop needs a context that outlives it.
+	dropCtx := context.WithoutCancel(ctx)
+	t.Cleanup(func() { _, _ = spark.Sql(dropCtx, "DROP VIEW IF EXISTS "+view) })
+	return nil
 }
 
 // DeleteParquetFiles deletes only .parquet files directly in the table folder in MinIO

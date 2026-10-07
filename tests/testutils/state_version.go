@@ -1,10 +1,12 @@
 package testutils
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -68,9 +70,12 @@ func readStateVersionManifest() (stateVersionManifest, error) {
 			return
 		}
 		if len(stateVersionValue.Baselines) == 0 {
-			stateVersionErr = fmt.Errorf("%s carries no baselines; the compatibility sweep would silently shrink", path)
+			stateVersionErr = fmt.Errorf("%s carries no baselines; the compatibility tests would silently skip all the older releases with a state version update", path)
 			return
 		}
+		slices.SortFunc(stateVersionValue.Baselines, func(a, b StateVersionBaseline) int {
+			return cmp.Compare(a.StateVersion, b.StateVersion)
+		})
 	})
 	return stateVersionValue, stateVersionErr
 }
@@ -81,7 +86,7 @@ func LatestStateVersion() (int, error) {
 	return manifest.LatestStateVersion, err
 }
 
-// StateVersionBaselines is the manifest's release history, in file order.
+// StateVersionBaselines is the manifest's release history, oldest state version first.
 func StateVersionBaselines() ([]StateVersionBaseline, error) {
 	manifest, err := readStateVersionManifest()
 	return manifest.Baselines, err
