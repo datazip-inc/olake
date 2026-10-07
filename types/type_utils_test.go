@@ -123,7 +123,7 @@ func TestDataTypeOf(t *testing.T) {
 	}
 }
 
-func TestBytesWidth(t *testing.T) {
+func TestIsBytes(t *testing.T) {
 	testCases := []struct {
 		dataType DataType
 		width    int
@@ -163,7 +163,7 @@ func TestBytesWidth(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(string(tc.dataType), func(t *testing.T) {
-			width, isBytes := BytesWidth(tc.dataType)
+			isBytes, width := IsBytes(tc.dataType)
 			require.Equal(t, tc.isBytes, isBytes)
 			require.Equal(t, tc.width, width)
 		})

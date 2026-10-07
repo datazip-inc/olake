@@ -26,10 +26,11 @@ func IcebergBytesWidth(icebergType string) (int, bool) {
 	return bytesWidth(icebergType, "fixed[", "]")
 }
 
-// BytesWidth reports whether a column of type d carries bytes, along with the width of a fixed one:
+// IsBytes reports whether a column of type d carries bytes, along with the width of a fixed one:
 // the DataType twin of IcebergBytesWidth.
-func BytesWidth(d DataType) (int, bool) {
-	return bytesWidth(string(d), "fixed_binary(", ")")
+func IsBytes(d DataType) (bool, int) {
+	width, isBytes := bytesWidth(string(d), "fixed_binary(", ")")
+	return isBytes, width
 }
 
 // bytesWidth reports whether typeName carries bytes, along with the width of a fixed one. Both type

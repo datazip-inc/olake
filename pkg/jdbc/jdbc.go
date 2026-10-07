@@ -1489,10 +1489,10 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
-	bytesConverter := func(cursorField string, value any) any {
+	bytesConverter := func(cursorType types.DataType, value any) any {
 		switch v := value.(type) {
 		case []byte:
-			if abstract.IsBinaryCursor(cursorField, stream) {
+			if isBytes, _ := types.IsBytes(cursorType); isBytes {
 				return v
 			}
 			return string(v)
@@ -1501,23 +1501,32 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		}
 	}
 
+	primaryCursorType, err := stream.Schema().GetType(primaryCursor)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", primaryCursor, err)
+	}
+
 	cursorValueQuery := utils.Ternary(secondaryCursor == "",
 		fmt.Sprintf("SELECT MAX(%s) FROM %s", primaryCursorQuoted, quotedTable),
 		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable)).(string)
 
 	if secondaryCursor != "" {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		secondaryCursorType, err := stream.Schema().GetType(secondaryCursor)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", secondaryCursor, err)
+		}
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %w", err)
 		}
-		maxSecondaryCursorValue = bytesConverter(secondaryCursor, maxSecondaryCursorValue)
+		maxSecondaryCursorValue = bytesConverter(secondaryCursorType, maxSecondaryCursorValue)
 	} else {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %w", err)
 		}
 	}
-	return bytesConverter(primaryCursor, maxPrimaryCursorValue), maxSecondaryCursorValue, nil
+	return bytesConverter(primaryCursorType, maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.

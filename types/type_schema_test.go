@@ -421,11 +421,16 @@ func TestTypeSchemaOverride(t *testing.T) {
 }
 
 func TestTypeSchemaJSONRoundTrip(t *testing.T) {
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+	constants.LoadedStateVersion = constants.LatestStateVersion
+
 	schema := NewTypeSchema()
 	schema.AddTypes("User ID", false, Int64, Null)
 	schema.AddTypes("_meta_col", true, String)
 	schema.AddTypes("Digest", false, FixedBinaryOf(32))
 	schema.AddTypes("Payload", false, Binary, Null)
+	schema.AddTypes("Hashes", false, FixedBinaryOf(16), FixedBinaryOf(32))
 
 	data, err := json.Marshal(schema)
 	require.NoError(t, err)
@@ -454,6 +459,17 @@ func TestTypeSchemaJSONRoundTrip(t *testing.T) {
 	found, prop = restored.GetProperty("Payload")
 	require.True(t, found)
 	require.Equal(t, Binary, prop.DataType())
+
+	constants.LoadedStateVersion = 7
+	preBinary := NewTypeSchema()
+	require.NoError(t, json.Unmarshal(data, preBinary))
+	for column, expected := range map[string]DataType{"User ID": Int64, "Digest": String, "Payload": String, "Hashes": String} {
+		found, prop := preBinary.GetProperty(column)
+		require.True(t, found, column)
+		require.Equal(t, expected, prop.DataType(), column)
+	}
+	_, prop = preBinary.GetProperty("Payload")
+	require.True(t, prop.Nullable())
 }
 
 func parquetFieldNames(schema *parquet.Schema) []string {

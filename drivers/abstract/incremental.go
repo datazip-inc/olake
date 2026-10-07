@@ -172,19 +172,12 @@ func ReformatCursorValue(cursorField string, cursorValue any, stream types.Strea
 	return typeutils.ReformatValue(cursorColType, cursorValue)
 }
 
-// IsBinaryCursor reports whether cursorField is a column of bytes, which only exists from state version 8
-func IsBinaryCursor(cursorField string, stream types.StreamInterface) bool {
-	cursorColType, err := stream.Schema().GetType(cursorField)
-	_, isBytes := types.BytesWidth(cursorColType)
-	return err == nil && isBytes
-}
-
 // DecodeCursorValue returns the value a cursor's state entry stands for, given the cursor column's
 // type. JSON cannot carry bytes, so FormatCursorValue keeps a binary cursor as hex and it decodes
 // back to its bytes here; every other cursor is kept in state as its value.
 func DecodeCursorValue(cursorField string, cursorType types.DataType, stateValue any) (any, error) {
 	encoded, isString := stateValue.(string)
-	if _, isBytes := types.BytesWidth(cursorType); !isString || !isBytes {
+	if isBytes, _ := types.IsBytes(cursorType); !isString || !isBytes {
 		return stateValue, nil
 	}
 	decoded, err := hex.DecodeString(encoded)

@@ -77,7 +77,7 @@ func ValueFitsColumn(value any, detectedType, columnType types.DataType) bool {
 	if detectedType == types.Null || detectedType == columnType {
 		return true
 	}
-	width, _ := types.BytesWidth(columnType)
+	_, width := types.IsBytes(columnType)
 	bytesValue, isBytes := value.([]byte)
 	return width > 0 && isBytes && len(bytesValue) <= width
 }

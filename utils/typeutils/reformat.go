@@ -99,7 +99,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		// make it an array
 		return []any{v}, nil
 	default:
-		if width, isBytes := types.BytesWidth(dataType); isBytes {
+		if isBytes, width := types.IsBytes(dataType); isBytes {
 			return ReformatBytes(v, width)
 		}
 		return v, nil
@@ -118,12 +118,7 @@ func ParseFilterValue(dataType types.DataType, v any) (any, error) {
 	}
 }
 
-// ReformatBytes returns the raw bytes of a Binary value, or of a fixed_binary(width) value when width
-// is positive. Byte slices pass through and strings contribute their UTF-8 bytes; nothing is ever
-// re-encoded as text. A fixed_binary(width) value shorter than width is right-padded with zero bytes,
-// which is how every fixed-width source type stores it (MySQL strips that padding again from binlog
-// row images); a longer value is an error, since parquet FIXED_LEN_BYTE_ARRAY and iceberg fixed[n]
-// both reject it (parquet-go panics rather than erroring).
+// ReformatBytes converts v to bytes, zero-padded to width when width > 0; a value longer than width is an error.
 func ReformatBytes(v any, width int) ([]byte, error) {
 	var b []byte
 	switch val := v.(type) {

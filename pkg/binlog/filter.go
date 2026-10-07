@@ -304,6 +304,7 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 						val = decoded
 					}
 				case isBinaryCollation(view.collations[i]):
+					// e.g. collation 63 "binary", carried by BINARY, VARBINARY and BLOB columns
 					padded, padErr := typeutils.ReformatBytes(raw, view.widths[i])
 					if padErr != nil {
 						return nil, padErr

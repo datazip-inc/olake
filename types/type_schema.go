@@ -95,6 +95,7 @@ func (t *TypeSchema) UnmarshalJSON(data []byte) error {
 
 	// Populate sync.Map with the data from temporary map
 	for key, value := range aux.Properties {
+		value.applyStateVersionChecks()
 		t.Properties.Store(key, value)
 	}
 
@@ -234,6 +235,20 @@ func (p *Property) DataType() DataType {
 		commonType = GetCommonAncestorType(commonType, types[idx])
 	}
 	return commonType
+}
+
+// applyStateVersionChecks rewrites the property's types for the state version this sync is pinned at.
+func (p *Property) applyStateVersionChecks() {
+	switch {
+	case constants.LoadedStateVersion < 8:
+		types := p.Type.Array()
+		for i, d := range types {
+			if isBytes, _ := IsBytes(d); isBytes {
+				types[i] = String
+			}
+		}
+		p.Type = NewSet(types...)
+	}
 }
 
 func (p *Property) Nullable() bool {
