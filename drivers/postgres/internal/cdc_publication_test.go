@@ -35,6 +35,7 @@ func (m *mockStream) SupportedSyncModes() *types.Set[types.SyncMode] { return ni
 func (m *mockStream) Cursor() (string, string)                       { return "", "" }
 func (m *mockStream) Validate(_ *types.Stream) error                 { return nil }
 func (m *mockStream) NormalizationEnabled() bool                     { return false }
+func (m *mockStream) AppendModeEnabled() bool                        { return false }
 func (m *mockStream) GetDestinationDatabase(_ *string) string        { return "" }
 func (m *mockStream) GetDestinationTable() string                    { return "" }
 func (m *mockStream) RetainSelectedColumns() func(map[string]interface{}) map[string]interface{} {

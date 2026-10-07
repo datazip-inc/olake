@@ -625,7 +625,7 @@ func getCommonAncestorType(d1, d2 string) string {
 }
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
-	return utils.Ternary(stream.Self().AppendModeEnabled(), false, !backfill).(bool)
+	return utils.Ternary(stream.AppendModeEnabled(), false, !backfill).(bool)
 }
 
 // protoDeleteMode maps the config-facing delete mode onto the wire enum. An
