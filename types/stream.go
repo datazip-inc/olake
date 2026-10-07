@@ -139,18 +139,18 @@ func (s *Stream) Wrap(_ int) *ConfiguredStream {
 // MarshalJSON writes Set fields in sorted order so catalog files are stable across runs.
 func (s *Stream) MarshalJSON() ([]byte, error) {
 	type Alias Stream // alias to avoid recursive call
-	sortedStrings := func(set *Set[string]) []string {
+	sortedStrings := func(set *Set[string]) *[]string {
 		if set == nil {
 			return nil
 		}
 		arr := set.Array()
 		slices.Sort(arr)
-		return arr
+		return &arr
 	}
 	return json.Marshal(&struct {
 		*Alias
-		AvailableCursorFields   []string `json:"available_cursor_fields,omitempty"`
-		SourceDefinedPrimaryKey []string `json:"source_defined_primary_key,omitempty"`
+		AvailableCursorFields   *[]string `json:"available_cursor_fields,omitempty"`
+		SourceDefinedPrimaryKey *[]string `json:"source_defined_primary_key,omitempty"`
 	}{
 		Alias:                   (*Alias)(s),
 		AvailableCursorFields:   sortedStrings(s.AvailableCursorFields),
