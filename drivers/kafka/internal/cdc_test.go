@@ -106,6 +106,24 @@ func TestParseKafkaData(t *testing.T) {
 			wantKey:       `{"id":"k1"}`,
 			wantKeyFields: map[string]interface{}{"id": "k1"},
 		},
+		{
+			name: "8-byte binary key is not treated as confluent payload",
+			record: &kgo.Record{
+				Value: []byte(`{"v":1}`),
+				Key:   []byte{0, 0, 0, 0, 0, 0, 0, 5},
+			},
+			wantValue: map[string]interface{}{"v": json.Number("1")},
+			wantKey:   "AAAAAAAAAAU=",
+		},
+		{
+			name: "tombstone 8-byte binary key matches live",
+			record: &kgo.Record{
+				Value: nil,
+				Key:   []byte{0, 0, 0, 0, 0, 0, 0, 5},
+			},
+			wantValue: nil,
+			wantKey:   "AAAAAAAAAAU=",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
