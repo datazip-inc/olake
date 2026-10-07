@@ -31,10 +31,11 @@ type Stream struct {
 	Schema *TypeSchema `json:"type_schema,omitempty"`
 	// Supported sync modes from driver for the respective Stream
 	SupportedSyncModes *Set[SyncMode] `json:"supported_sync_modes,omitempty"`
-	// Delete formats every target query engine can read, cheapest first. Discover without
-	// target engines is unconstrained and lists every format OLake can write. Absent only
-	// on catalogs written before target query engines existed.
-	AvailableUpdateTypes []UpdateType `json:"available_update_types,omitempty"`
+	// Delete formats every target query engine can read and the destination can apply,
+	// cheapest first. Discover without either is unconstrained and lists every format OLake
+	// can write. Empty means none qualifies, so the stream can only append; nil means the
+	// catalog predates target query engines. Not omitempty: empty must not read back as nil.
+	AvailableUpdateTypes []UpdateType `json:"available_update_types"`
 	// Primary key if available
 	SourceDefinedPrimaryKey *Set[string] `json:"source_defined_primary_key,omitempty"`
 	// Available cursor fields supported by driver
@@ -151,14 +152,14 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 	return output
 }
 
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string, engines []QueryEngine) {
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string, constraints UpdateTypeConstraints) {
 	message := Message{
 		Type:    CatalogMessage,
-		Catalog: GetWrappedCatalog(streams, driver, engines),
+		Catalog: GetWrappedCatalog(streams, driver, constraints),
 	}
 	logger.Info(message)
 	// write catalog to the specified file
-	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog, engines)
+	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog, constraints)
 
 	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
 	if err != nil {

@@ -39,7 +39,7 @@ var discoverCmd = &cobra.Command{
 			}
 		}
 
-		if err := resolveTargetQueryEngines(); err != nil {
+		if err := resolveUpdateTypeConstraints(); err != nil {
 			return err
 		}
 
@@ -72,7 +72,7 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, connector.Type(), queryEngines)
+		types.LogCatalog(streams, catalog, connector.Type(), updateTypeConstraints)
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -87,23 +87,36 @@ var discoverCmd = &cobra.Command{
 	},
 }
 
-// resolveTargetQueryEngines reads the engines this discover run must satisfy. They are a
-// pure input: the run turns them into each stream's available_update_types and keeps
-// nothing else, so a caller that wants the constraint applied passes the flag every time.
-func resolveTargetQueryEngines() error {
+// resolveUpdateTypeConstraints reads what this discover run must satisfy: the target query
+// engines from --target-query-engines and the destination's catalog from --destination. Both
+// are pure inputs: the run turns them into each stream's available_update_types and keeps
+// nothing else, so a caller that wants them applied passes both flags every time.
+func resolveUpdateTypeConstraints() error {
 	engines, err := types.ParseQueryEngines(targetQueryEngines)
 	if err != nil {
 		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
 	}
 
-	// An empty intersection cannot be written at all, so fail here rather than emitting a
-	// catalog whose streams offer no delete format.
-	if len(engines) > 0 && len(types.AvailableUpdateTypes(engines)) == 0 {
-		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid,
-			fmt.Errorf("no delete format is readable by all of the selected query engines %v", engines))
+	if destinationConfigPath != "not-set" && destinationConfigPath != "" {
+		destinationConfig = &types.WriterConfig{}
+		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
+			return err
+		}
+	}
+	catalogType, err := types.CatalogTypeFromConfig(destinationConfig)
+	if err != nil {
+		return errs.Precondition(errs.ConfigInvalid, codeDestinationConfigInvalid, err)
 	}
 
-	queryEngines = engines
+	constraints := types.UpdateTypeConstraints{Engines: engines, Catalog: catalogType}
+	// Only upsert needs a delete format; append writes none, so the job stays valid and
+	// streams default to append.
+	if len(constraints.Available()) == 0 {
+		logger.Warnf("No delete format is readable by all of the selected query engines %v and writable to destination catalog %q; streams will default to append mode",
+			engines, catalogType)
+	}
+
+	updateTypeConstraints = constraints
 	return nil
 }
 

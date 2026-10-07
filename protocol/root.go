@@ -36,7 +36,7 @@ var (
 	catalog                   *types.Catalog
 	availableQueryEngines     bool
 	targetQueryEngines        []string
-	queryEngines              []types.QueryEngine
+	updateTypeConstraints     types.UpdateTypeConstraints
 	state                     *types.State
 	timeout                   int64 // timeout in seconds
 	destinationConfig         *types.WriterConfig
@@ -185,7 +185,9 @@ const (
 	codeNoValidStreams = "catalog.no_valid_streams"
 	// codeQueryEngineInvalid marks a target query engine selection the CLI cannot serve.
 	codeQueryEngineInvalid = "catalog.query_engine_invalid"
-	codeNoStreams          = "catalog.no_streams_discovered"
+	// codeDestinationConfigInvalid marks a destination config discover cannot read.
+	codeDestinationConfigInvalid = "config.destination_invalid"
+	codeNoStreams                = "catalog.no_streams_discovered"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )

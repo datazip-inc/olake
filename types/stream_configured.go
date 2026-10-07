@@ -313,6 +313,10 @@ func (s *ConfiguredStream) ValidateUpdateType() error {
 	}
 
 	available := s.Stream.AvailableUpdateTypes
+	if available != nil && len(available) == 0 {
+		return fmt.Errorf("no update mode is readable by the target query engines and writable to the destination; use append mode")
+	}
+
 	// Discover clears update_type when the target query engines can no longer read it; blank
 	// would otherwise default to equality and silently switch the stream's delete format.
 	if s.StreamMetadata.UpdateType == "" && len(available) > 0 {
