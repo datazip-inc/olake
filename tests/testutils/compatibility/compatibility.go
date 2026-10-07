@@ -200,16 +200,14 @@ func (th *TestHandler) runSyncMode(t *testing.T, conf *testutils.TestConfig, bas
 	checkpoint := newOutputComparisonCheckpoint()
 	var configs [2]*testutils.TestConfig // reference, upgraded
 
-	// Each side runs every case on its own long-lived config, both starting on the
-	// baseline; the upgrade side hands its stateful syncs to the candidate.
+	// Each side runs every case on its own long-lived config, loading on the baseline and running its
+	// stateful syncs on statefulVersion: only the upgrade side hands off, to the candidate.
 	sides := []struct {
-		name        string
-		pickVersion func(useState bool) string
+		name            string
+		statefulVersion string
 	}{
-		{"ref", func(bool) string { return baselineVersion }},
-		{"upg", func(useState bool) string {
-			return testutils.Ternary(useState, upgradedVersion, baselineVersion).(string)
-		}},
+		{"ref", baselineVersion},
+		{"upg", upgradedVersion},
 	}
 	var sidesDone sync.WaitGroup
 	for i, side := range sides {
@@ -220,7 +218,9 @@ func (th *TestHandler) runSyncMode(t *testing.T, conf *testutils.TestConfig, bas
 				configs[i] = cfg
 				perpareSourceTable(t, cfg, group, v, policies)
 				for _, c := range cases {
-					cfg.DriverVersion = side.pickVersion(c.useState)
+					if c.useState {
+						performOlakeVersionUpgrade(t, cfg, side.statefulVersion)
+					}
 					runSync(t, cfg, group, c)
 					if !checkpoint.sideDone() {
 						t.Logf("stopping after case %q: the other side or the comparison failed", c.operation)

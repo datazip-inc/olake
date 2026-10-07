@@ -10,8 +10,9 @@ The suite asserts this by running the same scenario twice in parallel and
 comparing the two destinations:
 
 - **reference run** — every sync on the baseline build
-- **upgrade run** — the stateless load on the baseline build, every sync after
-  it on the candidate
+- **upgrade run** — the stateless load on the baseline build; then `discover`
+  on the candidate with the existing catalog, so the candidate's merge runs,
+  and every sync after it on the candidate
 
 Both sides start from identical data. Any difference between the destinations
 is a backward-incompatible change introduced by the candidate.
@@ -119,6 +120,7 @@ for each baseline in state-versions.json (applicable to this driver)
         seed source                       seed source
         discover        @ baseline        discover        @ baseline
         stateless load  @ baseline        stateless load  @ baseline
+                                          discover        @ candidate (merge)
         sync (insert)   @ baseline        sync (insert)   @ candidate
         sync (update)   @ baseline        sync (update)   @ candidate
         sync (delete)   @ baseline        sync (delete)   @ candidate
@@ -130,6 +132,19 @@ Each side's `streams.json` is what the baseline's `discover` writes for its
 freshly seeded table: a user upgrades with the catalog their older build
 discovered, so the candidate is tested on that catalog, never on the committed
 `streams.template.json`.
+
+When the upgrade side hands off to the candidate, it first re-runs `discover`
+on the candidate with that catalog passed as `--catalog streams.json`, the
+same merge OLake UI runs when a job is edited after an upgrade. The merge keeps
+the old catalog's selected streams, sync mode, cursor field and destination,
+and takes everything else, the column types included, from the candidate's own
+discover; every candidate sync then runs on the merged catalog. The reference
+side never re-discovers.
+
+`discover` never reads a state file, so it applies every state-version gate at
+the latest version. A gate that changes discovered types therefore shows up
+here as a diff between the two runs, which is exactly the upgrade behaviour
+this step exists to test.
 
 Both sides run in parallel on their own source table and, through the
 destination database prefix each side hands its discover, their own

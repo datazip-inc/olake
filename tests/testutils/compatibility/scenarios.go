@@ -193,6 +193,22 @@ func discoverCatalog(t *testing.T, cfg *testutils.TestConfig) {
 	require.NoError(t, err, "discover on %s did not generate streams.json", cfg.GetDriverImage())
 }
 
+// performOlakeVersionUpgrade moves a side onto version and re-runs discover there with its streams.json as --catalog, so
+// that image merges the catalog the baseline wrote. A side already on version is left as it is.
+func performOlakeVersionUpgrade(t *testing.T, cfg *testutils.TestConfig, version string) {
+	t.Helper()
+	if cfg.DriverVersion == version {
+		return
+	}
+	cfg.DriverVersion = version
+	args := testutils.DiscoverArgs("--catalog", testutils.ContainerPath("streams.json"), "--destination-database-prefix", cfg.UniqueID())
+	code, out, err := testutils.RunOlake(t.Context(), t, cfg, args...)
+	if err != nil || code != 0 {
+		t.Fatalf("discover --catalog on %s failed: %s", cfg.GetDriverImage(), testutils.RenderOlakeFailure(code, err, out))
+	}
+	logSelectedStreams(t, cfg)
+}
+
 // logSelectedStreams logs only the side's selected_streams, the part of the catalog its syncs act on.
 func logSelectedStreams(t *testing.T, cfg *testutils.TestConfig) {
 	t.Helper()
