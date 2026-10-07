@@ -246,7 +246,7 @@ func TestMySQLCheckBinlogRetention(t *testing.T) {
 			expect: func(mock sqlmock.Sqlmock) {
 				mock.ExpectQuery(rdsQuery).WillReturnRows(sqlmock.NewRows([]string{"name", "value"}).AddRow("binlog retention hours", nil))
 			},
-			wantCurrent: "0 hours", wantOK: false,
+			wantCurrent: "0 seconds", wantOK: false,
 		},
 		{
 			name: "binlog_expire_logs_seconds takes precedence",

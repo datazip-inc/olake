@@ -76,11 +76,17 @@ func Ternary(cond bool, a, b any) any {
 	return b
 }
 
-// HumanDuration renders a retention window for display: "12 hours", "1 day", "7.5 days".
+// HumanDuration renders a duration for display in the largest unit it reaches, rounded to one
+// decimal: "45 seconds", "12.5 minutes", "1 hour", "7.5 days". Days is the largest unit.
 func HumanDuration(d time.Duration) string {
-	unit, n := "hour", d.Hours()
-	if d >= 24*time.Hour {
-		unit, n = "day", n/24
+	unit, n := "second", d.Seconds()
+	switch {
+	case d >= 24*time.Hour:
+		unit, n = "day", d.Hours()/24
+	case d >= time.Hour:
+		unit, n = "hour", d.Hours()
+	case d >= time.Minute:
+		unit, n = "minute", d.Minutes()
 	}
 	n = math.Round(n*10) / 10
 	s := strconv.FormatFloat(n, 'f', -1, 64) + " " + unit
