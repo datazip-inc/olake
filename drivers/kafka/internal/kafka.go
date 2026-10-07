@@ -367,7 +367,11 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 		// Load CA certificate if provided
 		if k.config.Protocol.SSL.ServerCA != "" {
 			caCertPool := x509.NewCertPool()
-			if !caCertPool.AppendCertsFromPEM([]byte(k.config.Protocol.SSL.ServerCA)) {
+			caPEM, err := utils.ReadPEMOrFile(k.config.Protocol.SSL.ServerCA)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+			}
+			if !caCertPool.AppendCertsFromPEM(caPEM) {
 				return nil, fmt.Errorf("failed to parse CA certificate")
 			}
 			tlsConfig.RootCAs = caCertPool
@@ -375,7 +379,15 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 
 		// Load client certificate and key for mTLS
 		if k.config.Protocol.SSL.ClientCert != "" && k.config.Protocol.SSL.ClientKey != "" {
-			cert, err := tls.X509KeyPair([]byte(k.config.Protocol.SSL.ClientCert), []byte(k.config.Protocol.SSL.ClientKey))
+			certPEM, err := utils.ReadPEMOrFile(k.config.Protocol.SSL.ClientCert)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read client certificate: %w", err)
+			}
+			keyPEM, err := utils.ReadPEMOrFile(k.config.Protocol.SSL.ClientKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read client key: %w", err)
+			}
+			cert, err := tls.X509KeyPair(certPEM, keyPEM)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
 			}
