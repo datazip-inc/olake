@@ -303,7 +303,8 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryE
 	// A blank value predates update_type and always meant equality (see
 	// ConfiguredStream.GetUpdateType). Record it, so blank is left to mean "needs a choice".
 	if *metadata.UpdateType == "" {
-		metadata.UpdateType = new(string(UpdateTypeEquality))
+		equality := string(UpdateTypeEquality)
+		metadata.UpdateType = &equality
 	}
 
 	// Without target engines nothing constrains the choice.
@@ -318,7 +319,7 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryE
 
 	logger.Warnf("Stream %s update mode %s is not readable by the selected query engines; cleared, choose one of %v",
 		streamID, *metadata.UpdateType, available)
-	metadata.UpdateType = new("")
+	metadata.UpdateType = new(string)
 }
 
 // MergeSelectedColumns updates an existing selected_columns list against the new schema.
