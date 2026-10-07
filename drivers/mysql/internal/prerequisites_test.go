@@ -152,6 +152,7 @@ func TestMySQLCheckBinlogAccess(t *testing.T) {
 		statusErr       error
 		wantOK          bool
 		wantCurrentPart string
+		wantErr         bool
 	}{
 		{
 			name: "mysql 8.0 granted", version: "8.0.36", statusQuery: jdbc.MySQLMasterStatusQuery(),
@@ -167,6 +168,12 @@ func TestMySQLCheckBinlogAccess(t *testing.T) {
 			statusErr: &mysql.MySQLError{Number: 1227, Message: "Access denied; you need (at least one of) the SUPER, REPLICATION CLIENT privilege(s)"},
 			wantOK:    false, wantCurrentPart: "REPLICATION CLIENT",
 		},
+		{
+			// not a missing privilege: the check could not be evaluated
+			name: "network error", version: "8.0.36", statusQuery: jdbc.MySQLMasterStatusQuery(),
+			statusErr: errors.New("connection reset"),
+			wantErr:   true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -180,7 +187,11 @@ func TestMySQLCheckBinlogAccess(t *testing.T) {
 			}
 
 			current, ok, err := m.checkBinlogAccess(context.Background())
-			// a failed read is the check result, never an evaluation error
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.False(t, ok)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantOK, ok)
 			assert.Contains(t, current, tc.wantCurrentPart)
@@ -204,7 +215,7 @@ func TestMySQLCheckBinlogRetention(t *testing.T) {
 	secondsQuery := jdbc.MySQLBinlogExpireSecondsQuery()
 	daysQuery := jdbc.MySQLExpireLogsDaysQuery()
 	notRDS := func(mock sqlmock.Sqlmock) {
-		mock.ExpectQuery(rdsQuery).WillReturnError(errors.New("Table 'mysql.rds_configuration' doesn't exist"))
+		mock.ExpectQuery(rdsQuery).WillReturnError(&mysql.MySQLError{Number: errNoSuchTable, Message: "Table 'mysql.rds_configuration' doesn't exist"})
 	}
 	noRows := sqlmock.NewRows([]string{"Variable_name", "Value"})
 
@@ -213,6 +224,7 @@ func TestMySQLCheckBinlogRetention(t *testing.T) {
 		expect      func(sqlmock.Sqlmock)
 		wantCurrent string
 		wantOK      bool
+		wantErr     bool
 	}{
 		{
 			name: "rds 7 days",
@@ -280,6 +292,30 @@ func TestMySQLCheckBinlogRetention(t *testing.T) {
 			},
 			wantCurrent: "no auto-purge", wantOK: true,
 		},
+		{
+			// also what a non-RDS server returns without SELECT on the mysql schema, so fall back
+			name: "rds_configuration access denied falls back to server variables",
+			expect: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(rdsQuery).WillReturnError(&mysql.MySQLError{Number: errTableAccessDenied, Message: "SELECT command denied to user for table 'rds_configuration'"})
+				mock.ExpectQuery(secondsQuery).WillReturnRows(variableRow("binlog_expire_logs_seconds", "604800"))
+			},
+			wantCurrent: "7 days", wantOK: true,
+		},
+		{
+			name: "rds query error is an evaluation error",
+			expect: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(rdsQuery).WillReturnError(errors.New("connection reset"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "server variable query error is an evaluation error",
+			expect: func(mock sqlmock.Sqlmock) {
+				notRDS(mock)
+				mock.ExpectQuery(secondsQuery).WillReturnError(errors.New("connection reset"))
+			},
+			wantErr: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -287,6 +323,11 @@ func TestMySQLCheckBinlogRetention(t *testing.T) {
 			tc.expect(mock)
 
 			current, ok, err := m.checkBinlogRetention(context.Background())
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.False(t, ok)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantCurrent, current)
 			assert.Equal(t, tc.wantOK, ok)

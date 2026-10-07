@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/datazip-inc/olake/types"
@@ -53,30 +54,87 @@ func TestRunPrerequisites(t *testing.T) {
 	assert.False(t, unreadable.Passed)
 	assert.Equal(t, "unavailable", unreadable.CurrentValue)
 	assert.Equal(t, "recommended", unreadable.RecommendedValue)
+	assert.EqualError(t, unreadable.Err, "permission denied")
+	assert.NoError(t, results[0].Err)
 
 	assert.Equal(t, []string{"failed_required", "unreadable_required"}, results.FailedRequired())
 }
 
 func TestRequireCDCPrerequisites(t *testing.T) {
-	// a driver calls this from Setup when the config selects CDC, so test connection fails
-	err := RequireCDCPrerequisites("mysql", types.Prerequisites{
-		{Name: "binlog_format", Required: true, Passed: false},
-		{Name: "binlog_retention", Required: false, Passed: false},
-		{Name: "log_bin", Required: true, Passed: true},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "binlog_format")
-	assert.NotContains(t, err.Error(), "binlog_retention")
+	timeout := fmt.Errorf("reading binlog_format: %w", context.DeadlineExceeded)
 
-	got := errs.From(errs.Classify(err))
-	assert.Equal(t, errs.CDCPreconditionFailed, got.Category)
-	assert.Equal(t, "mysql.cdc_prerequisites_failed", got.Code)
+	tests := []struct {
+		name          string
+		prerequisites types.Prerequisites
+		wantCategory  errs.Category // empty means no error
+		wantCode      string
+		wantMessage   []string
+		notInMessage  []string
+	}{
+		{
+			// a driver calls this from Setup when the config selects CDC, so test connection fails
+			name: "failed required check is a precondition failure",
+			prerequisites: types.Prerequisites{
+				{Name: "binlog_format", Required: true, Passed: false},
+				{Name: "binlog_retention", Required: false, Passed: false},
+				{Name: "log_bin", Required: true, Passed: true},
+			},
+			wantCategory: errs.CDCPreconditionFailed,
+			wantCode:     "mysql.cdc_prerequisites_failed",
+			wantMessage:  []string{"binlog_format"},
+			notInMessage: []string{"binlog_retention", "log_bin"},
+		},
+		{
+			// nothing is known to be misconfigured, so the cause decides the category
+			name: "unevaluated required check keeps its cause",
+			prerequisites: types.Prerequisites{
+				{Name: "binlog_format", Required: true, Passed: false, CurrentValue: "unavailable", Err: timeout},
+			},
+			wantCategory: errs.Timeout,
+			wantMessage:  []string{"binlog_format", "could not evaluate", "context deadline exceeded"},
+		},
+		{
+			// a definite misconfiguration is the actionable failure
+			name: "failed and unevaluated checks report a precondition failure",
+			prerequisites: types.Prerequisites{
+				{Name: "log_bin", Required: true, Passed: false},
+				{Name: "binlog_format", Required: true, Passed: false, CurrentValue: "unavailable", Err: timeout},
+			},
+			wantCategory: errs.CDCPreconditionFailed,
+			wantCode:     "mysql.cdc_prerequisites_failed",
+			wantMessage:  []string{"log_bin", "binlog_format (could not evaluate: "},
+		},
+		{
+			// only optional checks failed: CDC may still run
+			name: "failed optional check passes",
+			prerequisites: types.Prerequisites{
+				{Name: "binlog_retention", Required: false, Passed: false, Err: timeout},
+			},
+		},
+		{name: "no checks recorded"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := RequireCDCPrerequisites("mysql", tc.prerequisites)
+			if tc.wantCategory == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, part := range tc.wantMessage {
+				assert.Contains(t, err.Error(), part)
+			}
+			for _, part := range tc.notInMessage {
+				assert.NotContains(t, err.Error(), part)
+			}
 
-	// only optional checks failed: CDC may still run
-	assert.NoError(t, RequireCDCPrerequisites("mysql", types.Prerequisites{
-		{Name: "binlog_retention", Required: false, Passed: false},
-	}))
-	assert.NoError(t, RequireCDCPrerequisites("mongodb", nil))
+			got := errs.From(errs.Classify(err))
+			assert.Equal(t, tc.wantCategory, got.Category)
+			if tc.wantCode != "" {
+				assert.Equal(t, tc.wantCode, got.Code)
+			}
+		})
+	}
 }
 
 func TestPrerequisitesWithoutReporter(t *testing.T) {

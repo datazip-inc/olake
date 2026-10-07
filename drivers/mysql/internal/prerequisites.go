@@ -14,7 +14,21 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/go-sql-driver/mysql"
 )
+
+const (
+	errTableAccessDenied    = 1142 // ER_TABLEACCESS_DENIED_ERROR
+	errNoSuchTable          = 1146 // ER_NO_SUCH_TABLE
+	errSpecificAccessDenied = 1227 // ER_SPECIFIC_ACCESS_DENIED_ERROR: REPLICATION CLIENT, SUPER
+)
+
+// isMySQLError reports whether err carries the given server error number.
+func isMySQLError(err error, number uint16) bool {
+	var myErr *mysql.MySQLError
+	return errors.As(err, &myErr) && myErr.Number == number
+}
 
 func (m *MySQL) prerequisiteChecks() []abstract.Prerequisite {
 	return []abstract.Prerequisite{
@@ -79,12 +93,17 @@ func (m *MySQL) checkBinlogRowMetadata(ctx context.Context) (string, bool, error
 }
 
 // checkBinlogAccess reuses the position read CDC starts with: SHOW MASTER STATUS requires
-// REPLICATION CLIENT, so success proves the permission.
+// REPLICATION CLIENT, so success proves the permission. Only a missing privilege or binlog
+// being off is a check result; any other error means the check could not be evaluated.
 func (m *MySQL) checkBinlogAccess(ctx context.Context) (string, bool, error) {
-	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
+	_, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
+	switch {
+	case err == nil:
+		return "granted", true, nil
+	case isMySQLError(err, errSpecificAccessDenied), errors.Is(err, binlog.ErrNoBinlogPosition):
 		return fmt.Sprintf("cannot read binlog position: %s", err), false, nil
 	}
-	return "granted", true, nil
+	return "", false, err
 }
 
 // checkBinlogRetention follows the server's precedence: the RDS/Aurora setting, then
@@ -92,9 +111,19 @@ func (m *MySQL) checkBinlogAccess(ctx context.Context) (string, bool, error) {
 func (m *MySQL) checkBinlogRetention(ctx context.Context) (string, bool, error) {
 	var name string
 	var rdsHours sql.NullFloat64
-	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLRDSBinlogRetentionQuery()).Scan(&name, &rdsHours); err == nil {
+	err := m.client.QueryRowxContext(ctx, jdbc.MySQLRDSBinlogRetentionQuery()).Scan(&name, &rdsHours)
+	switch {
+	case err == nil:
 		// NULL on RDS means "purge as soon as possible", which reads as zero hours here
 		return retentionResult(time.Duration(rdsHours.Float64 * float64(time.Hour)))
+	case isMySQLError(err, errNoSuchTable):
+		// not RDS/Aurora: the server variables below decide
+	case isMySQLError(err, errTableAccessDenied):
+		// MySQL checks privileges before table existence, so this is also what a non-RDS server
+		// returns to a user without SELECT on the mysql schema; fall back rather than fail.
+		logger.Warnf("cannot read mysql.rds_configuration, on RDS/Aurora grant SELECT on it for an accurate binlog retention: %s", err)
+	default:
+		return "", false, err
 	}
 
 	for _, v := range []struct {
@@ -105,7 +134,13 @@ func (m *MySQL) checkBinlogRetention(ctx context.Context) (string, bool, error) 
 		{jdbc.MySQLExpireLogsDaysQuery(), 24 * time.Hour},
 	} {
 		var value float64
-		if err := m.client.QueryRowxContext(ctx, v.query).Scan(&name, &value); err == nil && value > 0 {
+		err := m.client.QueryRowxContext(ctx, v.query).Scan(&name, &value)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			// the variable does not exist on this server (MariaDB, MySQL 5.7)
+		case err != nil:
+			return "", false, err
+		case value > 0:
 			return retentionResult(time.Duration(value * float64(v.unit)))
 		}
 	}

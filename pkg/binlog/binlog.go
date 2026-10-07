@@ -2,6 +2,7 @@ package binlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -148,6 +149,9 @@ func (c *Connection) Cleanup() {
 	c.syncer.Close()
 }
 
+// ErrNoBinlogPosition means the server reported no binlog position, i.e. binary logging is off.
+var ErrNoBinlogPosition = errors.New("no binlog position available")
+
 // GetCurrentBinlogPosition retrieves the current binlog position from MySQL.
 func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Position, error) {
 	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
@@ -168,7 +172,7 @@ func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Posit
 	defer rows.Close()
 
 	if !rows.Next() {
-		return mysql.Position{}, fmt.Errorf("no binlog position available")
+		return mysql.Position{}, ErrNoBinlogPosition
 	}
 
 	var file string

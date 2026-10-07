@@ -49,6 +49,8 @@ type PrerequisiteCheck struct {
 	CurrentValue     string `json:"current_value"`
 	RecommendedValue string `json:"recommended_value"`
 	Description      string `json:"description"`
+	// Err is why the check could not be evaluated; nil when it ran, whether or not it passed.
+	Err error `json:"-"`
 }
 
 type Prerequisites []PrerequisiteCheck

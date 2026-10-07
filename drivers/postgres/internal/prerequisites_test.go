@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/pkg/waljs"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,13 +135,21 @@ func TestPostgresCheckReplicationPrivilege(t *testing.T) {
 			wantCurrent: "granted", wantOK: true,
 		},
 		{
-			// the role does not exist outside RDS/Aurora, so the query errors and is ignored
+			// the role does not exist outside RDS/Aurora, so undefined_object is ignored
 			name: "missing, rds role absent",
 			expect: func(mock sqlmock.Sqlmock) {
 				mock.ExpectQuery(attrQuery).WillReturnRows(boolRow("has", false))
-				mock.ExpectQuery(rdsQuery).WillReturnError(errors.New(`role "rds_replication" does not exist`))
+				mock.ExpectQuery(rdsQuery).WillReturnError(&pgconn.PgError{Code: pgUndefinedObject, Message: `role "rds_replication" does not exist`})
 			},
 			wantCurrent: "missing", wantOK: false,
+		},
+		{
+			name: "rds role query error",
+			expect: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(attrQuery).WillReturnRows(boolRow("has", false))
+				mock.ExpectQuery(rdsQuery).WillReturnError(errors.New("connection reset"))
+			},
+			wantErr: true,
 		},
 		{
 			name: "missing on rds",
