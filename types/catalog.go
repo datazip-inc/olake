@@ -93,6 +93,11 @@ func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) 
 	available := AvailableUpdateTypes(engines)
 	updateType := PreferredUpdateType(available)
 
+	// Kafka upsert always writes positional deletes
+	if driver == string(constants.Kafka) && slices.Contains(available, UpdateTypePosition) {
+		updateType = UpdateTypePosition
+	}
+
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
 		stream.AvailableUpdateTypes = available
