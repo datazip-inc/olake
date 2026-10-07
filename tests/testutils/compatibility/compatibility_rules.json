@@ -29,7 +29,7 @@
         {"column": "_cdc_binlog_file_name", "type_only": true},
         {"column": "_cdc_binlog_file_pos", "type_only": true}
       ],
-      "note": "M2 (ENUM serialization, fixed v0.3.9) and M3 (DECIMAL/NUMERIC via float32, fixed v0.3.7) need no rule: both thresholds sit below v0.3.11, the oldest baseline any sweep reaches"
+      "note": "M2 (ENUM serialization, fixed v0.3.9) and M3 (DECIMAL/NUMERIC via float32, fixed v0.3.7) need no rule: both thresholds sit below v0.3.11, the oldest release with a state version update"
     },
     "mongodb": {
       "rules": [
@@ -59,7 +59,7 @@
         {"column": "_kafka_timestamp", "type_only": true, "note": "broker receive time"},
         {"column": "_kafka_offset", "type_only": true, "note": "assignment order varies across concurrent partition writes"}
       ],
-      "variants": {
+      "formats": {
         "json": {},
         "avro": {}
       }
@@ -81,7 +81,7 @@
         {"column": "_last_modified_time", "type_only": true, "note": "the cursor IS the object's upload stamp; each run uploads its own copy"},
         {"column": "_olake_id", "type_only": true, "note": "hashes the record carrying _last_modified_time"}
       ],
-      "variants": {
+      "formats": {
         "csv": {},
         "json": {},
         "parquet": {
@@ -101,14 +101,16 @@
         {"column": "_olake_timestamp", "type_only": true, "note": "olake's write stamp: wall-clock, never value-comparable across two runs"}
       ],
       "iceberg": {
-        "arrow": {
-          "min_baseline": "v0.3.17",
-          "note": "P1: v0.3.6 through v0.3.16 arrow integer widths disagree with today's; below v0.3.6 no arrow writer exists"
-        },
-        "legacy": {
-          "rules": [
-            {"data_types": ["timestamp"], "assert_value_from": "v0.11.1", "note": "iceberg column types: #1233, the legacy writer truncated timestamps to milliseconds; the candidate keeps microseconds"}
-          ]
+        "modes": {
+          "arrow": {
+            "min_baseline": "v0.3.17",
+            "note": "P1: v0.3.6 through v0.3.16 arrow integer widths disagree with today's; below v0.3.6 no arrow writer exists"
+          },
+          "legacy": {
+            "rules": [
+              {"data_types": ["timestamp"], "assert_value_from": "v0.11.1", "note": "iceberg column types: #1233, the legacy writer truncated timestamps to milliseconds; the candidate keeps microseconds"}
+            ]
+          }
         }
       },
       "parquet": {

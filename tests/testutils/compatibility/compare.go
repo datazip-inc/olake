@@ -5,7 +5,7 @@ package compatibility
 // The suite's only assertion: the upgrade run's destination must be indistinguishable from the
 // reference run's. Everything here reads the two destinations through the shared Spark session --
 // row counts, the destination schema, per-_op_type counts, then every row of every value-compared
-// column -- and reports the first difference it finds through the variant's diagnostics.
+// column -- and reports the first difference it finds through the sync mode's diagnostics.
 
 import (
 	"context"
@@ -22,8 +22,8 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-// compareVariant asserts the upgrade run's destination for one scenario is indistinguishable from the reference run's.
-func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies, reference, upgraded *testutils.TestConfig, group compatibilityGroup, v compatibilityVariant, baselineRelease string) {
+// compareSyncMode asserts the upgrade run's destination for one scenario is indistinguishable from the reference run's.
+func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicies, reference, upgraded *testutils.TestConfig, group compatibilityGroup, v compatibilitySyncMode, baselineRelease string) {
 	if reference.DriverVersion == upgraded.DriverVersion {
 		// Both sides ran this case on the same image so skipping comparison
 		t.Logf("both sides ran %s on %s; nothing to compare until the upgrade side switches to the candidate",
@@ -66,8 +66,7 @@ func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies
 // Spark session caches snapshots, so a table written after it was built reads as empty without it.
 func icebergTable(ctx context.Context, t *testing.T, spark sql.SparkSession, db, table string) string {
 	name := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, db, table)
-	_, err := spark.Sql(ctx, "REFRESH TABLE "+name)
-	require.NoErrorf(t, err, "failed to refresh %s -- the run may not have produced it", name)
+	require.NoErrorf(t, testutils.RefreshTable(ctx, spark, name), "failed to refresh %s -- the run may not have produced it", name)
 	return name
 }
 
@@ -77,13 +76,10 @@ func icebergTable(ctx context.Context, t *testing.T, spark sql.SparkSession, db,
 // (UNSUPPORTED_DATASOURCE_FOR_DIRECT_QUERY), VerifyParquetSync's included.
 func parquetView(ctx context.Context, t *testing.T, spark sql.SparkSession, db, table, side string) string {
 	view := fmt.Sprintf("`compatibility_%s_%s`", side, table)
-	path := fmt.Sprintf("s3a://%s/%s/%s", testutils.ParquetTestBucket, db, table)
-	_, err := spark.Sql(ctx, fmt.Sprintf("CREATE OR REPLACE TEMP VIEW %s AS SELECT * FROM parquet.`%s/*.parquet`", view, path))
-	if err != nil {
-		require.Containsf(t, err.Error(), "PATH_NOT_FOUND", "failed to read parquet at %s", path)
+	if err := testutils.CreateParquetView(ctx, t, spark, view, db, table); err != nil {
+		require.Containsf(t, err.Error(), "PATH_NOT_FOUND", "failed to read the parquet files of %s/%s", db, table)
 		return ""
 	}
-	t.Cleanup(func() { _, _ = spark.Sql(ctx, "DROP VIEW IF EXISTS "+view) })
 	return view
 }
 
@@ -106,8 +102,8 @@ func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnost
 	// 2. Schema. Compared as a map, so a column order difference (schema evolution appends in
 	//    record-arrival order) is not a failure while an added, dropped or retyped column is. This
 	//    is the assertion that catches a type-mapping change -- I6 in the doc.
-	referenceSchema := describeOutput(ctx, t, spark, referenceOutput)
-	upgradedSchema := describeOutput(ctx, t, spark, upgradedOutput)
+	referenceSchema, _ := testutils.DescribeSchema(ctx, t, spark, referenceOutput)
+	upgradedSchema, _ := testutils.DescribeSchema(ctx, t, spark, upgradedOutput)
 	// A type-only olake column the baseline predates (a CDC coordinate) appears only after the upgrade.
 	for _, col := range typeOnly {
 		if _, ok := referenceSchema[col]; !ok {
@@ -241,26 +237,6 @@ func scalarCount(ctx context.Context, t *testing.T, spark sql.SparkSession, quer
 	n, ok := rows[0].Value("n").(int64)
 	require.Truef(t, ok, "count is not int64: %T", rows[0].Value("n"))
 	return n
-}
-
-func describeOutput(ctx context.Context, t *testing.T, spark sql.SparkSession, output string) map[string]string {
-	df, err := spark.Sql(ctx, "DESCRIBE TABLE "+output)
-	require.NoErrorf(t, err, "failed to describe %s", output)
-	rows, err := df.Collect(ctx)
-	require.NoErrorf(t, err, "failed to collect the description of %s", output)
-
-	schema := make(map[string]string, len(rows))
-	for _, row := range rows {
-		col, ok := row.Value("col_name").(string)
-		require.Truef(t, ok, "DESCRIBE %s: col_name is not a string: %T", output, row.Value("col_name"))
-		dataType, ok := row.Value("data_type").(string)
-		require.Truef(t, ok, "DESCRIBE %s: data_type is not a string: %T", output, row.Value("data_type"))
-		// DESCRIBE appends partition/metadata sections, all introduced by a "#" heading.
-		if col != "" && !strings.HasPrefix(col, "#") {
-			schema[col] = dataType
-		}
-	}
-	return schema
 }
 
 func opTypeCounts(ctx context.Context, t *testing.T, spark sql.SparkSession, output string) map[string]int64 {

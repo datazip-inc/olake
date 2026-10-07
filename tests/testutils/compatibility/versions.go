@@ -7,9 +7,7 @@ package compatibility
 // dated rule read it as newest.
 
 import (
-	"cmp"
 	"os/exec"
-	"slices"
 	"strings"
 
 	"github.com/datazip-inc/olake/tests/testutils"
@@ -40,8 +38,5 @@ func compatibilityGlobalFloor() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	oldest := slices.MinFunc(versionBumps, func(a, b testutils.StateVersionBaseline) int {
-		return cmp.Compare(a.StateVersion, b.StateVersion)
-	})
-	return oldest.ReleaseTag, nil
+	return versionBumps[0].ReleaseTag, nil
 }

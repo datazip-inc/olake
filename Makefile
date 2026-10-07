@@ -454,7 +454,7 @@ help:
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "test.compatibility.$(d)" "backward-compatibility suite for $(d)";)
 	@printf "  %-44s %s\n" "test.discover | test.sync | test.2pc | test.unit" "aggregate runs (all drivers at once)"
 	@printf "  %-44s %s\n" "test.compatibility" "backward-compatibility for every driver (add -j to run them at once)"
-	@printf "  %-44s %s\n" "" "COMPATIBILITY_BASELINE=<tag|image|sha> is the build to upgrade from; empty = sweep every baseline in state-versions.json"
+	@printf "  %-44s %s\n" "" "COMPATIBILITY_BASELINE=<tag|image|sha> is the build to upgrade from; empty = all the older releases with a state version update (state-versions.json)"
 	@printf "  %-44s %s\n" "test.build.all" "compile every driver's test binary (CI cache warm)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
 		echo ""; \

@@ -3,6 +3,7 @@ package constants
 import (
 	_ "embed"
 	"encoding/json"
+	"log"
 )
 
 // State version constants for backward compatibility
@@ -69,11 +70,12 @@ func init() {
 	var doc struct {
 		LatestStateVersion int `json:"latest_state_version"`
 	}
+	// stdlib log, not utils/logger: logger imports this package, and is not initialized at init time.
 	if err := json.Unmarshal(rawStateVersions, &doc); err != nil {
-		panic("constants/state-versions.json is not valid JSON: " + err.Error())
+		log.Fatalf("constants/state-versions.json is not valid JSON: %s", err)
 	}
 	if doc.LatestStateVersion <= 0 {
-		panic("constants/state-versions.json must set latest_state_version to a positive integer")
+		log.Fatal("constants/state-versions.json must set latest_state_version to a positive integer")
 	}
 	LatestStateVersion = doc.LatestStateVersion
 	LoadedStateVersion = LatestStateVersion

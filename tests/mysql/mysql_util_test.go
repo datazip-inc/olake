@@ -11,6 +11,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
 	"github.com/datazip-inc/olake/tests/testutils/performance"
 	"github.com/datazip-inc/olake/tests/testutils/require"
 	_ "github.com/go-sql-driver/mysql"
@@ -294,7 +295,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
 
 	case "dv-create":
-		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		for _, table := range []string{integration.DVUnpartTable, integration.DVPartTable} {
 			_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
 			require.NoError(t, err, "failed to drop %s before create", table)
 			_, err = db.ExecContext(ctx, fmt.Sprintf(`
@@ -310,7 +311,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "dv-drop":
-		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		for _, table := range []string{integration.DVUnpartTable, integration.DVPartTable} {
 			_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
 			require.NoError(t, err, "failed to drop %s", table)
 		}
@@ -326,7 +327,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		}{
 			{1, "new"}, {2, "processing"}, {3, "processing"}, {4, "shipped"}, {5, "shipped"},
 		}
-		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		for _, table := range []string{integration.DVUnpartTable, integration.DVPartTable} {
 			for _, row := range rows {
 				_, err = db.ExecContext(ctx, fmt.Sprintf(
 					"INSERT INTO %s (id, customer, amount, status) VALUES (%d, 'customer_%d', %d.00, '%s')",
@@ -337,32 +338,32 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "dv-unpart-update-id1":
-		query = fmt.Sprintf("UPDATE %s SET amount = 150.00, status = 'updated' WHERE id = 1", testutils.DVUnpartTable)
+		query = fmt.Sprintf("UPDATE %s SET amount = 150.00, status = 'updated' WHERE id = 1", integration.DVUnpartTable)
 
 	case "dv-part-update-id1":
 		// amount only, deliberately NOT status: status is dv_part's partition column, and a
 		// partition-moving update is a separate, out-of-scope edge case (equality/positional
 		// deletes get scoped to the row's new partition, not the old one it physically lives
 		// in, orphaning the delete
-		query = fmt.Sprintf("UPDATE %s SET amount = 150.00 WHERE id = 1", testutils.DVPartTable)
+		query = fmt.Sprintf("UPDATE %s SET amount = 150.00 WHERE id = 1", integration.DVPartTable)
 
 	case "dv-unpart-delete-id5":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 5", testutils.DVUnpartTable)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 5", integration.DVUnpartTable)
 
 	case "dv-part-delete-id5":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 5", testutils.DVPartTable)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 5", integration.DVPartTable)
 
 	case "dv-unpart-delete-id2":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", testutils.DVUnpartTable)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", integration.DVUnpartTable)
 
 	case "dv-part-delete-id2":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", testutils.DVPartTable)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", integration.DVPartTable)
 
 	case "dv-unpart-delete-id3":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", testutils.DVUnpartTable)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", integration.DVUnpartTable)
 
 	case "dv-part-delete-id3":
-		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", testutils.DVPartTable)
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", integration.DVPartTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)

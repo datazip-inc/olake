@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
+	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/minio/minio-go/v7"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -57,6 +59,35 @@ func SparkSession(ctx context.Context, t *testing.T) (sql.SparkSession, error) {
 		}
 	})
 	return sharedSpark, sharedSparkErr
+}
+
+// RefreshTable reloads a table's latest snapshot: the shared session caches snapshots, so a table
+// written after it was first read would otherwise read stale.
+func RefreshTable(ctx context.Context, spark sql.SparkSession, table string) error {
+	_, err := spark.Sql(ctx, "REFRESH TABLE "+table)
+	return err
+}
+
+// DescribeSchema maps each column of a table or view to its data type, skipping the blank and "#"
+// section rows DESCRIBE appends; the raw rows are returned for callers that read those sections.
+func DescribeSchema(ctx context.Context, t *testing.T, spark sql.SparkSession, table string) (map[string]string, []types.Row) {
+	t.Helper()
+	df, err := spark.Sql(ctx, "DESCRIBE TABLE "+table)
+	require.NoErrorf(t, err, "failed to describe %s", table)
+	rows, err := df.Collect(ctx)
+	require.NoErrorf(t, err, "failed to collect the description of %s", table)
+
+	schema := make(map[string]string, len(rows))
+	for _, row := range rows {
+		col, ok := row.Value("col_name").(string)
+		require.Truef(t, ok, "DESCRIBE %s: col_name is not a string: %T", table, row.Value("col_name"))
+		dataType, ok := row.Value("data_type").(string)
+		require.Truef(t, ok, "DESCRIBE %s: data_type is not a string: %T", table, row.Value("data_type"))
+		if col != "" && !strings.HasPrefix(col, "#") {
+			schema[col] = dataType
+		}
+	}
+	return schema, rows
 }
 
 // dropIcebergTable drops an Iceberg table using Spark SQL

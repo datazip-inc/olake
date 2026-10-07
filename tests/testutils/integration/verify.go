@@ -40,9 +40,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, icebergDB, tableName)
 	// The shared session caches table snapshots, so refresh to see the rows the sync just committed.
 	// Non-fatal: on a first sync the table may not exist yet, which the retry loop below handles.
-	if _, refreshErr := spark.Sql(ctx, fmt.Sprintf("REFRESH TABLE %s", fullTableName)); refreshErr != nil {
-		t.Logf("REFRESH TABLE before verify (non-fatal): %v", refreshErr)
-	}
+	refreshTable(ctx, t, spark, fullTableName)
 	selectQuery := fmt.Sprintf(
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
@@ -96,10 +94,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		t.Logf("Query attempt %d/%d failed: %v", attempt+1, maxRetries, queryErr)
 
 		// Force Spark to refresh the table metadata from the Iceberg catalog.
-		refreshQuery := fmt.Sprintf("REFRESH TABLE %s", fullTableName)
-		if _, refreshErr := spark.Sql(ctx, refreshQuery); refreshErr != nil {
-			t.Logf("REFRESH TABLE attempt %d failed (non-fatal): %v", attempt+1, refreshErr)
-		}
+		refreshTable(ctx, t, spark, fullTableName)
 	}
 
 	// For delete operations, accept both 0 and 1 row (both are valid outcomes)
@@ -151,20 +146,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
-	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", fullTableName)
-	describeDf, err := spark.Sql(ctx, describeQuery)
-	require.NoError(t, err, "Failed to describe Iceberg table")
-
-	describeRows, err := describeDf.Collect(ctx)
-	require.NoError(t, err, "Failed to collect describe data from Iceberg")
-	icebergSchema := make(map[string]string)
-	for _, row := range describeRows {
-		colName := row.Value("col_name").(string)
-		dataType := row.Value("data_type").(string)
-		if !strings.HasPrefix(colName, "#") {
-			icebergSchema[colName] = dataType
-		}
-	}
+	icebergSchema, describeRows := testutils.DescribeSchema(ctx, t, spark, fullTableName)
 
 	if excludedColumn != "" {
 		_, ok := icebergSchema[testutils.Reformat(excludedColumn)]
@@ -225,10 +207,7 @@ func VerifyIcebergNoDuplicates(ctx context.Context, t *testing.T, tableName, ice
 	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, icebergDB, tableName)
 
 	// Refresh to get the latest committed Iceberg snapshot.
-	refreshQuery := fmt.Sprintf("REFRESH TABLE %s", fullTableName)
-	if _, refreshErr := spark.Sql(ctx, refreshQuery); refreshErr != nil {
-		t.Logf("REFRESH TABLE (non-fatal): %v", refreshErr)
-	}
+	refreshTable(ctx, t, spark, fullTableName)
 
 	countQuery := fmt.Sprintf(
 		"SELECT COUNT(*) AS total, COUNT(DISTINCT _olake_id) AS distinct_count FROM %s WHERE _op_type = '%s'",
@@ -278,19 +257,12 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 
-	parquetPath := fmt.Sprintf("s3a://warehouse/%s/%s", parquetDB, tableName)
 	viewName := fmt.Sprintf("`%s_view_%d`", tableName, time.Now().UnixNano())
-
-	// create a temporary view for parquet files, allows to run describe query
-	createViewQuery := fmt.Sprintf(
-		"CREATE OR REPLACE TEMP VIEW %s AS SELECT * FROM parquet.`%s/*.parquet`",
-		viewName, parquetPath,
-	)
 
 	// Retry logic for transient Spark connection issues (e.g., catalog connection pool exhaustion)
 	const maxRetries = 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		_, err = spark.Sql(ctx, createViewQuery)
+		err = testutils.CreateParquetView(ctx, t, spark, viewName, parquetDB, tableName)
 		if err == nil {
 			break
 		}
@@ -305,12 +277,6 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		}
 	}
 	require.NoError(t, err, "Failed to create temporary view for Parquet files")
-
-	defer func() {
-		dropViewQuery := fmt.Sprintf("DROP VIEW IF EXISTS %s", viewName)
-		t.Logf("Dropping temporary view: %s", dropViewQuery)
-		_, _ = spark.Sql(ctx, dropViewQuery)
-	}()
 
 	selectQuery := fmt.Sprintf(
 		"SELECT * FROM %s WHERE `_op_type` = '%s'",
@@ -383,21 +349,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 
 	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
 
-	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", viewName)
-	descDF, err := spark.Sql(ctx, describeQuery)
-	require.NoError(t, err, "Failed to describe Parquet view")
-
-	descRows, err := descDF.Collect(ctx)
-	require.NoError(t, err, "Failed to collect schema info from Parquet view")
-
-	parquetSchema := make(map[string]string)
-	for _, row := range descRows {
-		colName := row.Value("col_name").(string)
-		dataType := row.Value("data_type").(string)
-		if !strings.HasPrefix(colName, "#") {
-			parquetSchema[colName] = dataType
-		}
-	}
+	parquetSchema, _ := testutils.DescribeSchema(ctx, t, spark, viewName)
 	if excludedColumn != "" {
 		_, ok := parquetSchema[testutils.Reformat(excludedColumn)]
 		require.Falsef(t, ok, "Excluded column %q should not exist in Parquet schema", excludedColumn)

@@ -134,7 +134,7 @@ func TestKafkaRebalance(t *testing.T) {
 }
 
 // TestKafkaCompatibility runs every source format. Each format owns its broker, its testdata
-// directory and its topic name, so the two sweeps share one destination namespace without colliding.
+// directory and its topic name, so the two formats' runs share one destination namespace without colliding.
 func TestKafkaCompatibility(t *testing.T) {
 	t.Parallel()
 	for _, format := range kafkaFormats {
