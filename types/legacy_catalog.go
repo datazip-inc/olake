@@ -60,7 +60,7 @@ func legacyToStreamMetadata(streamMetadata LegacyStreamMetadata) StreamMetadata 
 		StreamName:           streamMetadata.StreamName,
 		AppendMode:           &streamMetadata.AppendMode,
 		Normalization:        &streamMetadata.Normalization,
-		UpdateType:           streamMetadata.UpdateType,
+		UpdateType:           &streamMetadata.UpdateType,
 		UseSourceColumnNames: streamMetadata.UseSourceColumnNames,
 		Filter:               streamMetadata.Filter,
 		FilterConfig:         streamMetadata.FilterConfig,
@@ -133,7 +133,8 @@ func toLegacyCatalog(canonical *Catalog) *LegacyCatalog {
 // toLegacyStreamMetadata converts one canonical StreamMetadata into its streams.json shape.
 // stream supplies the current schema for the "all columns" fallback, and its
 // DefaultStreamProperties for the normalization/append_mode fallback. update_type is copied
-// as-is: a blank value means discover cleared it, and the user must choose a new one.
+// as-is, a blank value meaning discover cleared it and the user must choose a new one; only an
+// omitted one is spelled out from the stream default, since streams.json cannot omit it.
 func toLegacyStreamMetadata(metadata StreamMetadata, stream *Stream) LegacyStreamMetadata {
 	configured := &ConfiguredStream{Stream: stream, StreamMetadata: metadata}
 
@@ -146,13 +147,18 @@ func toLegacyStreamMetadata(metadata StreamMetadata, stream *Stream) LegacyStrea
 		selectedColumns = &SelectedColumns{Columns: stream.Schema.ColumnNames(), SyncNewColumns: syncNewColumns}
 	}
 
+	updateType := string(configured.GetUpdateType())
+	if metadata.UpdateType != nil {
+		updateType = *metadata.UpdateType
+	}
+
 	return LegacyStreamMetadata{
 		ChunkColumn:          metadata.ChunkColumn,
 		PartitionRegex:       metadata.PartitionRegex,
 		StreamName:           metadata.StreamName,
 		AppendMode:           configured.AppendModeEnabled(),
 		Normalization:        configured.NormalizationEnabled(),
-		UpdateType:           metadata.UpdateType,
+		UpdateType:           updateType,
 		UseSourceColumnNames: metadata.UseSourceColumnNames,
 		Filter:               metadata.Filter,
 		FilterConfig:         metadata.FilterConfig,

@@ -65,12 +65,12 @@ func (s SelectedColumns) MarshalJSON() ([]byte, error) {
 }
 
 type StreamMetadata struct {
-	ChunkColumn    string `json:"chunk_column,omitempty"`
-	PartitionRegex string `json:"partition_regex"`
-	StreamName     string `json:"stream_name"`
-	AppendMode     *bool  `json:"append_mode,omitempty"`
-	Normalization  *bool  `json:"normalization,omitempty"`
-	UpdateType     string `json:"update_type,omitempty"`
+	ChunkColumn    string  `json:"chunk_column,omitempty"`
+	PartitionRegex string  `json:"partition_regex"`
+	StreamName     string  `json:"stream_name"`
+	AppendMode     *bool   `json:"append_mode,omitempty"`
+	Normalization  *bool   `json:"normalization,omitempty"`
+	UpdateType     *string `json:"update_type,omitempty"`
 	// When enabled, source column names are preserved as-is; otherwise utils.Reformat() is applied to generate destination-safe lowercase column names.
 	UseSourceColumnNames bool `json:"use_source_column_names,omitempty"`
 	//legacy filter input
@@ -205,7 +205,6 @@ func GetWrappedCatalog(streams []*Stream, engines []QueryEngine) *Catalog {
 			StreamName:     stream.Name,
 			PartitionRegex: "",
 			SyncMode:       stream.SyncMode,
-			UpdateType:     string(updateType),
 			CursorField:    utils.Ternary(stream.SyncMode == INCREMENTAL, stream.CursorField, "").(string),
 		}
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], metadata)
@@ -297,10 +296,14 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 // replaced: switching delete formats can force a table recreate, so the user must pick the
 // new one explicitly, and a blank update_type fails validation until they do.
 func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine) {
+	if metadata.UpdateType == nil {
+		return
+	}
+
 	// A blank value predates update_type and always meant equality (see
 	// ConfiguredStream.GetUpdateType). Record it, so blank is left to mean "needs a choice".
-	if metadata.UpdateType == "" {
-		metadata.UpdateType = string(UpdateTypeEquality)
+	if *metadata.UpdateType == "" {
+		metadata.UpdateType = new(string(UpdateTypeEquality))
 	}
 
 	// Without target engines nothing constrains the choice.
@@ -309,13 +312,13 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryE
 	}
 
 	available := AvailableUpdateTypes(engines)
-	if slices.Contains(available, UpdateType(metadata.UpdateType)) {
+	if slices.Contains(available, UpdateType(*metadata.UpdateType)) {
 		return
 	}
 
 	logger.Warnf("Stream %s update mode %s is not readable by the selected query engines; cleared, choose one of %v",
-		streamID, metadata.UpdateType, available)
-	metadata.UpdateType = ""
+		streamID, *metadata.UpdateType, available)
+	metadata.UpdateType = new("")
 }
 
 // MergeSelectedColumns updates an existing selected_columns list against the new schema.

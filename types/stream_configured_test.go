@@ -718,3 +718,42 @@ func TestConfiguredStream_AppendModeEnabled(t *testing.T) {
 		})
 	}
 }
+
+// An omitted update_type follows the stream's default_stream_properties; an explicit one wins, and
+// catalogs that predate both fall back to equality. A blank one means discover cleared it, so the
+// user must choose before sync is valid.
+func TestConfiguredStreamUpdateTypeResolution(t *testing.T) {
+	stream := func(defaultType UpdateType) *Stream {
+		return &Stream{
+			Name:                    "users",
+			AvailableUpdateTypes:    []UpdateType{UpdateTypeEquality, UpdateTypePosition},
+			DefaultStreamProperties: &DefaultStreamProperties{UpdateType: defaultType},
+		}
+	}
+
+	testCases := []struct {
+		name        string
+		stream      *Stream
+		selected    *string
+		expected    UpdateType
+		expectedErr string
+	}{
+		{"omitted follows the stream default", stream(UpdateTypePosition), nil, UpdateTypePosition, ""},
+		{"explicit value wins over the default", stream(UpdateTypePosition), new("eq"), UpdateTypeEquality, ""},
+		{"omitted without a default falls back to equality", &Stream{Name: "users"}, nil, UpdateTypeEquality, ""},
+		{"cleared blank must be chosen", stream(UpdateTypePosition), new(""), UpdateTypeEquality, "update mode not set"},
+		{"cleared blank without available types is equality", &Stream{Name: "users"}, new(""), UpdateTypeEquality, ""},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			configured := &ConfiguredStream{Stream: tc.stream, StreamMetadata: StreamMetadata{UpdateType: tc.selected}}
+			assert.Equal(t, tc.expected, configured.GetUpdateType())
+			err := configured.ValidateUpdateType()
+			if tc.expectedErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}

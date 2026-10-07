@@ -47,7 +47,7 @@ func catalogOf(streams ...stream) *types.Catalog {
 		if s.unselected {
 			continue
 		}
-		metadata := types.StreamMetadata{StreamName: s.name, Normalization: new(s.normalized), FilterConfig: s.filter, UpdateType: s.updateType}
+		metadata := types.StreamMetadata{StreamName: s.name, Normalization: new(s.normalized), FilterConfig: s.filter, UpdateType: &s.updateType}
 		if s.partitioned {
 			metadata.PartitionRegex = "/{now,year}"
 		}

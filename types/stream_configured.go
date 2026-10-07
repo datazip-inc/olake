@@ -318,11 +318,13 @@ func (s *ConfiguredStream) AppendModeEnabled() bool {
 	return s.defaultStreamProperties().AppendMode
 }
 
+// GetUpdateType returns the stream's delete format. An omitted (nil) update_type follows the stream's
+// default_stream_properties
 func (s *ConfiguredStream) GetUpdateType() UpdateType {
-	if s.StreamMetadata.UpdateType == "" {
-		return UpdateTypeEquality
+	if s.StreamMetadata.UpdateType == nil {
+		return resolveConfigurableField(s.defaultStreamProperties().UpdateType, UpdateTypeEquality)
 	}
-	return UpdateType(s.StreamMetadata.UpdateType)
+	return resolveConfigurableField(UpdateType(*s.StreamMetadata.UpdateType), UpdateTypeEquality)
 }
 
 // ValidateUpdateType reports whether the stream's delete format is set, writable, and readable
@@ -336,7 +338,7 @@ func (s *ConfiguredStream) ValidateUpdateType() error {
 	available := s.Stream.AvailableUpdateTypes
 	// Discover clears update_type when the target query engines can no longer read it; blank
 	// would otherwise default to equality and silently switch the stream's delete format.
-	if s.StreamMetadata.UpdateType == "" && len(available) > 0 {
+	if s.StreamMetadata.UpdateType != nil && *s.StreamMetadata.UpdateType == "" && len(available) > 0 {
 		return fmt.Errorf("update mode not set; choose one of %v", available)
 	}
 

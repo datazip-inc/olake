@@ -1,1 +1,1 @@
-{"selected_streams":{"olake_mysql_test":[{"partition_regex":"","stream_name":"mysql_test_table_olake","update_type":"eq","sync_mode":"cdc"}]}}
+{"selected_streams":{"olake_mysql_test":[{"partition_regex":"","stream_name":"mysql_test_table_olake","sync_mode":"cdc"}]}}

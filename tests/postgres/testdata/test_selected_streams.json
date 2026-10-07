@@ -1,1 +1,1 @@
-{"selected_streams":{"public":[{"partition_regex":"","stream_name":"postgres_test_table_olake","update_type":"eq","sync_mode":"cdc"}]}}
+{"selected_streams":{"public":[{"partition_regex":"","stream_name":"postgres_test_table_olake","sync_mode":"cdc"}]}}
