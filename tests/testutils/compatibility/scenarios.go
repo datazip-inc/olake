@@ -332,7 +332,8 @@ func runSync(
 	t.Logf("running %s sync on image %s", testutils.Ternary(syncCase.useState, "stateful", "stateless").(string), cfg.GetDriverImage())
 
 	if err := testutils.RunSync(ctx, t, cfg, group.destinationFile, syncCase.useState); err != nil {
-		t.Fatal(err)
+		summary, output, _ := strings.Cut(err.Error(), "\n")
+		t.Fatalf("%s\n%s", testutils.Red(summary), output)
 	}
 }
 
