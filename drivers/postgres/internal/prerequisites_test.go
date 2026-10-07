@@ -37,33 +37,43 @@ func boolRow(column string, value bool) *sqlmock.Rows {
 }
 
 func TestPostgresPrerequisiteChecks(t *testing.T) {
-	names := func(cdc *CDC) map[string]bool {
-		required := map[string]bool{}
-		for _, c := range (&Postgres{}).prerequisiteChecks(cdc) {
-			required[c.Name] = c.Required
-			assert.NotEmpty(t, c.Description, c.Name)
-			assert.NotEmpty(t, c.Recommended, c.Name)
-			assert.NotNil(t, c.Check, c.Name)
-		}
-		return required
+	tests := []struct {
+		name         string
+		cdc          *CDC
+		wantRequired map[string]bool
+	}{
+		{
+			name: "pgoutput with publication",
+			cdc:  &CDC{ReplicationSlot: "olake_slot", Publication: "olake_pub"},
+			wantRequired: map[string]bool{
+				"wal_level":             true,
+				"replication_privilege": true,
+				"replication_slot":      true,
+				"publication":           true,
+			},
+		},
+		{
+			name: "no publication configured skips the publication check",
+			cdc:  &CDC{ReplicationSlot: "olake_slot"},
+			wantRequired: map[string]bool{
+				"wal_level":             true,
+				"replication_privilege": true,
+				"replication_slot":      true,
+			},
+		},
 	}
-
-	t.Run("pgoutput with publication", func(t *testing.T) {
-		assert.Equal(t, map[string]bool{
-			"wal_level":             true,
-			"replication_privilege": true,
-			"replication_slot":      true,
-			"publication":           true,
-		}, names(&CDC{ReplicationSlot: "olake_slot", Publication: "olake_pub"}))
-	})
-
-	t.Run("no publication configured skips the publication check", func(t *testing.T) {
-		assert.Equal(t, map[string]bool{
-			"wal_level":             true,
-			"replication_privilege": true,
-			"replication_slot":      true,
-		}, names(&CDC{ReplicationSlot: "olake_slot"}))
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			required := map[string]bool{}
+			for _, c := range (&Postgres{}).prerequisiteChecks(tc.cdc) {
+				required[c.Name] = c.Required
+				assert.NotEmpty(t, c.Description, c.Name)
+				assert.NotEmpty(t, c.Recommended, c.Name)
+				assert.NotNil(t, c.Check, c.Name)
+			}
+			assert.Equal(t, tc.wantRequired, required)
+		})
+	}
 }
 
 func TestPostgresCheckWalLevel(t *testing.T) {

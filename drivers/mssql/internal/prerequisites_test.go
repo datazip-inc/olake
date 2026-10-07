@@ -38,52 +38,63 @@ func bitRow(value bool) *sqlmock.Rows {
 }
 
 func TestMSSQLPrerequisiteChecks(t *testing.T) {
-	names := func(m *MSSQL) map[string]bool {
-		required := map[string]bool{}
-		for _, c := range m.prerequisiteChecks(false) {
-			required[c.Name] = c.Required
-			assert.NotEmpty(t, c.Description, c.Name)
-			assert.NotEmpty(t, c.Recommended, c.Name)
-			assert.NotNil(t, c.Check, c.Name)
-		}
-		return required
+	tests := []struct {
+		name         string
+		mssql        *MSSQL
+		cdcSelected  bool
+		wantRequired map[string]bool
+	}{
+		{
+			// a config predating update_method is reported on but never blocked
+			name:  "cdc not selected on primary",
+			mssql: &MSSQL{config: &Config{}},
+			wantRequired: map[string]bool{
+				"database_cdc":        false,
+				"cdc_capture_job":     false,
+				"view_database_state": false,
+			},
+		},
+		{
+			// update_method selects CDC: every check that gates CDC becomes blocking
+			name:        "cdc selected marks checks required",
+			mssql:       &MSSQL{config: &Config{ManageCaptureInstances: true}},
+			cdcSelected: true,
+			wantRequired: map[string]bool{
+				"database_cdc":           true,
+				"capture_instance_admin": true,
+				"cdc_capture_job":        true,
+				"view_database_state":    false, // advisory: duplicates in append mode, not a CDC blocker
+			},
+		},
+		{
+			name:  "manage capture instances adds db_owner check",
+			mssql: &MSSQL{config: &Config{ManageCaptureInstances: true}},
+			wantRequired: map[string]bool{
+				"database_cdc":           false,
+				"capture_instance_admin": false,
+				"cdc_capture_job":        false,
+				"view_database_state":    false,
+			},
+		},
+		{
+			// msdb jobs live on the primary and resolveInitialLSN skips the state check on replicas
+			name:         "read replica skips msdb and state checks",
+			mssql:        &MSSQL{config: &Config{}, isReadReplica: true},
+			wantRequired: map[string]bool{"database_cdc": false},
+		},
 	}
-
-	// a config predating update_method is reported on but never blocked
-	t.Run("primary", func(t *testing.T) {
-		assert.Equal(t, map[string]bool{
-			"database_cdc":        false,
-			"cdc_capture_job":     false,
-			"view_database_state": false,
-		}, names(&MSSQL{config: &Config{}}))
-	})
-
-	// update_method selects CDC: every check that gates CDC becomes blocking
-	t.Run("cdc selected marks checks required", func(t *testing.T) {
-		required := map[string]bool{}
-		for _, c := range (&MSSQL{config: &Config{ManageCaptureInstances: true}}).prerequisiteChecks(true) {
-			required[c.Name] = c.Required
-		}
-		assert.Equal(t, map[string]bool{
-			"database_cdc":           true,
-			"capture_instance_admin": true,
-			"cdc_capture_job":        true,
-			"view_database_state":    false, // advisory: duplicates in append mode, not a CDC blocker
-		}, required)
-	})
-
-	t.Run("manage capture instances adds db_owner check", func(t *testing.T) {
-		got := names(&MSSQL{config: &Config{ManageCaptureInstances: true}})
-		assert.Contains(t, got, "capture_instance_admin")
-		assert.Len(t, got, 4)
-	})
-
-	// msdb jobs live on the primary and resolveInitialLSN skips the state check on replicas
-	t.Run("read replica skips msdb and state checks", func(t *testing.T) {
-		assert.Equal(t, map[string]bool{
-			"database_cdc": false,
-		}, names(&MSSQL{config: &Config{}, isReadReplica: true}))
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			required := map[string]bool{}
+			for _, c := range tc.mssql.prerequisiteChecks(tc.cdcSelected) {
+				required[c.Name] = c.Required
+				assert.NotEmpty(t, c.Description, c.Name)
+				assert.NotEmpty(t, c.Recommended, c.Name)
+				assert.NotNil(t, c.Check, c.Name)
+			}
+			assert.Equal(t, tc.wantRequired, required)
+		})
+	}
 }
 
 // a config predating update_method keeps CDC only when the database has it enabled; other
