@@ -167,7 +167,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			return err
 		}
 		if !cdcSupported {
-			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("failed to setup CDC: binlog is not configured correctly"))
+			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("%w: failed to setup CDC: binlog is not configured correctly", constants.ErrNonRetryable))
 		}
 
 		m.CDCSupport = cdcSupported

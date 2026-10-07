@@ -152,14 +152,14 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return errs.Precondition(errs.CDCPreconditionFailed, codeReplicationSlotMissing,
-					fmt.Errorf("failed to validate cdc configuration for slot %s: no record found", cdc.ReplicationSlot))
+					fmt.Errorf("%w: failed to validate cdc configuration for slot %s: no record found", constants.ErrNonRetryable, cdc.ReplicationSlot))
 			}
 			return fmt.Errorf("failed to validate cdc configuration for slot %s: %w", cdc.ReplicationSlot, err)
 		}
 
 		if !exists {
 			return errs.Precondition(errs.CDCPreconditionFailed, codeReplicationSlotMissing,
-				fmt.Errorf("replication slot '%s' does not exist in the current database '%s'", cdc.ReplicationSlot, p.config.Database))
+				fmt.Errorf("%w: replication slot '%s' does not exist in the current database '%s'", constants.ErrNonRetryable, cdc.ReplicationSlot, p.config.Database))
 		}
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true

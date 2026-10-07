@@ -168,7 +168,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	rawGlobalState := p.state.GetGlobal()
 	if err := utils.Unmarshal(rawGlobalState.State, &postgresGlobalState); err != nil {
 		return nil, errs.Precondition(errs.StateInvalid, codeGlobalStateUnreadable,
-			fmt.Errorf("failed to unmarshal global state: %w", err))
+			fmt.Errorf("%w: failed to unmarshal global state: %w", constants.ErrNonRetryable, err))
 	}
 
 	var metadataCommittedLSN string
@@ -183,19 +183,19 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 			var mtState waljs.WALState
 			if err := json.Unmarshal([]byte(stMtState), &mtState); err != nil {
 				return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateUnreadable,
-					fmt.Errorf("failed to unmarshal metadata state: %w", err))
+					fmt.Errorf("%w: failed to unmarshal metadata state: %w", constants.ErrNonRetryable, err))
 			}
 
 			// Recovery is only needed when metadata is strictly AHEAD of state .
 			parsedMetaLSN, err := pglogrepl.ParseLSN(mtState.LSN)
 			if err != nil {
 				return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
-					fmt.Errorf("failed to parse metadata LSN %q: %w", mtState.LSN, err))
+					fmt.Errorf("%w: failed to parse metadata LSN %q: %w", constants.ErrNonRetryable, mtState.LSN, err))
 			}
 			parsedStateLSN, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
 				return nil, errs.Precondition(errs.StateInvalid, codeGlobalLSNUnparseable,
-					fmt.Errorf("failed to parse global state LSN %q: %w", postgresGlobalState.LSN, err))
+					fmt.Errorf("%w: failed to parse global state LSN %q: %w", constants.ErrNonRetryable, postgresGlobalState.LSN, err))
 			}
 			if parsedMetaLSN > parsedStateLSN {
 				// metadata ahead of state: genuine crash-recovery path
@@ -205,7 +205,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateNotString,
-				fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState))
+				fmt.Errorf("%w: failed to typecast metadata state of type[%T] to string", constants.ErrNonRetryable, rawMtState))
 		}
 	}
 
@@ -219,7 +219,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		parsed, err := pglogrepl.ParseLSN(metadataCommittedLSN)
 		if err != nil {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
-				fmt.Errorf("failed to parse recovery LSN %q: %w", metadataCommittedLSN, err))
+				fmt.Errorf("%w: failed to parse recovery LSN %q: %w", constants.ErrNonRetryable, metadataCommittedLSN, err))
 		}
 		recoveryLSN = &parsed
 
@@ -330,13 +330,13 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 
 	if slot.SlotType != "logical" {
 		return errs.Precondition(errs.CDCPreconditionFailed, codeSlotTypeUnsupported,
-			fmt.Errorf("only logical slots are supported: %s", slot.SlotType))
+			fmt.Errorf("%w: only logical slots are supported: %s", constants.ErrNonRetryable, slot.SlotType))
 	}
 
 	logger.Debugf("replication slot[%s] with pluginType[%s] found", slotName, slot.Plugin)
 	if slot.Plugin == "pgoutput" && publication == "" {
 		return errs.Precondition(errs.CDCPreconditionFailed, codePublicationMissing,
-			fmt.Errorf("publication is required for pgoutput"))
+			fmt.Errorf("%w: publication is required for pgoutput", constants.ErrNonRetryable))
 	}
 	return nil
 }

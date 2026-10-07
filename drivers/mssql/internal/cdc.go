@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
@@ -67,7 +68,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	for _, stream := range streams {
 		if _, found := captureInstancesMap[stream.ID()]; !found {
 			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCNotEnabledOnTable,
-				fmt.Errorf("CDC is not enabled for stream %s.%s", stream.Namespace(), stream.Name()))
+				fmt.Errorf("%w: CDC is not enabled for stream %s.%s", constants.ErrNonRetryable, stream.Namespace(), stream.Name()))
 		}
 
 		if m.state.GetCursor(stream.Self(), cdcCursorKey) == nil {
@@ -102,7 +103,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 		mtState, ok := rawMtState.(string)
 		if !ok {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
-				fmt.Errorf("failed to typecast mtstate to string of type[%T]", rawMtState))
+				fmt.Errorf("%w: failed to typecast mtstate to string of type[%T]", constants.ErrNonRetryable, rawMtState))
 		}
 		// Recovery is only needed when metadata is strictly AHEAD of state.
 		if mtState > lsnInState {
@@ -145,7 +146,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	captureIdx, selectedCapture := newestValidInstance(captureInstances, lsnInState)
 	if selectedCapture == nil {
 		return nil, errs.Precondition(errs.CDCPositionLost, codeLSNBeforeCaptureStart, fmt.Errorf(
-			"LSN %s is earlier than the start LSN of available capture instances for stream %s. Please perform full-refresh",
+			"%w: LSN %s is earlier than the start LSN of available capture instances for stream %s. Please perform full-refresh", constants.ErrNonRetryable,
 			lsnInState,
 			stream.ID(),
 		))
@@ -286,7 +287,7 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 		activeIdx, selected := newestValidInstance(instances, currentCursorLSN)
 		if selected == nil {
 			return errs.Precondition(errs.CDCPositionLost, codeLSNBeforeCaptureStart,
-				fmt.Errorf("LSN %s for stream %s is older than any available scan instances; please perform a full refresh", currentCursorLSN, streamID))
+				fmt.Errorf("%w: LSN %s for stream %s is older than any available scan instances; please perform a full refresh", constants.ErrNonRetryable, currentCursorLSN, streamID))
 		}
 
 		// Delete fully consumed older instances and track survivors
@@ -427,7 +428,7 @@ func (m *MSSQL) advanceLSN(ctx context.Context, lsnHex string) (string, error) {
 	// Decode the hex string into raw bytes because SQL Server LSN functions use binary values.
 	lsnBytes, err := hex.DecodeString(lsnHex)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse LSN for advance: %w", err)
+		return "", fmt.Errorf("%w: failed to parse LSN for advance: %w", constants.ErrNonRetryable, err)
 	}
 
 	// Compute the next LSN.

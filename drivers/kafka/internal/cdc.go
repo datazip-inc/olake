@@ -113,7 +113,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		currentPartitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(record.Message.Topic, record.Message.Partition))
 		if !exists {
 			return false, errs.Precondition(errs.StateInvalid, codePartitionMetadataAbsent,
-				fmt.Errorf("missing partition Metadata for topic %s partition %d", record.Message.Topic, record.Message.Partition))
+				fmt.Errorf("%w: missing partition Metadata for topic %s partition %d", constants.ErrRetryable, record.Message.Topic, record.Message.Partition))
 		}
 
 		// process the change if data is present
@@ -155,7 +155,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		partitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(partitionKey.Topic, partitionKey.Partition))
 		if !exists {
 			return nil, errs.Precondition(errs.StateInvalid, codePartitionMetadataAbsent,
-				fmt.Errorf("missing partition metadata for topic %s partition %d", partitionKey.Topic, partitionKey.Partition))
+				fmt.Errorf("%w: missing partition metadata for topic %s partition %d", constants.ErrRetryable, partitionKey.Topic, partitionKey.Partition))
 		}
 		streamID := partitionMeta.Stream.ID()
 		state, _ := metadataByStream[streamID].(map[string]any)
@@ -269,7 +269,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 				// any fetch error (including parent ctx cancellation) is non-retryable.
 				// For more info, go through the documentation: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#Fetches.Errors
 				if err := fetches.Err(); err != nil {
-					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, err)
+					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrRetryable, err)
 				}
 
 				// wrap batch into iterator
@@ -419,7 +419,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		partitionMeta, ok := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(currentTopic, currentPartitionID))
 		if !ok {
 			return false, errs.Precondition(errs.StateInvalid, codePartitionMetadataAbsent,
-				fmt.Errorf("%w: assigned partition %s:%d missing from partition metadata", constants.ErrNonRetryable, currentTopic, currentPartitionID))
+				fmt.Errorf("%w: assigned partition %s:%d missing from partition metadata", constants.ErrRetryable, currentTopic, currentPartitionID))
 		}
 
 		streamID := partitionMeta.Stream.ID()
@@ -434,7 +434,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 				mtStateStr, ok := rawMetadataStateValue.(string)
 				if !ok {
 					return false, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
-						fmt.Errorf("stream[%s]: failed to typecast metadata state of type[%T] to string", streamID, rawMetadataStateValue))
+						fmt.Errorf("%w: stream[%s]: failed to typecast metadata state of type[%T] to string", constants.ErrNonRetryable, streamID, rawMetadataStateValue))
 				}
 
 				var parsedMetadataStateValue map[string]any
