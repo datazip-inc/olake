@@ -57,7 +57,9 @@ func New(cfg Config) (*Store, error) {
 	}, nil
 }
 
-func (a *Store) Kind() string { return "azure" }
+func (a *Store) Kind() string {
+	return "azure"
+}
 
 func (a *Store) ObjectKey(relativePath string) string {
 	if a.prefix == "" {

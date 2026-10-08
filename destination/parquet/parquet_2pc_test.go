@@ -745,7 +745,7 @@ func testS3ParquetWithStore(t *testing.T, store *memoryS3, threadID string, back
 		stream:           testConfiguredStream(),
 		basePath:         filepath.Join("namespace", "table"),
 		partitionedFiles: make(map[string][]*FileMetadata),
-		store: s3store.NewWithClient(store, &memoryUploader{store: store}, "bucket", cfg.Prefix),
+		store:            s3store.NewWithClient(store, &memoryUploader{store: store}, "bucket", cfg.Prefix),
 	}
 }
 

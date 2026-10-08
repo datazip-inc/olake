@@ -78,7 +78,9 @@ func (s *Store) SetPrefix(prefix string) {
 	s.prefix = strings.TrimSuffix(prefix, "/")
 }
 
-func (s *Store) Kind() string { return "s3" }
+func (s *Store) Kind() string {
+	return "s3"
+}
 
 func (s *Store) ObjectKey(relativePath string) string {
 	if s.prefix == "" {
