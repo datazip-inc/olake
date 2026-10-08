@@ -26,13 +26,13 @@ type Prerequisite struct {
 // Setup records the results and fails on unmet required checks only when the config
 // explicitly selects CDC.
 type PrerequisiteReporter interface {
-	Prerequisites() types.Prerequisites
+	Prerequisites() types.PrerequisiteResults
 }
 
 // RunPrerequisites evaluates every check (no early exit) and orders the results
 // required failed → optional failed → passed.
-func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequisites {
-	results := make(types.Prerequisites, 0, len(checks))
+func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.PrerequisiteResults {
+	results := make(types.PrerequisiteResults, 0, len(checks))
 	for _, c := range checks {
 		current, ok, err := c.Check(ctx)
 		if err != nil {
@@ -43,7 +43,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 			logger.Warnf("prerequisite %s not met (required=%t): current=%s recommended=%s",
 				c.Name, c.Required, current, c.Recommended)
 		}
-		results = append(results, types.PrerequisiteCheck{
+		results = append(results, types.PrerequisiteResult{
 			Name:             c.Name,
 			Required:         c.Required,
 			Passed:           ok,
@@ -54,7 +54,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 		})
 	}
 
-	rank := func(c types.PrerequisiteCheck) int {
+	rank := func(c types.PrerequisiteResult) int {
 		switch {
 		case c.Passed:
 			return 2
@@ -64,7 +64,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 			return 1
 		}
 	}
-	slices.SortStableFunc(results, func(a, b types.PrerequisiteCheck) int { return rank(a) - rank(b) })
+	slices.SortStableFunc(results, func(a, b types.PrerequisiteResult) int { return rank(a) - rank(b) })
 	return results
 }
 
@@ -73,7 +73,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 // reporting a source that cannot sync. A check that ran and failed is a CDC precondition failure;
 // when every failure is a check that could not be evaluated, the causes are kept so the failure
 // is classified by them (network, permission, timeout) rather than as a misconfiguration.
-func RequireCDCPrerequisites(driverType string, prerequisites types.Prerequisites) error {
+func RequireCDCPrerequisites(driverType string, prerequisites types.PrerequisiteResults) error {
 	var names []string
 	var causes []error
 	misconfigured := false
@@ -115,7 +115,7 @@ func (a *AbstractDriver) ValidateCDCPrerequisites(cdcStreams []types.StreamInter
 }
 
 // Prerequisites returns the checks recorded by the driver's Setup, if it runs any.
-func (a *AbstractDriver) Prerequisites() types.Prerequisites {
+func (a *AbstractDriver) Prerequisites() types.PrerequisiteResults {
 	if r, ok := a.driver.(PrerequisiteReporter); ok {
 		return r.Prerequisites()
 	}

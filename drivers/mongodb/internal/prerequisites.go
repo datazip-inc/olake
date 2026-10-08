@@ -97,6 +97,6 @@ func (m *Mongo) checkOplogRetention(ctx context.Context) (string, bool, error) {
 }
 
 // Prerequisites returns the CDC setup checks evaluated in Setup.
-func (m *Mongo) Prerequisites() types.Prerequisites {
+func (m *Mongo) Prerequisites() types.PrerequisiteResults {
 	return m.prerequisites
 }

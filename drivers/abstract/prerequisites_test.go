@@ -15,10 +15,10 @@ import (
 // reportingDriver is a stubDriver that reports prerequisite results from its Setup.
 type reportingDriver struct {
 	stubDriver
-	prerequisites types.Prerequisites
+	prerequisites types.PrerequisiteResults
 }
 
-func (r reportingDriver) Prerequisites() types.Prerequisites { return r.prerequisites }
+func (r reportingDriver) Prerequisites() types.PrerequisiteResults { return r.prerequisites }
 
 func staticCheck(name string, required bool, current string, ok bool, err error) Prerequisite {
 	return Prerequisite{
@@ -57,7 +57,7 @@ func TestRunPrerequisites(t *testing.T) {
 	assert.EqualError(t, unreadable.Err, "permission denied")
 	assert.NoError(t, results[0].Err)
 
-	assert.Equal(t, []string{"failed_required", "unreadable_required"}, results.FailedRequired())
+	assert.Equal(t, []string{"failed_required", "unreadable_required"}, results.GetFailedRequirements())
 }
 
 func TestRequireCDCPrerequisites(t *testing.T) {
@@ -65,7 +65,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		prerequisites types.Prerequisites
+		prerequisites types.PrerequisiteResults
 		wantCategory  errs.Category // empty means no error
 		wantCode      string
 		wantMessage   []string
@@ -74,7 +74,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 		{
 			// a driver calls this from Setup when the config selects CDC, so test connection fails
 			name: "failed required check is a precondition failure",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "binlog_format", Required: true, Passed: false},
 				{Name: "binlog_retention", Required: false, Passed: false},
 				{Name: "log_bin", Required: true, Passed: true},
@@ -87,7 +87,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 		{
 			// nothing is known to be misconfigured, so the cause decides the category
 			name: "unevaluated required check keeps its cause",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "binlog_format", Required: true, Passed: false, CurrentValue: "unavailable", Err: timeout},
 			},
 			wantCategory: errs.Timeout,
@@ -96,7 +96,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 		{
 			// a definite misconfiguration is the actionable failure
 			name: "failed and unevaluated checks report a precondition failure",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "log_bin", Required: true, Passed: false},
 				{Name: "binlog_format", Required: true, Passed: false, CurrentValue: "unavailable", Err: timeout},
 			},
@@ -107,7 +107,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 		{
 			// only optional checks failed: CDC may still run
 			name: "failed optional check passes",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "binlog_retention", Required: false, Passed: false, Err: timeout},
 			},
 		},
@@ -143,12 +143,12 @@ func TestPrerequisitesWithoutReporter(t *testing.T) {
 }
 
 func TestValidateCDCPrerequisites(t *testing.T) {
-	failedRequired := types.Prerequisites{{Name: "binlog_format", Required: true, Passed: false}}
-	failedOptional := types.Prerequisites{{Name: "binlog_retention", Required: false, Passed: false}}
+	failedRequired := types.PrerequisiteResults{{Name: "binlog_format", Required: true, Passed: false}}
+	failedOptional := types.PrerequisiteResults{{Name: "binlog_retention", Required: false, Passed: false}}
 
 	testCases := []struct {
 		name          string
-		prerequisites types.Prerequisites
+		prerequisites types.PrerequisiteResults
 		cdcStreams    int
 		expectedCode  string
 	}{

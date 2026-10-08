@@ -39,7 +39,7 @@ var checkCmd = &cobra.Command{
 	},
 	// TODO: switch back to returning err once the worker handling is added for non-zero exit.
 	Run: func(cmd *cobra.Command, _ []string) {
-		var prerequisites types.Prerequisites
+		var prerequisites types.PrerequisiteResults
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
@@ -73,7 +73,7 @@ var checkCmd = &cobra.Command{
 				Prerequisites: prerequisites,
 			},
 		}
-		if failed := prerequisites.FailedRequired(); len(failed) > 0 {
+		if failed := prerequisites.GetFailedRequirements(); len(failed) > 0 {
 			message.ConnectionStatus.Message = "required prerequisite checks failed: " + strings.Join(failed, ", ")
 		}
 		if err != nil {

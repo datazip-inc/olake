@@ -100,6 +100,6 @@ func (p *Postgres) checkPublication(publication string) func(context.Context) (s
 }
 
 // Prerequisites returns the CDC setup checks evaluated in Setup.
-func (p *Postgres) Prerequisites() types.Prerequisites {
+func (p *Postgres) Prerequisites() types.PrerequisiteResults {
 	return p.prerequisites
 }

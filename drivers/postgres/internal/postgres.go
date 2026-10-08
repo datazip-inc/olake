@@ -79,7 +79,7 @@ type Postgres struct {
 	state      *types.State // reference to globally present state
 	streams    []types.StreamInterface
 	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
-	prerequisites types.Prerequisites
+	prerequisites types.PrerequisiteResults
 }
 
 func (p *Postgres) CDCSupported() bool {

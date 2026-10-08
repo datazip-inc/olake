@@ -57,7 +57,7 @@ func (m *MSSQL) prerequisiteChecks(required bool) []abstract.Prerequisite {
 
 // legacyCDCSupported reports CDC support for a config that predates update_method: only the
 // database-level CDC flag decides it, as before prerequisite checks existed.
-func legacyCDCSupported(prerequisites types.Prerequisites) bool {
+func legacyCDCSupported(prerequisites types.PrerequisiteResults) bool {
 	for _, c := range prerequisites {
 		if c.Name == prerequisiteDatabaseCDC {
 			return c.Passed
@@ -116,6 +116,6 @@ func (m *MSSQL) checkDBOwner(ctx context.Context) (string, bool, error) {
 }
 
 // Prerequisites returns the CDC setup checks evaluated in Setup.
-func (m *MSSQL) Prerequisites() types.Prerequisites {
+func (m *MSSQL) Prerequisites() types.PrerequisiteResults {
 	return m.prerequisites
 }

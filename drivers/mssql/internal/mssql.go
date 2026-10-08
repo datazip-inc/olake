@@ -33,7 +33,7 @@ type MSSQL struct {
 	sshClient     *ssh.Client
 	primaryClient *sqlx.DB
 	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
-	prerequisites types.Prerequisites
+	prerequisites types.PrerequisiteResults
 }
 
 // GetConfigRef implements abstract.DriverInterface.

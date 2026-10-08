@@ -152,6 +152,6 @@ func retentionResult(retention time.Duration) (string, bool, error) {
 }
 
 // Prerequisites returns the CDC setup checks evaluated in Setup.
-func (m *MySQL) Prerequisites() types.Prerequisites {
+func (m *MySQL) Prerequisites() types.PrerequisiteResults {
 	return m.prerequisites
 }

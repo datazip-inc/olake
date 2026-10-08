@@ -89,7 +89,7 @@ type Mongo struct {
 	streams    []types.StreamInterface
 	sshDialer  *MongoSSHDialer
 	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
-	prerequisites types.Prerequisites
+	prerequisites types.PrerequisiteResults
 }
 
 // MongoSSHDialer implements a custom dialer for SSH tunnel connections.

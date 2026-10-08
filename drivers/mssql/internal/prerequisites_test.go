@@ -102,12 +102,12 @@ func TestMSSQLPrerequisiteChecks(t *testing.T) {
 func TestMSSQLLegacyCDCSupported(t *testing.T) {
 	tests := []struct {
 		name          string
-		prerequisites types.Prerequisites
+		prerequisites types.PrerequisiteResults
 		want          bool
 	}{
 		{
 			name: "database cdc enabled",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "cdc_capture_job", Passed: false},
 				{Name: prerequisiteDatabaseCDC, Passed: true},
 			},
@@ -115,7 +115,7 @@ func TestMSSQLLegacyCDCSupported(t *testing.T) {
 		},
 		{
 			name:          "database cdc disabled",
-			prerequisites: types.Prerequisites{{Name: prerequisiteDatabaseCDC, Passed: false}},
+			prerequisites: types.PrerequisiteResults{{Name: prerequisiteDatabaseCDC, Passed: false}},
 			want:          false,
 		},
 		{name: "no checks recorded", want: false},

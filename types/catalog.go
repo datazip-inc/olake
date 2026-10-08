@@ -36,13 +36,13 @@ type Log struct {
 }
 
 type StatusRow struct {
-	Status        ConnectionStatus `json:"status,omitempty"`
-	Message       string           `json:"message,omitempty"`
-	Prerequisites Prerequisites    `json:"prerequisites,omitempty"`
+	Status        ConnectionStatus    `json:"status,omitempty"`
+	Message       string              `json:"message,omitempty"`
+	Prerequisites PrerequisiteResults `json:"prerequisites,omitempty"`
 }
 
-// PrerequisiteCheck is one CDC-critical server setting evaluated during setup.
-type PrerequisiteCheck struct {
+// PrerequisiteResult is the outcome of one CDC prerequisite check evaluated during setup.
+type PrerequisiteResult struct {
 	Name             string `json:"name"`
 	Required         bool   `json:"required"`
 	Passed           bool   `json:"passed"`
@@ -53,10 +53,10 @@ type PrerequisiteCheck struct {
 	Err error `json:"-"`
 }
 
-type Prerequisites []PrerequisiteCheck
+type PrerequisiteResults []PrerequisiteResult
 
-// FailedRequired returns the names of required checks that did not pass.
-func (p Prerequisites) FailedRequired() []string {
+// GetFailedRequirements returns the names of required checks that did not pass.
+func (p PrerequisiteResults) GetFailedRequirements() []string {
 	var names []string
 	for _, c := range p {
 		if c.Required && !c.Passed {
