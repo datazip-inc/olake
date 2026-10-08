@@ -179,7 +179,8 @@ func (a *Store) blobReadURL(key string) (string, error) {
 
 func (a *Store) Delete(ctx context.Context, key string) error {
 	_, err := a.client.DeleteBlob(ctx, a.container, key, nil)
-	if a.IsNotFound(err) {
+	// ignore delete when the blob or container is already gone
+	if a.IsNotFound(err) || bloberror.HasCode(err, bloberror.ContainerNotFound) {
 		return nil
 	}
 	return err
@@ -198,6 +199,7 @@ func (a *Store) DeletePrefix(ctx context.Context, prefix string) error {
 	return nil
 }
 
+// IsNotFound checks missing blob errr
 func (a *Store) IsNotFound(err error) bool {
 	return bloberror.HasCode(err, bloberror.BlobNotFound)
 }
