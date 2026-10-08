@@ -166,7 +166,7 @@
         },
         "update_method": {
             "title": "Update Method",
-            "description": "Define how OLake captures data updates from your source",
+            "description": "Capture inserts, updates, and deletes using CDC. Turn off to use full refresh or incremental mode.",
             "oneOf": [
                 {
                     "type": "object",
