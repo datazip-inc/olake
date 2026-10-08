@@ -143,7 +143,8 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 					kafkaKey = kKey
 				}
 			}
-			if kafkaKey == "" && len(record.Message.Key) > 0 {
+
+			if _, hasKey := record.Data[Key]; !hasKey && len(record.Message.Key) > 0 {
 				_, parsedKey, _, err := k.parseKafkaData(record.Message)
 				if err != nil || parsedKey == "" {
 					kafkaKey = k.canonicalizeKafkaKey(record.Message.Key)
@@ -171,17 +172,10 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 
 			if record.Message.Value == nil {
 				if isKafkaKeyOnlyDedup(dedupKeys) {
-					//dedup is only _kafka_key (present and not null) - tombstone deletes are valid
+					// _kafka_key present (including "") - tombstone deletes;
+					// _kafka_key missing/nil - skip
 					data, err := checkDedupKeysExist(dedupKeys, record.Data, kafkaKey, record.KeyFields)
-					if err != nil {
-						//key - null
-						if errors.Is(err, errNullDedupKeys) {
-							return false, errs.Precondition(errs.CDCPreconditionFailed, "_kafka.null_dedup_keys",
-								fmt.Errorf("%w: stream[%s] partition=%d offset=%d: %w",
-									constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, err))
-						}
-						// key - absent
-					} else {
+					if err == nil {
 						extraColumns := map[string]any{
 							constants.OlakeID: generateOlakeIDFromExistingKeys(dedupKeys, data),
 						}
@@ -189,40 +183,39 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 							return false, err
 						}
 					}
-				} else {
-					//upsert only -- null value is appended by _kafka_key (no deletes)
-					if kafkaKey != "" {
-						data := map[string]any{
-							Partition: record.Message.Partition,
-							Offset:    record.Message.Offset,
-							Key:       kafkaKey,
-						}
-						// olake_id - with kafka_key string
-						extraColumns := map[string]any{
-							constants.OlakeID: kafkaKey,
-						}
-						if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead)); err != nil {
-							return false, err
-						}
+					// missing and nil Kafka key: skip tombstone (no identity to delete)
+				} else if kafkaKey != "" {
+					// configured keys: tombstone is not a delete; append using the Kafka key as olake_id
+					data := map[string]any{
+						Partition: record.Message.Partition,
+						Offset:    record.Message.Offset,
+						Key:       kafkaKey,
 					}
-					// null, null - avoid
+					// olake_id - with kafka_key string
+					extraColumns := map[string]any{
+						constants.OlakeID: kafkaKey,
+					}
+					if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead)); err != nil {
+						return false, err
+					}
 				}
 			} else if record.Data != nil {
-				// Non null value: Upsert when atleast one selected dedup key exist, all absent - append, all null - fail sync
+				// Non null value: Upsert when atleast one selected dedup key exist,
+				// all absent - fail sync,
+				// all null - fail sync
+				// exception: dedup is only _kafka_key and it is missing/nil → append
 				data, err := checkDedupKeysExist(dedupKeys, record.Data, kafkaKey, record.KeyFields)
 				if err != nil {
-					// all present dedup fields null - fail sync
-					if errors.Is(err, errNullDedupKeys) {
+					if isKafkaKeyOnlyDedup(dedupKeys) {
+						if err := appendByOffsetPartition(record.Data); err != nil {
+							return false, err
+						}
+					} else {
 						return false, errs.Precondition(errs.CDCPreconditionFailed, "kafka.null_dedup_keys",
 							fmt.Errorf("%w: stream[%s], paritition=%d, offset=%d: %w",
 								constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, err))
 					}
-					// no selected dedup fields is present - append
-					if err := appendByOffsetPartition(record.Data); err != nil {
-						return false, err
-					}
 				} else {
-					// atleast one non-null - upsert (partial null/empty/whitespace included in hash)
 					extraColumns := map[string]any{
 						constants.OlakeID: generateOlakeIDFromExistingKeys(dedupKeys, data),
 					}
@@ -392,7 +385,9 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 				// data map will be nil (in cases like null and unparseable message values) so nil check is required
 				data[Partition] = message.Partition
 				data[Offset] = message.Offset
-				data[Key] = key
+				if message.Key != nil {
+					data[Key] = key
+				}
 				data[KafkaTimestamp], err = typeutils.ReformatDate(message.Timestamp, true)
 				if err != nil {
 					return fmt.Errorf("failed to reformat date: %w", err)

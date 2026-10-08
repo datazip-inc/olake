@@ -3,6 +3,7 @@ package driver
 import (
 	//nolint:gosec // G401: md5 used for non-crypto hashing
 	"crypto/md5"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -70,17 +71,44 @@ func checkDedupKeysExist(dedupKeys []string, data map[string]any, kafkaKey strin
 	return nil, fmt.Errorf("missing dedup keys")
 }
 
-// generateOlakeIDFromExistingKeys generates the olake ID from the existing dedup keys and data
+// generateOlakeIDFromExistingKeys: JSON _kafka_key is md5 of the stored string; other non-empty
+// single keys are used as-is; empty string and 2+ keys are md5 of a JSON object (missing ≡ null).
 func generateOlakeIDFromExistingKeys(dedupKeys []string, data map[string]any) string {
 	if len(dedupKeys) == 1 && dedupKeys[0] == Key {
 		s := fmt.Sprint(data[Key])
 		trimmed := strings.TrimSpace(s)
-		if len(trimmed) == 0 || trimmed[0] != '{' || !utils.IsJSON(s) {
+		if trimmed != "" && trimmed[0] == '{' && utils.IsJSON(s) {
+			//nolint:gosec // G401: md5 used for non-crypto hashing
+			return fmt.Sprintf("%x", md5.Sum([]byte(s)))
+		}
+		if trimmed != "" {
 			return s
 		}
-		//nolint:gosec // G401: md5 used for non-crypto hashing
-		return fmt.Sprintf("%x", md5.Sum([]byte(s)))
+		return hashSortedDedupKeys(dedupKeys, data)
 	}
-	keys := append([]string{}, dedupKeys...)
-	return utils.GetKeysHash(data, keys...)
+	if len(dedupKeys) == 1 {
+		id := utils.GetKeysHash(data, dedupKeys[0])
+		if strings.TrimSpace(id) != "" {
+			return id
+		}
+		return hashSortedDedupKeys(dedupKeys, data)
+	}
+	return hashSortedDedupKeys(dedupKeys, data)
+}
+
+func hashSortedDedupKeys(dedupKeys []string, data map[string]any) string {
+	m := make(map[string]any, len(dedupKeys))
+	for _, k := range dedupKeys {
+		if val, ok := data[k]; ok && val != nil {
+			m[k] = val
+		} else {
+			m[k] = nil
+		}
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		b = []byte(fmt.Sprint(m))
+	}
+	//nolint:gosec // G401: md5 used for non-crypto hashing
+	return fmt.Sprintf("%x", md5.Sum(b))
 }

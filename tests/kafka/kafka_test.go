@@ -149,6 +149,7 @@ func TestKafkaUpsert(t *testing.T) {
 		seed         string
 		dedup        []string
 		expectFail   bool
+		wantErr      string
 		syncs        []testutils.Upsert
 	}{
 		{
@@ -233,21 +234,8 @@ func TestKafkaUpsert(t *testing.T) {
 			isolateSuite: "upsert_dedup_field_absent",
 			seed:         "upsert_add",
 			dedup:        []string{"customer_id"},
-			syncs: []testutils.Upsert{
-				{
-					Name:     "insert",
-					UseState: false,
-					OpSymbol: "c",
-					Expected: ExpectedKafkaJSONData,
-				},
-				{
-					Name:      "insert-again",
-					Operation: "upsert_add",
-					UseState:  true,
-					OpSymbol:  "c",
-					Expected:  ExpectedKafkaJSONData,
-				},
-			},
+			expectFail:   true,
+			wantErr:      "missing dedup keys",
 		},
 		{
 			name:         "dedup_value_empty",
@@ -269,6 +257,7 @@ func TestKafkaUpsert(t *testing.T) {
 			seed:         "upsert_null",
 			dedup:        []string{"customer_id"},
 			expectFail:   true,
+			wantErr:      "all dedup keys are null",
 		},
 	}
 	for _, tc := range icebergTestCases {
@@ -277,7 +266,7 @@ func TestKafkaUpsert(t *testing.T) {
 			cfg := kafkaJSONBaseConfig(t)
 			cfg.DedupKeys = tc.dedup
 			if tc.expectFail {
-				cfg.RunUpsertIcebergExpectFail(t, tc.isolateSuite, tc.seed)
+				cfg.RunUpsertIcebergExpectFail(t, tc.isolateSuite, tc.seed, tc.wantErr)
 				return
 			}
 			cfg.RunUpsertIceberg(t, tc.isolateSuite, tc.seed, tc.syncs)

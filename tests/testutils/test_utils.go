@@ -1790,7 +1790,7 @@ func (cfg *IntegrationTest) RunUpsertIceberg(t *testing.T, suite, seedOp string,
 	}
 }
 
-func (cfg *IntegrationTest) RunUpsertIcebergExpectFail(t *testing.T, suite, seedOp string) {
+func (cfg *IntegrationTest) RunUpsertIcebergExpectFail(t *testing.T, suite, seedOp, wantErr string) {
 	cfg.IsolateSuite(t, suite)
 	ctx := t.Context()
 
@@ -1818,9 +1818,9 @@ func (cfg *IntegrationTest) RunUpsertIcebergExpectFail(t *testing.T, suite, seed
 		_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
 		return cfg.runSyncAndVerify(ctx, t, testTable, false, "iceberg", "", "c", cfg.ExpectedData, true)
 	}); err == nil {
-		t.Fatal("all-null dedup keys must fail sync")
-	} else if !strings.Contains(err.Error(), "all dedup keys are null") {
-		t.Fatalf("expected all dedup keys are null, got: %v", err)
+		t.Fatalf("sync must fail (%s)", wantErr)
+	} else if !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("expected %q, got: %v", wantErr, err)
 	}
 }
 
@@ -2047,8 +2047,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
 	)
-	// In kafka, _op_type is always 'c' and col_included appears only in new rows.
-	// To check new record, col_included is used.
+	// Kafka append keeps _op_type 'c'. Upsert writes c (first insert, Iceberg rewrite), u, or d.
+	// col_included appears only on evolved/update rows.
 	if driver == string(constants.Kafka) {
 		if _, ok := schema["col_included"]; ok {
 			selectQuery += " AND col_included IS NOT NULL"
@@ -2315,8 +2315,8 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		"SELECT * FROM %s WHERE `_op_type` = '%s'",
 		viewName, opSymbol,
 	)
-	// In kafka, _op_type is always 'c' and col_included appears only in new rows.
-	// To check new record, col_included is used.
+	// Kafka append keeps _op_type 'c'. Upsert writes c (first insert, Iceberg rewrite), u, or d.
+	// col_included appears only on evolved/update rows.
 	if driver == string(constants.Kafka) {
 		if _, ok := schema["col_included"]; ok {
 			selectQuery += " AND `col_included` IS NOT NULL"

@@ -43,10 +43,22 @@ func TestParseKafkaData(t *testing.T) {
 			wantKeyFields: map[string]interface{}{"id": "k1"},
 		},
 		{
-			name: "empty key",
+			name: "nil key",
 			record: &kgo.Record{
 				Value: []byte(`{"a":1,"b":2}`),
 				Key:   nil,
+			},
+			wantValue: map[string]interface{}{
+				"a": json.Number("1"),
+				"b": json.Number("2"),
+			},
+			wantKey: "",
+		},
+		{
+			name: "empty-bytes key",
+			record: &kgo.Record{
+				Value: []byte(`{"a":1,"b":2}`),
+				Key:   []byte{},
 			},
 			wantValue: map[string]interface{}{
 				"a": json.Number("1"),

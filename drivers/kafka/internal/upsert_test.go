@@ -14,34 +14,34 @@ import (
 
 func TestIsKafkaKeyOnlyDedup(t *testing.T) {
 	tests := []struct {
-		name                 string
-		dedupKeys            []string
-		wantModeOnlyKafkaKey bool
+		name      string
+		dedupKeys []string
+		want      bool
 	}{
 		{
-			name:                 "only _kafka_key",
-			dedupKeys:            []string{Key},
-			wantModeOnlyKafkaKey: true,
+			name:      "only _kafka_key",
+			dedupKeys: []string{Key},
+			want:      true,
 		},
 		{
-			name:                 "column id is not just _kafka_key",
-			dedupKeys:            []string{"id"},
-			wantModeOnlyKafkaKey: false,
+			name:      "body field",
+			dedupKeys: []string{"id"},
+			want:      false,
 		},
 		{
-			name:                 "_kafka_key + column id is not just _kafka_key",
-			dedupKeys:            []string{Key, "id"},
-			wantModeOnlyKafkaKey: false,
+			name:      "_kafka_key and body field",
+			dedupKeys: []string{Key, "id"},
+			want:      false,
 		},
 		{
-			name:                 "empty is under category not just _kafka_key",
-			dedupKeys:            nil,
-			wantModeOnlyKafkaKey: false,
+			name:      "empty",
+			dedupKeys: nil,
+			want:      false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.wantModeOnlyKafkaKey, isKafkaKeyOnlyDedup(tt.dedupKeys))
+			assert.Equal(t, tt.want, isKafkaKeyOnlyDedup(tt.dedupKeys))
 		})
 	}
 }
@@ -57,67 +57,74 @@ func TestCheckDedupKeysExist(t *testing.T) {
 		wantMissing bool
 		check       func(t *testing.T, data map[string]any)
 	}{
+		// kafka_key_only
 		{
-			name:      "value has id with empty kafka key",
+			name:      "fill from kafkaKey",
+			dedupKeys: []string{Key},
+			kafkaKey:  "key1",
+			check: func(t *testing.T, data map[string]any) {
+				assert.Equal(t, "key1", data[Key])
+			},
+		},
+		{
+			name:        "empty kafkaKey does not fill",
+			dedupKeys:   []string{Key},
+			wantMissing: true,
+		},
+		{
+			name:      "stamped empty string is present",
+			dedupKeys: []string{Key},
+			data:      map[string]any{Key: ""},
+		},
+		{
+			name:      "json null _kafka_key fails",
+			dedupKeys: []string{Key},
+			data:      map[string]any{Key: nil},
+			wantErr:   errNullDedupKeys,
+		},
+		// configured_single
+		{
+			name:      "present id",
 			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"id":   "101",
 				"name": "sam",
-				"age":  20,
 			},
 			check: func(t *testing.T, data map[string]any) {
 				assert.Equal(t, "101", data["id"])
 			},
 		},
 		{
-			name:      "value has id with kafka key present",
+			name:      "empty string id is present",
 			dedupKeys: []string{"id"},
-			data: map[string]any{
-				"id":   "101",
-				"name": "sam",
-				"age":  20,
-			},
-			kafkaKey: "random_key",
+			data:      map[string]any{"id": ""},
 		},
 		{
-			name:      "Id(passed as dedup key) is missing, dedup not taken from kafka key",
+			name:      "missing id is not taken from kafka key",
 			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"name": "noId",
-				"age":  2000,
 			},
 			kafkaKey:    "1222",
 			wantMissing: true,
 		},
 		{
-			name:      "all selected dedup are null -- fail",
+			name:      "json null id fails",
 			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"id":   nil,
 				"name": "sam",
-				"age":  20,
 			},
 			wantErr: errNullDedupKeys,
 		},
 		{
-			name:      "dedup key = kafka key(nil) -- fails",
-			dedupKeys: []string{Key},
-			data: map[string]any{
-				Key: nil,
-			},
-			wantErr: errNullDedupKeys,
+			name:        "nil data fails missing",
+			dedupKeys:   []string{"id"},
+			wantMissing: true,
 		},
+		// configured_composite
 		{
-			name:      "selected dedup field value is empty string - works",
-			dedupKeys: []string{"id"},
-			data: map[string]any{
-				"id":   "",
-				"name": "sam",
-				"age":  20,
-			},
-		},
-		{
-			name:      "dedupe fields some are absent",
+			name:      "partial missing still upserts",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":  "101",
@@ -125,34 +132,58 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			},
 			check: func(t *testing.T, data map[string]any) {
 				_, ok := data["name"]
-				assert.False(t, ok, "absent name must stay absent")
+				assert.False(t, ok)
 			},
 		},
 		{
-			name:      "dedupe fields are partial null",
+			name:      "partial null still upserts",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   "101",
 				"name": nil,
-				"age":  20,
 			},
 		},
 		{
-			name:      "all selected fields are present and all null - fail",
+			name:      "all null fails",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   nil,
 				"name": nil,
-				"age":  20,
 			},
 			wantErr: errNullDedupKeys,
 		},
 		{
-			name:      "fill id from keyFields",
+			name:        "all five missing fails",
+			dedupKeys:   []string{"a", "b", "c", "d", "e"},
+			data:        map[string]any{"v": 1},
+			wantMissing: true,
+		},
+		{
+			name:      "two of five missing upserts",
+			dedupKeys: []string{"a", "b", "c", "d", "e"},
+			data: map[string]any{
+				"a": "1",
+				"b": "2",
+				"c": "3",
+			},
+		},
+		{
+			name:      "two of five null upserts",
+			dedupKeys: []string{"a", "b", "c", "d", "e"},
+			data: map[string]any{
+				"a": "1",
+				"b": "2",
+				"c": "3",
+				"d": nil,
+				"e": nil,
+			},
+		},
+		// fill from keyFields
+		{
+			name:      "fill id from parsed json key",
 			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"name": nil,
-				"age":  20,
 			},
 			keyFields: map[string]any{
 				"id": "101",
@@ -162,34 +193,10 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			},
 		},
 		{
-			name:      "fill _kafka_key from kafkaKey(string of Key)",
-			dedupKeys: []string{Key},
-			data:      nil,
-			kafkaKey:  "key1",
-			check: func(t *testing.T, data map[string]any) {
-				assert.Equal(t, "key1", data[Key])
-			},
-		},
-		{
-			name:        "empty kafkaKey doesnot fill _kafka_key(part of data)",
-			dedupKeys:   []string{Key},
-			data:        nil,
-			kafkaKey:    "",
-			wantMissing: true,
-		},
-		{
-			name:        "nil data and no field names present",
-			dedupKeys:   []string{"id"},
-			data:        nil,
-			wantMissing: true,
-		},
-		{
-			name:      "value from data over value from keyFields(from JSON of Key)",
+			name:      "body value wins over keyFields",
 			dedupKeys: []string{"id"},
 			data: map[string]any{
-				"id":   "from-value",
-				"name": nil,
-				"age":  20,
+				"id": "from-value",
 			},
 			keyFields: map[string]any{
 				"id": "from-key",
@@ -227,97 +234,163 @@ func TestGenerateOlakeIDFromExistingKeys(t *testing.T) {
 		want           string
 		notEqualAppend bool
 	}{
+		// kafka_key_only
 		{
-			name:      "plain kafka key is not hashed",
+			name:      "plain string is not hashed",
 			dedupKeys: []string{Key},
-			data:      map[string]any{Key: "azE="},
-			want:      "azE=",
+			data:      map[string]any{Key: "user-1"},
+			want:      "user-1",
 		},
 		{
-			name:      "json kafka key is md5 of canonical json",
+			name:      "json object is md5 of canonical json",
 			dedupKeys: []string{Key},
 			data:      map[string]any{Key: `{"id":"j1"}`},
 			want:      "61f0c9bca503f6cebb8bfce0b5b05244",
 		},
 		{
-			name:      "null name hashes like missing name",
+			name:      "empty object is md5 of {}",
+			dedupKeys: []string{Key},
+			data:      map[string]any{Key: "{}"},
+			want:      "99914b932bd37a50b983c5e7c90ae93b",
+		},
+		{
+			name:      "empty string is hashed",
+			dedupKeys: []string{Key},
+			data:      map[string]any{Key: ""},
+			want:      "11a32013ca961189c0b6183f637cbab5",
+		},
+		// configured_single
+		{
+			name:      "real value is not hashed",
+			dedupKeys: []string{"id"},
+			data:      map[string]any{"id": "42"},
+			want:      "42",
+		},
+		{
+			name:      "empty string is hashed",
+			dedupKeys: []string{"id"},
+			data:      map[string]any{"id": ""},
+			want:      "7142df90fded5d00df2c0ba662f9b662",
+		},
+		// configured_composite: missing ≡ json null; empty and "<nil>" do not
+		{
+			name:      "missing name equals json null",
 			dedupKeys: []string{"id", "name"},
-			data: map[string]any{
-				"id":   "42",
-				"name": nil,
-			},
-			want: "2d93fb3e566ffaa3495538d858ba9eb6",
+			data:      map[string]any{"id": "42"},
+			want:      "86adbcb5c8924a5f54a7fb595f50c0bb",
 		},
 		{
-			name: "missing name hashes like null name",
-			dedupKeys: []string{
-				"id", "name",
-			},
-			data: map[string]any{
-				"id": "42",
-			},
-			want: "2d93fb3e566ffaa3495538d858ba9eb6",
-		},
-		{
-			name:      "empty string name hashes differently from null",
+			name:      "empty name differs from null",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   "42",
 				"name": "",
 			},
-			want: "28790432152f698b954bc343d2957ad7",
+			want: "42607a7031d470702a7265300dffb7e4",
 		},
 		{
-			name:      "null id hashes like missing id",
+			name:      "missing id equals json null",
 			dedupKeys: []string{"id", "name"},
-			data: map[string]any{
-				"id":   nil,
-				"name": "sam",
-			},
-			want: "8fe70e84b495a91d1fd6f5ddb8af8256",
+			data:      map[string]any{"name": "sam"},
+			want:      "d3cff7bca59118e818080ce26c79c6bc",
 		},
 		{
-			name:      "missing id hashes like null id",
-			dedupKeys: []string{"id", "name"},
-			data: map[string]any{
-				"name": "sam",
-			},
-			want: "8fe70e84b495a91d1fd6f5ddb8af8256",
-		},
-		{
-			name:      "empty string id hashes differently from null",
+			name:      "empty id differs from null",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   "",
 				"name": "sam",
 			},
-			want: "2b6fb895922079ebeeb2db70c050c78c",
+			want: "699bd425295fb1f9df30b62653fc9731",
 		},
 		{
 			name:      "only customer_id does not collide with only order_id",
 			dedupKeys: []string{"customer_id", "order_id"},
-			data: map[string]any{
-				"customer_id": "42",
-			},
-			want: "2d93fb3e566ffaa3495538d858ba9eb6",
+			data:      map[string]any{"customer_id": "42"},
+			want:      "8d5890df90386eef5cac71c29c04aef1",
 		},
 		{
 			name:      "only order_id does not collide with only customer_id",
 			dedupKeys: []string{"customer_id", "order_id"},
-			data: map[string]any{
-				"order_id": "42",
-			},
-			want: "fda611170999dbc1e9721762dab86de9",
+			data:      map[string]any{"order_id": "42"},
+			want:      "ce22e01cdfae0a0e43fff48d3daebd9d",
 		},
 		{
-			name:      "composite upsert id is not append offset 5 partition 0",
+			name:      "composite is not append offset-partition hash",
 			dedupKeys: []string{"customer_id", "order_id"},
 			data: map[string]any{
 				"customer_id": "c1",
 				"order_id":    "o1",
 			},
-			want:           "ed4e0393723d1ff733dd7719b98bedec",
+			want:           "ae0fc0c5cb5e7367e67dadd276589f2c",
 			notEqualAppend: true,
+		},
+		{
+			name:      "five keys two missing",
+			dedupKeys: []string{"a", "b", "c", "d", "e"},
+			data: map[string]any{
+				"a": "1",
+				"b": "2",
+				"c": "3",
+			},
+			want: "4142d1620adcd26cdc264a3b65ec8564",
+		},
+		{
+			name:      "five keys empty d differs from missing d",
+			dedupKeys: []string{"a", "b", "c", "d", "e"},
+			data: map[string]any{
+				"a": "1",
+				"b": "2",
+				"c": "3",
+				"d": "",
+				"e": nil,
+			},
+			want: "54139b1108c6418085a976804ed14979",
+		},
+		{
+			name:      "pipe in id does not collide with pipe in name",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   "a|b",
+				"name": "c",
+			},
+			want: "183cda45adb4a8a54f79297fe8d71b3a",
+		},
+		{
+			name:      "pipe in name does not collide with pipe in id",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   "a",
+				"name": "b|c",
+			},
+			want: "a689a3eb2604ed9f28798b5cef108692",
+		},
+		{
+			name:      "string <nil> does not collide with json null",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   "42",
+				"name": "<nil>",
+			},
+			want: "ada70fa21cea5521235e5879940789bc",
+		},
+		{
+			name:      "number 1 does not collide with string 1",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   1,
+				"name": "x",
+			},
+			want: "2d67deb6550cbabe2eb3cf3eb03d3525",
+		},
+		{
+			name:      "string 1 does not collide with number 1",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   "1",
+				"name": "x",
+			},
+			want: "1a9caa71e59e4e46c09e3173c14effc9",
 		},
 	}
 	for _, tt := range tests {
@@ -333,26 +406,6 @@ func TestGenerateOlakeIDFromExistingKeys(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestGenerateOlakeIDNullVsMissingVsEmpty(t *testing.T) {
-	dedupKeys := []string{"id", "name"}
-	nullName := generateOlakeIDFromExistingKeys(dedupKeys, map[string]any{
-		"id":   "42",
-		"name": nil,
-	})
-	missingName := generateOlakeIDFromExistingKeys(dedupKeys, map[string]any{
-		"id": "42",
-	})
-	emptyName := generateOlakeIDFromExistingKeys(dedupKeys, map[string]any{
-		"id":   "42",
-		"name": "",
-	})
-
-	assert.Equal(t, nullName, missingName, "GetKeysHash: null and missing are both <nil>")
-	assert.NotEqual(t, nullName, emptyName, "empty string is not <nil>")
-	assert.Equal(t, "2d93fb3e566ffaa3495538d858ba9eb6", nullName)
-	assert.Equal(t, "28790432152f698b954bc343d2957ad7", emptyName)
 }
 
 func TestCanonicalizeKafkaKey(t *testing.T) {
@@ -378,13 +431,13 @@ func TestCanonicalizeKafkaKey(t *testing.T) {
 			want: "dGVzdA==",
 		},
 		{
-			name: "json object is remarlshaled",
+			name: "json object is remarshaled",
 			key:  []byte(`{"b":1,"a":2}`),
 			want: `{"a":2,"b":1}`,
 		},
 		{
 			name: "json with leading space",
-			key:  []byte(`	{"id":1}`),
+			key:  []byte("\t{\"id\":1}"),
 			want: `{"id":1}`,
 		},
 		{
