@@ -12,8 +12,12 @@ on:
     - '**/pom.xml'
     - 'Makefile'
     - 'Dockerfile'
+    - '.dockerignore'
+    - 'drivers/**.conf'
+    - 'drivers/*/driver.mk'
     - 'tests/**'
     - '.github/workflows/performance-test.yml'
+    - '.github/actions/driver-deps/action.yml'
   pull_request:
     branches:
     - "master"
@@ -24,13 +28,13 @@ permissions:
   actions: read
   id-token: write
   contents: read
-  pull-requests: read
 
 jobs:
   performance-tests:
     environment: Performance Testing
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    concurrency: performance-tests-${{ matrix.driver }}
     strategy:
       matrix:
         include:
