@@ -34,7 +34,9 @@ jobs:
     environment: Performance Testing
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    concurrency: performance-tests-${{ matrix.driver }}
+    concurrency:
+      group: performance-tests-${{ matrix.driver }}
+      cancel-in-progress: true
     strategy:
       matrix:
         include:
