@@ -16,6 +16,11 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
 )
 
+const (
+	azureCopyTimeout = 10 * time.Minute
+	azureCopyPoll    = 200 * time.Millisecond
+)
+
 type Config struct {
 	AccountName   string
 	AccountKey    string
@@ -124,9 +129,11 @@ func (a *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 }
 
 func (a *Store) waitForCopy(ctx context.Context, dst *blob.Client, srcKey, dstKey string) error {
+	ctx, cancel := context.WithTimeout(ctx, azureCopyTimeout)
+	defer cancel()
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return fmt.Errorf("azure copy %s, %s: %w", srcKey, dstKey, err)
 		}
 		props, err := dst.GetProperties(ctx, nil)
 		if err != nil {
@@ -141,8 +148,8 @@ func (a *Store) waitForCopy(ctx context.Context, dst *blob.Client, srcKey, dstKe
 		case blob.CopyStatusTypePending:
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(200 * time.Millisecond):
+				return fmt.Errorf("azure copy %s -> %s: %w", srcKey, dstKey, ctx.Err())
+			case <-time.After(azureCopyPoll):
 			}
 		default:
 			return fmt.Errorf("azure copy %s -> %s: %s", srcKey, dstKey, *props.CopyStatus)
