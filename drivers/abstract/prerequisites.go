@@ -6,14 +6,20 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+// prerequisiteCheckTimeout bounds each check, so one stalled query cannot hold up Setup or the
+// checks after it. A parent deadline that is sooner still wins.
+const prerequisiteCheckTimeout = 30 * time.Second
+
 // Prerequisite is one CDC setup check. Check returns the server's current value and whether it
-// is acceptable; an error means the value could not be read.
+// is acceptable; an error means the value could not be read. RunPrerequisites bounds each Check
+// with prerequisiteCheckTimeout, so implementations need no deadline of their own.
 type Prerequisite struct {
 	Name        string
 	Required    bool
@@ -34,7 +40,9 @@ type PrerequisiteReporter interface {
 func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.PrerequisiteResults {
 	results := make(types.PrerequisiteResults, 0, len(checks))
 	for _, c := range checks {
-		current, ok, err := c.Check(ctx)
+		checkCtx, cancel := context.WithTimeout(ctx, prerequisiteCheckTimeout)
+		current, ok, err := c.Check(checkCtx)
+		cancel()
 		if err != nil {
 			logger.Warnf("prerequisite %s could not be evaluated: %s", c.Name, err)
 			current, ok = "unavailable", false

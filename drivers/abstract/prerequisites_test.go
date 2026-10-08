@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -58,6 +59,32 @@ func TestRunPrerequisites(t *testing.T) {
 	assert.NoError(t, results[0].Err)
 
 	assert.Equal(t, []string{"failed_required", "unreadable_required"}, results.GetFailedRequirements())
+}
+
+// each check gets its own deadline: a hung check is reported unavailable and the rest still run
+func TestRunPrerequisitesBoundsEachCheck(t *testing.T) {
+	hung := Prerequisite{
+		Name: "hung", Required: true, Recommended: "recommended",
+		Check: func(ctx context.Context) (string, bool, error) {
+			<-ctx.Done()
+			return "", false, ctx.Err()
+		},
+	}
+	// a parent deadline sooner than the per-check timeout wins, which keeps this test fast
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	results := RunPrerequisites(ctx, []Prerequisite{
+		hung,
+		staticCheck("after_hung", false, "ON", true, nil),
+	})
+
+	require.Len(t, results, 2)
+	assert.Equal(t, "hung", results[0].Name)
+	assert.False(t, results[0].Passed)
+	assert.Equal(t, "unavailable", results[0].CurrentValue)
+	assert.ErrorIs(t, results[0].Err, context.DeadlineExceeded)
+	assert.Equal(t, "after_hung", results[1].Name)
 }
 
 func TestRequireCDCPrerequisites(t *testing.T) {
