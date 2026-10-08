@@ -29,28 +29,36 @@ func oplogEntry(seconds uint32) bson.D {
 }
 
 func TestMongoPrerequisiteChecks(t *testing.T) {
-	collect := func(cdcSelected bool) map[string]bool {
-		required := map[string]bool{}
-		for _, c := range (&Mongo{}).prerequisiteChecks(cdcSelected) {
-			required[c.Name] = c.Required
-			assert.NotEmpty(t, c.Description, c.Name)
-			assert.NotEmpty(t, c.Recommended, c.Name)
-			assert.NotNil(t, c.Check, c.Name)
-		}
-		return required
+	tests := []struct {
+		name         string
+		cdcSelected  bool
+		wantRequired map[string]bool
+	}{
+		{
+			// update_method selects CDC: change streams must work, retention stays advisory
+			name:         "cdc selected",
+			cdcSelected:  true,
+			wantRequired: map[string]bool{"change_streams": true, "oplog_retention": false},
+		},
+		{
+			// a config predating update_method is reported on but never blocked
+			name:         "cdc not selected",
+			cdcSelected:  false,
+			wantRequired: map[string]bool{"change_streams": false, "oplog_retention": false},
+		},
 	}
-
-	// update_method selects CDC: change streams must work, retention stays advisory
-	assert.Equal(t, map[string]bool{
-		"change_streams":  true,
-		"oplog_retention": false,
-	}, collect(true))
-
-	// a config predating update_method is reported on but never blocked
-	assert.Equal(t, map[string]bool{
-		"change_streams":  false,
-		"oplog_retention": false,
-	}, collect(false))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			required := map[string]bool{}
+			for _, c := range (&Mongo{}).prerequisiteChecks(tc.cdcSelected) {
+				required[c.Name] = c.Required
+				assert.NotEmpty(t, c.Description, c.Name)
+				assert.NotEmpty(t, c.Recommended, c.Name)
+				assert.NotNil(t, c.Check, c.Name)
+			}
+			assert.Equal(t, tc.wantRequired, required)
+		})
+	}
 }
 
 func TestMongoCheckChangeStreams(t *testing.T) {

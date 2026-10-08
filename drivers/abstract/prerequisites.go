@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -48,6 +49,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 			Passed:           ok,
 			CurrentValue:     current,
 			RecommendedValue: c.Recommended,
+			Err:              err,
 			Description:      c.Description,
 		})
 	}
@@ -66,17 +68,39 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 	return results
 }
 
-// RequireCDCPrerequisites returns a precondition error when a required check did not pass. A
-// driver calls it from Setup when the config explicitly selects CDC, so that test connection
-// fails instead of reporting a source that cannot sync.
+// RequireCDCPrerequisites returns an error when a required check did not pass. A driver calls it
+// from Setup when the config explicitly selects CDC, so that test connection fails instead of
+// reporting a source that cannot sync. A check that ran and failed is a CDC precondition failure;
+// when every failure is a check that could not be evaluated, the causes are kept so the failure
+// is classified by them (network, permission, timeout) rather than as a misconfiguration.
 func RequireCDCPrerequisites(driverType string, prerequisites types.Prerequisites) error {
-	failed := prerequisites.FailedRequired()
-	if len(failed) == 0 {
+	var names []string
+	var causes []error
+	misconfigured := false
+	for _, c := range prerequisites {
+		if !c.Required || c.Passed {
+			continue
+		}
+		if c.Err == nil {
+			misconfigured = true
+			names = append(names, c.Name)
+			continue
+		}
+		names = append(names, fmt.Sprintf("%s (could not evaluate: %s)", c.Name, c.Err))
+		// errs.From only reads classified errors, so a raw cause would lose to an outer precondition
+		causes = append(causes, errs.Classify(c.Err))
+	}
+	if len(names) == 0 {
 		return nil
 	}
-	return errs.Precondition(errs.CDCPreconditionFailed,
-		fmt.Sprintf("%s.cdc_prerequisites_failed", driverType),
-		fmt.Errorf("required CDC prerequisites not met: %s", strings.Join(failed, ", ")))
+	if misconfigured {
+		// a definite misconfiguration is the actionable failure, even if another check also errored
+		return errs.Precondition(errs.CDCPreconditionFailed,
+			fmt.Sprintf("%s.cdc_prerequisites_failed", driverType),
+			fmt.Errorf("required CDC prerequisites not met: %s", strings.Join(names, ", ")))
+	}
+	return fmt.Errorf("required CDC prerequisites could not be evaluated: %s: %w",
+		strings.Join(names, ", "), errors.Join(causes...))
 }
 
 // ValidateCDCPrerequisites fails when CDC streams are selected and a required check did not pass.

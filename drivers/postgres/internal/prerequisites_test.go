@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/pkg/waljs"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,33 +38,43 @@ func boolRow(column string, value bool) *sqlmock.Rows {
 }
 
 func TestPostgresPrerequisiteChecks(t *testing.T) {
-	names := func(cdc *CDC) map[string]bool {
-		required := map[string]bool{}
-		for _, c := range (&Postgres{}).prerequisiteChecks(cdc) {
-			required[c.Name] = c.Required
-			assert.NotEmpty(t, c.Description, c.Name)
-			assert.NotEmpty(t, c.Recommended, c.Name)
-			assert.NotNil(t, c.Check, c.Name)
-		}
-		return required
+	tests := []struct {
+		name         string
+		cdc          *CDC
+		wantRequired map[string]bool
+	}{
+		{
+			name: "pgoutput with publication",
+			cdc:  &CDC{ReplicationSlot: "olake_slot", Publication: "olake_pub"},
+			wantRequired: map[string]bool{
+				"wal_level":             true,
+				"replication_privilege": true,
+				"replication_slot":      true,
+				"publication":           true,
+			},
+		},
+		{
+			name: "no publication configured skips the publication check",
+			cdc:  &CDC{ReplicationSlot: "olake_slot"},
+			wantRequired: map[string]bool{
+				"wal_level":             true,
+				"replication_privilege": true,
+				"replication_slot":      true,
+			},
+		},
 	}
-
-	t.Run("pgoutput with publication", func(t *testing.T) {
-		assert.Equal(t, map[string]bool{
-			"wal_level":             true,
-			"replication_privilege": true,
-			"replication_slot":      true,
-			"publication":           true,
-		}, names(&CDC{ReplicationSlot: "olake_slot", Publication: "olake_pub"}))
-	})
-
-	t.Run("no publication configured skips the publication check", func(t *testing.T) {
-		assert.Equal(t, map[string]bool{
-			"wal_level":             true,
-			"replication_privilege": true,
-			"replication_slot":      true,
-		}, names(&CDC{ReplicationSlot: "olake_slot"}))
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			required := map[string]bool{}
+			for _, c := range (&Postgres{}).prerequisiteChecks(tc.cdc) {
+				required[c.Name] = c.Required
+				assert.NotEmpty(t, c.Description, c.Name)
+				assert.NotEmpty(t, c.Recommended, c.Name)
+				assert.NotNil(t, c.Check, c.Name)
+			}
+			assert.Equal(t, tc.wantRequired, required)
+		})
+	}
 }
 
 func TestPostgresCheckWalLevel(t *testing.T) {
@@ -124,13 +135,21 @@ func TestPostgresCheckReplicationPrivilege(t *testing.T) {
 			wantCurrent: "granted", wantOK: true,
 		},
 		{
-			// the role does not exist outside RDS/Aurora, so the query errors and is ignored
+			// the role does not exist outside RDS/Aurora, so undefined_object is ignored
 			name: "missing, rds role absent",
 			expect: func(mock sqlmock.Sqlmock) {
 				mock.ExpectQuery(attrQuery).WillReturnRows(boolRow("has", false))
-				mock.ExpectQuery(rdsQuery).WillReturnError(errors.New(`role "rds_replication" does not exist`))
+				mock.ExpectQuery(rdsQuery).WillReturnError(&pgconn.PgError{Code: pgUndefinedObject, Message: `role "rds_replication" does not exist`})
 			},
 			wantCurrent: "missing", wantOK: false,
+		},
+		{
+			name: "rds role query error",
+			expect: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(attrQuery).WillReturnRows(boolRow("has", false))
+				mock.ExpectQuery(rdsQuery).WillReturnError(errors.New("connection reset"))
+			},
+			wantErr: true,
 		},
 		{
 			name: "missing on rds",

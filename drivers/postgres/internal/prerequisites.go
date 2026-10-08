@@ -9,7 +9,11 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// pgUndefinedObject is SQLSTATE 42704, raised when a named role does not exist.
+const pgUndefinedObject = "42704"
 
 func (p *Postgres) prerequisiteChecks(cdc *CDC) []abstract.Prerequisite {
 	checks := []abstract.Prerequisite{
@@ -53,7 +57,12 @@ func (p *Postgres) checkReplicationPrivilege(ctx context.Context) (string, bool,
 		return "", false, err
 	}
 	if !granted {
-		_ = p.client.QueryRowContext(ctx, jdbc.PostgresRDSReplicationRoleQuery()).Scan(&granted)
+		err := p.client.QueryRowContext(ctx, jdbc.PostgresRDSReplicationRoleQuery()).Scan(&granted)
+		var pgErr *pgconn.PgError
+		// undefined_object: the rds_replication role exists only on RDS/Aurora
+		if err != nil && !(errors.As(err, &pgErr) && pgErr.Code == pgUndefinedObject) {
+			return "", false, err
+		}
 	}
 	if !granted {
 		return "missing", false, nil
