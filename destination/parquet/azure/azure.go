@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"sort"
 	"strings"
 	"time"
 
@@ -107,7 +106,6 @@ func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
 			}
 		}
 	}
-	sort.Strings(keys)
 	return keys, nil
 }
 
