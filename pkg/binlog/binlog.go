@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -172,7 +173,11 @@ func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Posit
 	defer rows.Close()
 
 	if !rows.Next() {
-		return mysql.Position{}, ErrNoBinlogPosition
+		// Next is also false when reading the row failed; only an empty result means binlog is off
+		if err := rows.Err(); err != nil {
+			return mysql.Position{}, fmt.Errorf("failed to read master status: %w", err)
+		}
+		return mysql.Position{}, errs.Precondition(errs.CDCPreconditionFailed, "mysql.binlog_disabled", ErrNoBinlogPosition)
 	}
 
 	var file string

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
@@ -76,13 +77,14 @@ func (p *Postgres) checkReplicationSlot(cdc *CDC) func(context.Context) (string,
 		exists, err := doesReplicationSlotExists(ctx, p.client, cdc.ReplicationSlot, cdc.Publication, p.config.Database)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			return "not found", false, nil
+			// the slot lookup is not scoped to a database, so the slot exists nowhere
+			return fmt.Sprintf("slot %q not found", cdc.ReplicationSlot), false, nil
 		case err != nil && errs.From(err).Category == errs.CDCPreconditionFailed:
 			return err.Error(), false, nil // e.g. "only logical slots are supported: physical"
 		case err != nil:
 			return "", false, err
 		case !exists:
-			return "not in this database", false, nil
+			return fmt.Sprintf("slot %q exists in another database, not %q", cdc.ReplicationSlot, p.config.Database), false, nil
 		}
 		return "exists", true, nil
 	}
@@ -93,13 +95,13 @@ func (p *Postgres) checkPublication(publication string) func(context.Context) (s
 	return func(ctx context.Context) (string, bool, error) {
 		exists, err := checkPublicationExists(ctx, p.client, publication)
 		if err != nil || !exists {
-			return "not found", false, err
+			return fmt.Sprintf("publication %q not found", publication), false, err
 		}
 		return "exists", true, nil
 	}
 }
 
 // Prerequisites returns the CDC setup checks evaluated in Setup.
-func (p *Postgres) Prerequisites() types.Prerequisites {
+func (p *Postgres) Prerequisites() types.PrerequisiteResults {
 	return p.prerequisites
 }

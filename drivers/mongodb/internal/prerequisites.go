@@ -16,8 +16,6 @@ import (
 )
 
 const (
-	prerequisiteTimeout = 30 * time.Second
-
 	errCodeUnauthorized          = 13
 	errCodeChangeStreamsDisabled = 40573 // not a replica set / sharded cluster
 )
@@ -43,9 +41,6 @@ func (m *Mongo) prerequisiteChecks(required bool) []abstract.Prerequisite {
 // checkChangeStreams opens and closes a change stream. It proves the topology and the
 // find/changeStream privileges in one call.
 func (m *Mongo) checkChangeStreams(ctx context.Context) (string, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, prerequisiteTimeout)
-	defer cancel()
-
 	stream, err := m.client.Database(m.config.Database).Watch(ctx, mongo.Pipeline{})
 	if err != nil {
 		var cmdErr mongo.CommandError
@@ -67,9 +62,6 @@ func (m *Mongo) checkChangeStreams(ctx context.Context) (string, bool, error) {
 // arithmetic as the shell's rs.printReplicationInfo(). Needs read on local; on mongos the
 // read errors and the check reports unavailable.
 func (m *Mongo) checkOplogRetention(ctx context.Context) (string, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, prerequisiteTimeout)
-	defer cancel()
-
 	oplog := m.client.Database("local").Collection("oplog.rs")
 	edge := func(direction int) (primitive.Timestamp, error) {
 		var entry struct {
@@ -97,6 +89,6 @@ func (m *Mongo) checkOplogRetention(ctx context.Context) (string, bool, error) {
 }
 
 // Prerequisites returns the CDC setup checks evaluated in Setup.
-func (m *Mongo) Prerequisites() types.Prerequisites {
+func (m *Mongo) Prerequisites() types.PrerequisiteResults {
 	return m.prerequisites
 }

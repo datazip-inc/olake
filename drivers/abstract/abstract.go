@@ -245,6 +245,7 @@ func unsampledStreams(streams []types.StreamID, streamMap *sync.Map) []string {
 	return unsampled
 }
 
+// TODO: move prerequisite handling out of each driver's Setup and into this layer.
 func (a *AbstractDriver) Setup(ctx context.Context) error {
 	return a.driver.Setup(ctx)
 }

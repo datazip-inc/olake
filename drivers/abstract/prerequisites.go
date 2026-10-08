@@ -6,14 +6,20 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+// prerequisiteCheckTimeout bounds each check, so one stalled query cannot hold up Setup or the
+// checks after it. A parent deadline that is sooner still wins.
+const prerequisiteCheckTimeout = 30 * time.Second
+
 // Prerequisite is one CDC setup check. Check returns the server's current value and whether it
-// is acceptable; an error means the value could not be read.
+// is acceptable; an error means the value could not be read. RunPrerequisites bounds each Check
+// with prerequisiteCheckTimeout, so implementations need no deadline of their own.
 type Prerequisite struct {
 	Name        string
 	Required    bool
@@ -26,15 +32,17 @@ type Prerequisite struct {
 // Setup records the results and fails on unmet required checks only when the config
 // explicitly selects CDC.
 type PrerequisiteReporter interface {
-	Prerequisites() types.Prerequisites
+	Prerequisites() types.PrerequisiteResults
 }
 
 // RunPrerequisites evaluates every check (no early exit) and orders the results
 // required failed → optional failed → passed.
-func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequisites {
-	results := make(types.Prerequisites, 0, len(checks))
+func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.PrerequisiteResults {
+	results := make(types.PrerequisiteResults, 0, len(checks))
 	for _, c := range checks {
-		current, ok, err := c.Check(ctx)
+		checkCtx, cancel := context.WithTimeout(ctx, prerequisiteCheckTimeout)
+		current, ok, err := c.Check(checkCtx)
+		cancel()
 		if err != nil {
 			logger.Warnf("prerequisite %s could not be evaluated: %s", c.Name, err)
 			current, ok = "unavailable", false
@@ -43,7 +51,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 			logger.Warnf("prerequisite %s not met (required=%t): current=%s recommended=%s",
 				c.Name, c.Required, current, c.Recommended)
 		}
-		results = append(results, types.PrerequisiteCheck{
+		results = append(results, types.PrerequisiteResult{
 			Name:             c.Name,
 			Required:         c.Required,
 			Passed:           ok,
@@ -54,7 +62,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 		})
 	}
 
-	rank := func(c types.PrerequisiteCheck) int {
+	rank := func(c types.PrerequisiteResult) int {
 		switch {
 		case c.Passed:
 			return 2
@@ -64,7 +72,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 			return 1
 		}
 	}
-	slices.SortStableFunc(results, func(a, b types.PrerequisiteCheck) int { return rank(a) - rank(b) })
+	slices.SortStableFunc(results, func(a, b types.PrerequisiteResult) int { return rank(a) - rank(b) })
 	return results
 }
 
@@ -73,7 +81,7 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 // reporting a source that cannot sync. A check that ran and failed is a CDC precondition failure;
 // when every failure is a check that could not be evaluated, the causes are kept so the failure
 // is classified by them (network, permission, timeout) rather than as a misconfiguration.
-func RequireCDCPrerequisites(driverType string, prerequisites types.Prerequisites) error {
+func RequireCDCPrerequisites(driverType string, prerequisites types.PrerequisiteResults) error {
 	var names []string
 	var causes []error
 	misconfigured := false
@@ -103,19 +111,8 @@ func RequireCDCPrerequisites(driverType string, prerequisites types.Prerequisite
 		strings.Join(names, ", "), errors.Join(causes...))
 }
 
-// ValidateCDCPrerequisites fails when CDC streams are selected and a required check did not pass.
-// Full-refresh and incremental-only syncs are never blocked. Only checks marked Required can fail
-// here: a config that explicitly selects CDC has already failed in Setup, and a config that
-// predates update_method records advisory checks, so it passes as it did before.
-func (a *AbstractDriver) ValidateCDCPrerequisites(cdcStreams []types.StreamInterface) error {
-	if len(cdcStreams) == 0 {
-		return nil
-	}
-	return RequireCDCPrerequisites(a.driver.Type(), a.Prerequisites())
-}
-
 // Prerequisites returns the checks recorded by the driver's Setup, if it runs any.
-func (a *AbstractDriver) Prerequisites() types.Prerequisites {
+func (a *AbstractDriver) Prerequisites() types.PrerequisiteResults {
 	if r, ok := a.driver.(PrerequisiteReporter); ok {
 		return r.Prerequisites()
 	}

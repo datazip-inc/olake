@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -15,10 +16,10 @@ import (
 // reportingDriver is a stubDriver that reports prerequisite results from its Setup.
 type reportingDriver struct {
 	stubDriver
-	prerequisites types.Prerequisites
+	prerequisites types.PrerequisiteResults
 }
 
-func (r reportingDriver) Prerequisites() types.Prerequisites { return r.prerequisites }
+func (r reportingDriver) Prerequisites() types.PrerequisiteResults { return r.prerequisites }
 
 func staticCheck(name string, required bool, current string, ok bool, err error) Prerequisite {
 	return Prerequisite{
@@ -57,7 +58,33 @@ func TestRunPrerequisites(t *testing.T) {
 	assert.EqualError(t, unreadable.Err, "permission denied")
 	assert.NoError(t, results[0].Err)
 
-	assert.Equal(t, []string{"failed_required", "unreadable_required"}, results.FailedRequired())
+	assert.Equal(t, []string{"failed_required", "unreadable_required"}, results.GetFailedRequirements())
+}
+
+// each check gets its own deadline: a hung check is reported unavailable and the rest still run
+func TestRunPrerequisitesBoundsEachCheck(t *testing.T) {
+	hung := Prerequisite{
+		Name: "hung", Required: true, Recommended: "recommended",
+		Check: func(ctx context.Context) (string, bool, error) {
+			<-ctx.Done()
+			return "", false, ctx.Err()
+		},
+	}
+	// a parent deadline sooner than the per-check timeout wins, which keeps this test fast
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	results := RunPrerequisites(ctx, []Prerequisite{
+		hung,
+		staticCheck("after_hung", false, "ON", true, nil),
+	})
+
+	require.Len(t, results, 2)
+	assert.Equal(t, "hung", results[0].Name)
+	assert.False(t, results[0].Passed)
+	assert.Equal(t, "unavailable", results[0].CurrentValue)
+	assert.ErrorIs(t, results[0].Err, context.DeadlineExceeded)
+	assert.Equal(t, "after_hung", results[1].Name)
 }
 
 func TestRequireCDCPrerequisites(t *testing.T) {
@@ -65,7 +92,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		prerequisites types.Prerequisites
+		prerequisites types.PrerequisiteResults
 		wantCategory  errs.Category // empty means no error
 		wantCode      string
 		wantMessage   []string
@@ -74,7 +101,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 		{
 			// a driver calls this from Setup when the config selects CDC, so test connection fails
 			name: "failed required check is a precondition failure",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "binlog_format", Required: true, Passed: false},
 				{Name: "binlog_retention", Required: false, Passed: false},
 				{Name: "log_bin", Required: true, Passed: true},
@@ -87,7 +114,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 		{
 			// nothing is known to be misconfigured, so the cause decides the category
 			name: "unevaluated required check keeps its cause",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "binlog_format", Required: true, Passed: false, CurrentValue: "unavailable", Err: timeout},
 			},
 			wantCategory: errs.Timeout,
@@ -96,7 +123,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 		{
 			// a definite misconfiguration is the actionable failure
 			name: "failed and unevaluated checks report a precondition failure",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "log_bin", Required: true, Passed: false},
 				{Name: "binlog_format", Required: true, Passed: false, CurrentValue: "unavailable", Err: timeout},
 			},
@@ -107,7 +134,7 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 		{
 			// only optional checks failed: CDC may still run
 			name: "failed optional check passes",
-			prerequisites: types.Prerequisites{
+			prerequisites: types.PrerequisiteResults{
 				{Name: "binlog_retention", Required: false, Passed: false, Err: timeout},
 			},
 		},
@@ -137,48 +164,26 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 	}
 }
 
-func TestPrerequisitesWithoutReporter(t *testing.T) {
-	driver := NewAbstractDriver(context.Background(), stubDriver{typ: "oracle"})
-	assert.Nil(t, driver.Prerequisites())
-}
+func TestAbstractDriverPrerequisites(t *testing.T) {
+	recorded := types.PrerequisiteResults{{Name: "binlog_format", Required: true, Passed: true}}
 
-func TestValidateCDCPrerequisites(t *testing.T) {
-	failedRequired := types.Prerequisites{{Name: "binlog_format", Required: true, Passed: false}}
-	failedOptional := types.Prerequisites{{Name: "binlog_retention", Required: false, Passed: false}}
-
-	testCases := []struct {
-		name          string
-		prerequisites types.Prerequisites
-		cdcStreams    int
-		expectedCode  string
+	tests := []struct {
+		name   string
+		driver DriverInterface
+		want   types.PrerequisiteResults
 	}{
-		// backfill and incremental syncs are never blocked by CDC checks
-		{name: "no cdc streams", prerequisites: failedRequired, cdcStreams: 0},
 		{
-			name:          "failed required check blocks cdc",
-			prerequisites: failedRequired,
-			cdcStreams:    1,
-			expectedCode:  "mysql.cdc_prerequisites_failed",
+			name:   "driver reporting prerequisites",
+			driver: reportingDriver{stubDriver: stubDriver{typ: "mysql"}, prerequisites: recorded},
+			want:   recorded,
 		},
-		{name: "failed optional check does not block", prerequisites: failedOptional, cdcStreams: 1},
+		// drivers that run no checks report nothing
+		{name: "driver without reporter", driver: stubDriver{typ: "oracle"}},
 	}
-
-	for _, tc := range testCases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			driver := NewAbstractDriver(context.Background(), reportingDriver{
-				stubDriver:    stubDriver{typ: "mysql"},
-				prerequisites: tc.prerequisites,
-			})
-			err := driver.ValidateCDCPrerequisites(make([]types.StreamInterface, tc.cdcStreams))
-			if tc.expectedCode == "" {
-				assert.NoError(t, err)
-				return
-			}
-			require.Error(t, err)
-
-			got := errs.From(errs.Classify(err))
-			assert.Equal(t, errs.CDCPreconditionFailed, got.Category)
-			assert.Equal(t, tc.expectedCode, got.Code)
+			driver := NewAbstractDriver(context.Background(), tc.driver)
+			assert.Equal(t, tc.want, driver.Prerequisites())
 		})
 	}
 }

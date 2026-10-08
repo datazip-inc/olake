@@ -225,7 +225,7 @@ func TestPostgresCheckReplicationSlot(t *testing.T) {
 				mock.ExpectQuery(slotExistsQuery).WithArgs(slot).WillReturnRows(boolRow("exists", false))
 				mock.ExpectQuery(slotInfoQuery).WillReturnRows(sqlmock.NewRows([]string{"plugin", "slot_type", "confirmed_flush_lsn", "current_lsn"}))
 			},
-			wantCurrent: "not found", wantOK: false,
+			wantCurrent: `slot "olake_slot" not found`, wantOK: false,
 		},
 		{
 			name: "slot in another database",
@@ -234,7 +234,7 @@ func TestPostgresCheckReplicationSlot(t *testing.T) {
 				mock.ExpectQuery(slotExistsQuery).WithArgs(slot).WillReturnRows(boolRow("exists", false))
 				mock.ExpectQuery(slotInfoQuery).WillReturnRows(slotRow("logical", "pgoutput"))
 			},
-			wantCurrent: "not in this database", wantOK: false,
+			wantCurrent: `slot "olake_slot" exists in another database, not "app"`, wantOK: false,
 		},
 		{
 			name: "physical slot",
@@ -289,8 +289,8 @@ func TestPostgresCheckPublication(t *testing.T) {
 		wantOK      bool
 	}{
 		{name: "exists", exists: true, wantCurrent: "exists", wantOK: true},
-		{name: "missing", exists: false, wantCurrent: "not found", wantOK: false},
-		{name: "query error", queryErr: errors.New("boom"), wantCurrent: "not found", wantOK: false},
+		{name: "missing", exists: false, wantCurrent: `publication "olake_pub" not found`, wantOK: false},
+		{name: "query error", queryErr: errors.New("boom"), wantCurrent: `publication "olake_pub" not found`, wantOK: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

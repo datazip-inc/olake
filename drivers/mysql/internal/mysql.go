@@ -47,7 +47,7 @@ type MySQL struct {
 	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
 	effectiveTZ *time.Location
 	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
-	prerequisites types.Prerequisites
+	prerequisites types.PrerequisiteResults
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
