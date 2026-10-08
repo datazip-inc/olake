@@ -122,6 +122,8 @@ func (m *MySQL) checkBinlogRetention(ctx context.Context) (string, bool, error) 
 		// MySQL checks privileges before table existence, so this is also what a non-RDS server
 		// returns to a user without SELECT on the mysql schema; fall back rather than fail.
 		logger.Warnf("cannot read mysql.rds_configuration, on RDS/Aurora grant SELECT on it for an accurate binlog retention: %s", err)
+	case errors.Is(err, sql.ErrNoRows):
+		// table present but the row is unset; the server variables below decide
 	default:
 		return "", false, err
 	}

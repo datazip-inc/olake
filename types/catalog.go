@@ -55,17 +55,6 @@ type PrerequisiteResult struct {
 
 type PrerequisiteResults []PrerequisiteResult
 
-// GetFailedRequirements returns the names of required checks that did not pass.
-func (p PrerequisiteResults) GetFailedRequirements() []string {
-	var names []string
-	for _, c := range p {
-		if c.Required && !c.Passed {
-			names = append(names, c.Name)
-		}
-	}
-	return names
-}
-
 // SelectedColumns represents column selection configuration for a stream.
 // - columns: explicit list of columns (empty means "all")
 // - sync_new_columns: if true, newly discovered columns are included by default

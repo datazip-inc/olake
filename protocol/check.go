@@ -3,7 +3,6 @@ package protocol
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -54,8 +53,8 @@ var checkCmd = &cobra.Command{
 			}
 
 			if configPath != "not-set" {
-				// Prerequisite failures are reported alongside the status, never as the status:
-				// a required one only blocks a CDC sync (see AbstractDriver.Read).
+				// Prerequisite results are reported alongside the status. Setup itself fails on unmet
+				// required checks when the config selects CDC (abstract.RequireCDCPrerequisites).
 				err := connector.Setup(cmd.Context())
 				prerequisites = connector.Prerequisites()
 				return err
@@ -72,9 +71,6 @@ var checkCmd = &cobra.Command{
 				Status:        types.ConnectionSucceed,
 				Prerequisites: prerequisites,
 			},
-		}
-		if failed := prerequisites.GetFailedRequirements(); len(failed) > 0 {
-			message.ConnectionStatus.Message = "required prerequisite checks failed: " + strings.Join(failed, ", ")
 		}
 		if err != nil {
 			message.ConnectionStatus.Message = err.Error()

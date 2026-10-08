@@ -32,7 +32,8 @@ type MSSQL struct {
 	isReadReplica bool
 	sshClient     *ssh.Client
 	primaryClient *sqlx.DB
-	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
+	// prerequisites holds the CDC setup checks evaluated in Setup; when the config selects CDC,
+	// unmet required checks fail Setup via abstract.RequireCDCPrerequisites.
 	prerequisites types.PrerequisiteResults
 }
 

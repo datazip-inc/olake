@@ -316,6 +316,15 @@ func TestMySQLCheckBinlogRetention(t *testing.T) {
 			wantCurrent: "7 days", wantOK: true,
 		},
 		{
+			// the table exists but has no retention row, so the server variables decide
+			name: "rds_configuration without retention row falls back to server variables",
+			expect: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(rdsQuery).WillReturnRows(sqlmock.NewRows([]string{"name", "value"}))
+				mock.ExpectQuery(secondsQuery).WillReturnRows(variableRow("binlog_expire_logs_seconds", "604800"))
+			},
+			wantCurrent: "7 days", wantOK: true,
+		},
+		{
 			name: "rds query error is an evaluation error",
 			expect: func(mock sqlmock.Sqlmock) {
 				mock.ExpectQuery(rdsQuery).WillReturnError(errors.New("connection reset"))

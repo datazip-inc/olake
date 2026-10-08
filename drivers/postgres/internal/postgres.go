@@ -78,7 +78,8 @@ type Postgres struct {
 	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
 	streams    []types.StreamInterface
-	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
+	// prerequisites holds the CDC setup checks evaluated in Setup; when the config selects CDC,
+	// unmet required checks fail Setup via abstract.RequireCDCPrerequisites.
 	prerequisites types.PrerequisiteResults
 }
 

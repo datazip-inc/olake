@@ -46,7 +46,8 @@ type MySQL struct {
 	// effectiveTZ is the resolved timezone (e.g. for CDC binlog TimestampStringLocation).
 	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
 	effectiveTZ *time.Location
-	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
+	// prerequisites holds the CDC setup checks evaluated in Setup; when the config selects CDC,
+	// unmet required checks fail Setup via abstract.RequireCDCPrerequisites.
 	prerequisites types.PrerequisiteResults
 }
 
