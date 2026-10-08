@@ -384,12 +384,19 @@ test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .s
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
 # like <module>/... prefix-matches into sibling modules.
-# Also writes a merged cover profile (COVER_OUT) spanning every workspace module.
+# Also writes a merged cover profile (COVER_OUT) spanning every workspace module. The per-package
+# "coverage: x%" noise is filtered out of the log (the table from coverage.table replaces it); the
+# go test exit status is kept so failures still fail the target.
 COVER_OUT ?= /tmp/cover.out
 test.unit: $(addprefix prepare.,$(DRIVERS))
 	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) pkgs=$$(go list -m -f '{{.Dir}}' | sed 's#^$(CURDIR)#.#; s#$$#/...#'); \
-	go test -v -count=1 -skip '^Test.*(Discover|Sync|2PC|Performance|Rebalance)$$' \
-		-coverpkg=$$(echo $$pkgs | tr ' ' ',') -coverprofile=$(COVER_OUT) -covermode=atomic $$pkgs
+	tab=$$(printf '\t'); rcfile=$$(mktemp); \
+	{ go test -v -count=1 -skip '^Test.*(Discover|Sync|2PC|Performance|Rebalance)$$' \
+		-coverpkg=$$(echo $$pkgs | tr ' ' ',') -coverprofile=$(COVER_OUT) -covermode=atomic $$pkgs 2>&1; echo $$? > $$rcfile; } \
+	| sed -E -e '/^coverage: /d' \
+		-e 's#^[[:space:]]+(github\.com/[^[:space:]]+)[[:space:]]+coverage: 0\.0% of statements$$#?   '"$$tab"'\1'"$$tab"'[no test files]#' \
+		-e 's#[[:space:]]+coverage: [0-9.]+% of statements.*$$##'; \
+	rc=$$(cat $$rcfile); rm -f $$rcfile; exit $$rc
 
 COVER_ROWS ?= /tmp/cover-rows.md
 

@@ -63,7 +63,7 @@ jobs:
             if (existing) {
               await github.rest.issues.updateComment({
                 owner:      context.repo.owner,
-                repo:       conte xt.repo.repo,
+                repo:       context.repo.repo,
                 comment_id: existing.id,
                 body,
               });
