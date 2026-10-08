@@ -30,6 +30,7 @@ jobs:
   performance-tests:
     environment: Performance Testing
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       matrix:
         include:
@@ -127,9 +128,8 @@ jobs:
       id: last_run
       env:
         GH_TOKEN: ${{ github.token }}
-        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
-        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch "$DEFAULT_BRANCH" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
         
         if [ -n "$PREVIOUS_ID" ]; then
           echo "id=$PREVIOUS_ID" >> $GITHUB_OUTPUT
