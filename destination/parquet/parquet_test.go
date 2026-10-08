@@ -23,7 +23,7 @@ func newStream(normalized bool, partitionRegex string, cols map[string]types.Dat
 		st.UpsertField(name, dt, true, false)
 	}
 	return &types.ConfiguredStream{
-		StreamMetadata: types.StreamMetadata{Normalization: normalized, PartitionRegex: partitionRegex},
+		StreamMetadata: types.StreamMetadata{Normalization: &normalized, PartitionRegex: partitionRegex},
 		Stream:         st,
 	}
 }

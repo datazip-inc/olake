@@ -143,8 +143,12 @@ func FinalizeS3Upload(ctx context.Context, noSave bool) error {
 		name  string
 	}{
 		{viper.GetString(constants.StreamsPath), "streams.json"},
+		{viper.GetString(constants.AvailableStreamsPath), "available_streams.json"},
+		{viper.GetString(constants.SelectedStreamsPath), "selected_streams.json"},
 		{viper.GetString(constants.StatePath), "state.json"},
 		{viper.GetString(constants.DifferencePath), "difference_streams.json"},
+		{viper.GetString(constants.DifferenceAvailableStreamsPath), "difference_available_streams.json"},
+		{viper.GetString(constants.DifferenceSelectedStreamsPath), "difference_selected_streams.json"},
 	}
 
 	for _, file := range files {

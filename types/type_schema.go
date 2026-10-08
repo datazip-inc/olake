@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/datazip-inc/olake/constants"
@@ -23,8 +25,7 @@ func NewTypeSchema() *TypeSchema {
 	}
 }
 
-// ColumnNames returns the list of column names currently present in the schema.
-// Note: ordering is not guaranteed because sync.Map iteration order is not defined.
+// ColumnNames returns the column names currently present in the schema, sorted in byte order.
 func (t *TypeSchema) ColumnNames() []string {
 	var columns []string
 	t.Properties.Range(func(col, _ interface{}) bool {
@@ -33,6 +34,7 @@ func (t *TypeSchema) ColumnNames() []string {
 		}
 		return true
 	})
+	slices.Sort(columns)
 	return columns
 }
 
@@ -209,6 +211,20 @@ type Property struct {
 	Type                  *Set[DataType] `json:"type,omitempty"`
 	DestinationColumnName string         `json:"destination_column_name,omitempty"`
 	OlakeColumn           bool           `json:"olake_column,omitempty"`
+}
+
+// MarshalJSON writes Type in sorted order so catalog files are stable across runs.
+func (p *Property) MarshalJSON() ([]byte, error) {
+	var types []DataType
+	if p.Type != nil {
+		types = p.Type.Array()
+		slices.SortFunc(types, func(a, b DataType) int { return strings.Compare(string(a), string(b)) })
+	}
+	type alias Property // alias to avoid recursive call
+	return json.Marshal(&struct {
+		*alias
+		Type []DataType `json:"type,omitempty"`
+	}{alias: (*alias)(p), Type: types})
 }
 
 // returns datatype according to typecast tree if multiple type present
