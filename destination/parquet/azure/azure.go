@@ -111,14 +111,6 @@ func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
 
 func (a *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 	dst := a.blobClient(dstKey)
-	props, err := dst.GetProperties(ctx, nil)
-	if err != nil && !a.IsNotFound(err) {
-		return fmt.Errorf("failed to poll azure copy %s -> %s: %w", srcKey, dstKey, err)
-	}
-	if err == nil && props.CopyStatus != nil && *props.CopyStatus == blob.CopyStatusTypePending {
-		return a.waitForCopy(ctx, dst, srcKey, dstKey)
-	}
-
 	srcURL, err := a.blobReadURL(srcKey)
 	if err != nil {
 		return err
