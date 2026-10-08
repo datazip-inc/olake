@@ -198,7 +198,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&differenceAvailableStreamsPath, "difference-available-streams", "", "", "new available_streams file path to be compared. Must be passed together with --difference-selected-streams.")
 	RootCmd.PersistentFlags().StringVarP(&differenceSelectedStreamsPath, "difference-selected-streams", "", "", "new selected_streams file path to be compared. Must be passed together with --difference-available-streams. Generates difference_available_streams.json and difference_selected_streams.json, usable with clear-destination.")
 	RootCmd.PersistentFlags().BoolVarP(&convertStreams, "convert-streams", "", false, "(Optional) With discover: convert the --streams file into available_streams.json and selected_streams.json next to it, without connecting to the source")
-	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
+	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file (deprecated)")
 	// Without this, Cobra rejects unknown positional args at Find time (legacyArgs)
 	// before PersistentPreRunE initializes the logger, so invalid commands fail
 	// silently under SilenceErrors. ArbitraryArgs defers that check to RunE.
@@ -261,6 +261,9 @@ func validateDifferenceFlags() error {
 	if hasAvailable != hasSelected {
 		return errs.Precondition(errs.ConfigInvalid, codeIncompleteDifferenceFlagPair,
 			fmt.Errorf("--difference-available-streams and --difference-selected-streams must be passed together"))
+	}
+	if hasLegacy {
+		logger.Warn("--difference is deprecated and will be removed in a future release; use --difference-available-streams and --difference-selected-streams instead")
 	}
 	return nil
 }
