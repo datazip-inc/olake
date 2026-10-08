@@ -1,4 +1,4 @@
-package parquet
+package azure
 
 import (
 	"context"
@@ -17,8 +17,16 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
 )
 
-// azureStore is the implementation of the ObjectStore interface for Azure Blob Storage.
-type azureStore struct {
+type Config struct {
+	AccountName   string
+	AccountKey    string
+	ContainerName string
+	Path          string
+	Endpoint      string
+}
+
+// Store is the implementation of the ObjectStore interface for Azure Blob Storage.
+type Store struct {
 	client     *azblob.Client
 	cred       *azblob.SharedKeyCredential
 	container  string
@@ -26,55 +34,53 @@ type azureStore struct {
 	serviceURL string
 }
 
-// newAzureStore creates a new Azure Blob Storage client with shared key credential and returns a new AzureStore.
-func newAzureStore(cfg *Config) (*azureStore, error) {
-	cred, err := azblob.NewSharedKeyCredential(cfg.AzureStorageAccountName, cfg.AzureStorageAccountKey)
+// New creates a new Azure Blob Storage client with shared key credential and returns a new Store.
+func New(cfg Config) (*Store, error) {
+	cred, err := azblob.NewSharedKeyCredential(cfg.AccountName, cfg.AccountKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure SharedKeyCredential: %w", err)
 	}
-	serviceURL := cfg.AzureEndpoint
+	serviceURL := cfg.Endpoint
 	if serviceURL == "" {
-		serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net/", cfg.AzureStorageAccountName)
+		serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net/", cfg.AccountName)
 	}
 	client, err := azblob.NewClientWithSharedKeyCredential(serviceURL, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Blob Storage client: %w", err)
 	}
-	cfg.AzurePath = strings.Trim(cfg.AzurePath, "/")
-	return &azureStore{
+	return &Store{
 		client:     client,
 		cred:       cred,
-		container:  cfg.AzureContainerName,
-		prefix:     cfg.AzurePath,
+		container:  cfg.ContainerName,
+		prefix:     strings.Trim(cfg.Path, "/"),
 		serviceURL: serviceURL,
 	}, nil
 }
 
-func (a *azureStore) Kind() string { return "azure" }
+func (a *Store) Kind() string { return "azure" }
 
-func (a *azureStore) ObjectKey(relativePath string) string {
+func (a *Store) ObjectKey(relativePath string) string {
 	if a.prefix == "" {
 		return relativePath
 	}
 	return path.Join(a.prefix, relativePath)
 }
 
-// blobClient creates a new blob client for the given key.
-func (a *azureStore) blobClient(key string) *blob.Client {
+func (a *Store) blobClient(key string) *blob.Client {
 	return a.client.ServiceClient().NewContainerClient(a.container).NewBlobClient(key)
 }
 
-func (a *azureStore) Put(ctx context.Context, key string, data []byte) error {
+func (a *Store) Put(ctx context.Context, key string, data []byte) error {
 	_, err := a.client.UploadBuffer(ctx, a.container, key, data, nil)
 	return err
 }
 
-func (a *azureStore) UploadFile(ctx context.Context, key string, file *os.File) error {
+func (a *Store) UploadFile(ctx context.Context, key string, file *os.File) error {
 	_, err := a.client.UploadFile(ctx, a.container, key, file, nil)
 	return err
 }
 
-func (a *azureStore) Get(ctx context.Context, key string) ([]byte, error) {
+func (a *Store) Get(ctx context.Context, key string) ([]byte, error) {
 	resp, err := a.client.DownloadStream(ctx, a.container, key, nil)
 	if err != nil {
 		return nil, err
@@ -83,7 +89,7 @@ func (a *azureStore) Get(ctx context.Context, key string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func (a *azureStore) List(ctx context.Context, prefix string) ([]string, error) {
+func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
 	pager := a.client.NewListBlobsFlatPager(a.container, &container.ListBlobsFlatOptions{
 		Prefix: &prefix,
@@ -103,7 +109,7 @@ func (a *azureStore) List(ctx context.Context, prefix string) ([]string, error) 
 	return keys, nil
 }
 
-func (a *azureStore) Copy(ctx context.Context, srcKey, dstKey string) error {
+func (a *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 	dst := a.blobClient(dstKey)
 	props, err := dst.GetProperties(ctx, nil)
 	if err != nil && !a.IsNotFound(err) {
@@ -125,7 +131,7 @@ func (a *azureStore) Copy(ctx context.Context, srcKey, dstKey string) error {
 	return a.waitForCopy(ctx, dst, srcKey, dstKey)
 }
 
-func (a *azureStore) waitForCopy(ctx context.Context, dst *blob.Client, srcKey, dstKey string) error {
+func (a *Store) waitForCopy(ctx context.Context, dst *blob.Client, srcKey, dstKey string) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -152,8 +158,7 @@ func (a *azureStore) waitForCopy(ctx context.Context, dst *blob.Client, srcKey, 
 	}
 }
 
-// blobReadURL creates a read SAS token for the given key.
-func (a *azureStore) blobReadURL(key string) (string, error) {
+func (a *Store) blobReadURL(key string) (string, error) {
 	permissions := sas.BlobPermissions{Read: true}
 	protocol := sas.ProtocolHTTPS
 	if strings.HasPrefix(a.serviceURL, "http://") {
@@ -173,7 +178,7 @@ func (a *azureStore) blobReadURL(key string) (string, error) {
 	return a.blobClient(key).URL() + "?" + query.Encode(), nil
 }
 
-func (a *azureStore) Delete(ctx context.Context, key string) error {
+func (a *Store) Delete(ctx context.Context, key string) error {
 	_, err := a.client.DeleteBlob(ctx, a.container, key, nil)
 	if a.IsNotFound(err) {
 		return nil
@@ -181,7 +186,7 @@ func (a *azureStore) Delete(ctx context.Context, key string) error {
 	return err
 }
 
-func (a *azureStore) DeletePrefix(ctx context.Context, prefix string) error {
+func (a *Store) DeletePrefix(ctx context.Context, prefix string) error {
 	keys, err := a.List(ctx, prefix)
 	if err != nil {
 		return err
@@ -194,6 +199,6 @@ func (a *azureStore) DeletePrefix(ctx context.Context, prefix string) error {
 	return nil
 }
 
-func (a *azureStore) IsNotFound(err error) bool {
+func (a *Store) IsNotFound(err error) bool {
 	return bloberror.HasCode(err, bloberror.BlobNotFound)
 }

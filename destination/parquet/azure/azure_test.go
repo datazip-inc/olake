@@ -1,4 +1,4 @@
-package parquet
+package azure
 
 import (
 	"encoding/base64"
@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testAzureConfig() *Config {
-	return &Config{
-		AzureStorageAccountName: "olakeaccount",
-		AzureStorageAccountKey:  base64.StdEncoding.EncodeToString([]byte("olake-azure-test-key")),
-		AzureContainerName:      "container",
+func testAzureConfig() Config {
+	return Config{
+		AccountName:   "olakeaccount",
+		AccountKey:    base64.StdEncoding.EncodeToString([]byte("olake-azure-test-key")),
+		ContainerName: "container",
 	}
 }
 
@@ -45,14 +45,14 @@ func TestAzureObjectKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &azureStore{prefix: tt.prefix}
+			store := &Store{prefix: tt.prefix}
 			require.Equal(t, tt.want, store.ObjectKey(tt.relative))
 		})
 	}
 }
 
 func TestAzureIsNotFound(t *testing.T) {
-	store := &azureStore{}
+	store := &Store{}
 	require.False(t, store.IsNotFound(nil))
 	require.False(t, store.IsNotFound(errors.New("other")))
 	require.True(t, store.IsNotFound(&azcore.ResponseError{
@@ -68,20 +68,19 @@ func TestAzureIsNotFound(t *testing.T) {
 func TestNewAzureStore(t *testing.T) {
 	t.Run("trims azure path", func(t *testing.T) {
 		cfg := testAzureConfig()
-		cfg.AzurePath = "/root/"
-		store, err := newAzureStore(cfg)
+		cfg.Path = "/root/"
+		store, err := New(cfg)
 		require.NoError(t, err)
 		require.Equal(t, "azure", store.Kind())
 		require.Equal(t, "container", store.container)
 		require.Equal(t, "root", store.prefix)
-		require.Equal(t, "root", cfg.AzurePath)
 		require.Equal(t, "root/namespace/table", store.ObjectKey("namespace/table"))
 	})
 
 	t.Run("rejects invalid account key", func(t *testing.T) {
 		cfg := testAzureConfig()
-		cfg.AzureStorageAccountKey = "not-base64"
-		_, err := newAzureStore(cfg)
+		cfg.AccountKey = "not-base64"
+		_, err := New(cfg)
 		require.Error(t, err)
 		require.ErrorContains(t, err, "failed to create Azure SharedKeyCredential")
 	})

@@ -1,4 +1,4 @@
-package parquet
+package s3
 
 import (
 	"bytes"
@@ -17,15 +17,24 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	awss3 "github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/datazip-inc/olake/utils"
 )
 
-// s3Store is the implementation of the ObjectStore interface for S3.
-type s3Store struct {
+type Config struct {
+	Bucket     string
+	Region     string
+	AccessKey  string
+	SecretKey  string
+	Prefix     string
+	S3Endpoint string
+}
+
+// Store is the implementation of the ObjectStore interface for S3.
+type Store struct {
 	client   s3iface.S3API
 	uploader s3manageriface.UploaderAPI
 	bucket   string
@@ -33,8 +42,8 @@ type s3Store struct {
 	gcs      bool
 }
 
-// newS3Store creates a new AWS S3 client with shared key credential and returns a new S3Store.
-func newS3Store(cfg *Config) (*s3Store, error) {
+// New creates a new AWS S3 client with shared key credential and returns a new Store.
+func New(cfg Config) (*Store, error) {
 	awsCfg := aws.Config{Region: aws.String(cfg.Region)}
 	if cfg.S3Endpoint != "" {
 		awsCfg.Endpoint = aws.String(cfg.S3Endpoint)
@@ -47,27 +56,39 @@ func newS3Store(cfg *Config) (*s3Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS session: %w", err)
 	}
-	cfg.Prefix = strings.Trim(cfg.Prefix, "/")
-	return &s3Store{
-		client:   s3.New(sess),
+	return &Store{
+		client:   awss3.New(sess),
 		uploader: s3manager.NewUploader(sess),
 		bucket:   cfg.Bucket,
-		prefix:   cfg.Prefix,
+		prefix:   strings.Trim(cfg.Prefix, "/"),
 		gcs:      strings.Contains(cfg.S3Endpoint, "googleapis.com"),
 	}, nil
 }
 
-func (s *s3Store) Kind() string { return "s3" }
+func NewWithClient(client s3iface.S3API, uploader s3manageriface.UploaderAPI, bucket, prefix string) *Store {
+	return &Store{
+		client:   client,
+		uploader: uploader,
+		bucket:   bucket,
+		prefix:   strings.Trim(prefix, "/"),
+	}
+}
 
-func (s *s3Store) ObjectKey(relativePath string) string {
+func (s *Store) SetPrefix(prefix string) {
+	s.prefix = strings.TrimSuffix(prefix, "/")
+}
+
+func (s *Store) Kind() string { return "s3" }
+
+func (s *Store) ObjectKey(relativePath string) string {
 	if s.prefix == "" {
 		return relativePath
 	}
 	return path.Join(s.prefix, relativePath)
 }
 
-func (s *s3Store) Put(ctx context.Context, key string, data []byte) error {
-	_, err := s.client.PutObjectWithContext(ctx, &s3.PutObjectInput{
+func (s *Store) Put(ctx context.Context, key string, data []byte) error {
+	_, err := s.client.PutObjectWithContext(ctx, &awss3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 		Body:   bytes.NewReader(data),
@@ -75,7 +96,7 @@ func (s *s3Store) Put(ctx context.Context, key string, data []byte) error {
 	return err
 }
 
-func (s *s3Store) UploadFile(ctx context.Context, key string, file *os.File) error {
+func (s *Store) UploadFile(ctx context.Context, key string, file *os.File) error {
 	_, err := s.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -84,7 +105,7 @@ func (s *s3Store) UploadFile(ctx context.Context, key string, file *os.File) err
 	return err
 }
 
-func (s *s3Store) DeletePrefix(ctx context.Context, prefix string) error {
+func (s *Store) DeletePrefix(ctx context.Context, prefix string) error {
 	if s.gcs {
 		return s.deletePrefixIndividually(ctx, prefix)
 	}
@@ -102,14 +123,14 @@ func (s *s3Store) DeletePrefix(ctx context.Context, prefix string) error {
 
 // GCP: no DeleteObjects API. Concurrent single deletes; GCS throttles at HTTP 429
 // (~5000 mutations/sec/bucket). Same behavior as the old clearS3Files googleapis branch.
-func (s *s3Store) deletePrefixIndividually(ctx context.Context, prefix string) error {
+func (s *Store) deletePrefixIndividually(ctx context.Context, prefix string) error {
 	var pageErr error
 	listErr := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
 		pageErr = nil
-		return s.client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
+		return s.client.ListObjectsPagesWithContext(ctx, &awss3.ListObjectsInput{
 			Bucket: aws.String(s.bucket),
 			Prefix: aws.String(prefix),
-		}, func(page *s3.ListObjectsOutput, _ bool) bool {
+		}, func(page *awss3.ListObjectsOutput, _ bool) bool {
 			pageKeys := make([]string, 0, len(page.Contents))
 			for _, obj := range page.Contents {
 				pageKeys = append(pageKeys, aws.StringValue(obj.Key))
@@ -134,8 +155,8 @@ func (s *s3Store) deletePrefixIndividually(ctx context.Context, prefix string) e
 	return pageErr
 }
 
-func (s *s3Store) Get(ctx context.Context, key string) ([]byte, error) {
-	out, err := s.client.GetObjectWithContext(ctx, &s3.GetObjectInput{
+func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
+	out, err := s.client.GetObjectWithContext(ctx, &awss3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
@@ -146,12 +167,12 @@ func (s *s3Store) Get(ctx context.Context, key string) ([]byte, error) {
 	return io.ReadAll(out.Body)
 }
 
-func (s *s3Store) List(ctx context.Context, prefix string) ([]string, error) {
+func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
-	err := s.client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
+	err := s.client.ListObjectsPagesWithContext(ctx, &awss3.ListObjectsInput{
 		Bucket: aws.String(s.bucket),
 		Prefix: aws.String(prefix),
-	}, func(page *s3.ListObjectsOutput, _ bool) bool {
+	}, func(page *awss3.ListObjectsOutput, _ bool) bool {
 		for _, obj := range page.Contents {
 			keys = append(keys, aws.StringValue(obj.Key))
 		}
@@ -160,9 +181,9 @@ func (s *s3Store) List(ctx context.Context, prefix string) ([]string, error) {
 	return keys, err
 }
 
-func (s *s3Store) Copy(ctx context.Context, srcKey, dstKey string) error {
+func (s *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 	escaped := strings.ReplaceAll(url.PathEscape(srcKey), "%2F", "/")
-	_, err := s.client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+	_, err := s.client.CopyObjectWithContext(ctx, &awss3.CopyObjectInput{
 		Bucket:     aws.String(s.bucket),
 		Key:        aws.String(dstKey),
 		CopySource: aws.String(s.bucket + "/" + escaped),
@@ -170,15 +191,20 @@ func (s *s3Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 	return err
 }
 
-func (s *s3Store) Delete(ctx context.Context, key string) error {
-	_, err := s.client.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
+func (s *Store) Delete(ctx context.Context, key string) error {
+	_, err := s.client.DeleteObjectWithContext(ctx, &awss3.DeleteObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
 	return err
 }
 
-func (s *s3Store) IsNotFound(err error) bool {
+func (s *Store) IsNotFound(err error) bool {
 	var awsErr awserr.Error
-	return errors.As(err, &awsErr) && (awsErr.Code() == s3.ErrCodeNoSuchKey || awsErr.Code() == "NotFound")
+	return errors.As(err, &awsErr) && (awsErr.Code() == awss3.ErrCodeNoSuchKey || awsErr.Code() == "NotFound")
+}
+
+func isRateLimitError(err error) bool {
+	var rf awserr.RequestFailure
+	return errors.As(err, &rf) && (rf.StatusCode() == 429 || rf.StatusCode() == 503)
 }

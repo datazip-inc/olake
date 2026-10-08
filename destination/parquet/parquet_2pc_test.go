@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
+	s3store "github.com/datazip-inc/olake/destination/parquet/s3"
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/require"
 )
@@ -744,21 +745,16 @@ func testS3ParquetWithStore(t *testing.T, store *memoryS3, threadID string, back
 		stream:           testConfiguredStream(),
 		basePath:         filepath.Join("namespace", "table"),
 		partitionedFiles: make(map[string][]*FileMetadata),
-		store: &s3Store{
-			client:   store,
-			uploader: &memoryUploader{store: store},
-			bucket:   "bucket",
-			prefix:   cfg.Prefix,
-		},
+		store: s3store.NewWithClient(store, &memoryUploader{store: store}, "bucket", cfg.Prefix),
 	}
 }
 
 func setStorePrefix(p *Parquet, prefix string) {
 	trimmed := strings.TrimSuffix(prefix, "/")
 	switch s := p.store.(type) {
-	case *s3Store:
+	case *s3store.Store:
 		p.config.Prefix = prefix
-		s.prefix = trimmed
+		s.SetPrefix(prefix)
 	case *memoryStore:
 		if s.kind == "azure" {
 			p.config.AzurePath = prefix
