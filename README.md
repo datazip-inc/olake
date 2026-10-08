@@ -54,7 +54,7 @@
 ### 🚀 Why OLake Go?
 
 - 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery & schema evolution 
-- ⚡ **High throughput**: 580K RPS (Postgres) & 338K RPS (MySQL)
+- ⚡ **High throughput**: 580K RPS (Postgres) & 139K RPS (MySQL)
 - ➡️ **Exactly once delivery & Arrow writes**: Accuracy with speed.
 - 💾 **Iceberg-native**: Supports Glue, Hive, JDBC, REST catalogs  
 - 🖥️ **Self-serve UI**: Deploy via Docker Compose and sync in minutes  
@@ -73,7 +73,7 @@
 | MongoDB → Iceberg <br/><span className='text-xs text-slate-500'>(as of 5th Feb 2026)</span>   | 37,879 RPS              | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th Jan 2026)</span>     | 5,26,337 RPS  | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
 | Kafka → Iceberg <br/><span className='text-xs text-slate-500'>(as of 27th Feb 2026)</span>     | 2,09,065 MPS (Bounded Incremental) | 1.23x slower than Flink                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
-| MSSQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 09th June 2026)</span>     | 3,45,866 MPS | 4.32x faster than Fivetran                                    | [Full Report](https://olake.io/docs/benchmarks/ingestion/?tab=mssql)   |
+| MSSQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 09th June 2026)</span>     | 3,45,866 RPS | 4.32x faster than Fivetran                                    | [Full Report](https://olake.io/docs/benchmarks/ingestion/?tab=mssql)   |
 
 #### CDC
 
