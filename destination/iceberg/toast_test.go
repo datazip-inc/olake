@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/goccy/go-json"
@@ -61,16 +63,14 @@ type testCell struct {
 type testTable map[testCell]any
 
 // testReader answers ReadRows out of a testTable, standing in for the Java side, and keeps
-// every request it received.
+// every request it received. The embedded interface supplies the table index calls the
+// resolver never makes.
 type testReader struct {
+	proto.TableIndexServiceClient
 	table    testTable
 	readErr  error
 	recvErr  error
 	requests []*proto.ReadRowsRequest
-}
-
-func (r *testReader) FlushOpenFiles(context.Context, *proto.FlushOpenFilesRequest, ...grpc.CallOption) (*proto.FlushOpenFilesResponse, error) {
-	return &proto.FlushOpenFilesResponse{}, nil
 }
 
 func (r *testReader) ReadRows(_ context.Context, request *proto.ReadRowsRequest, _ ...grpc.CallOption) (grpc.ServerStreamingClient[proto.ReadRowsBatch], error) {
@@ -81,11 +81,18 @@ func (r *testReader) ReadRows(_ context.Context, request *proto.ReadRowsRequest,
 
 	batch := &proto.ReadRowsBatch{}
 	for _, file := range request.GetFiles() {
-		for _, position := range file.GetPositions() {
-			row := &proto.ReadRowsBatch_Row{FilePath: file.GetFilePath(), Position: position}
-			for _, column := range request.GetColumns() {
-				value, present := r.table[testCell{filePath: file.GetFilePath(), position: position, column: column}]
-				row.Values = append(row.Values, testColumnValue(value, present))
+		for _, requested := range file.GetRows() {
+			position := requested.GetPosition()
+			row := &proto.ReadRowsBatch_Row{
+				FilePath: file.GetFilePath(),
+				Position: position,
+				Values:   map[string]*proto.IcebergPayload_IceRecord_FieldValue{},
+			}
+			for _, column := range requested.GetColumns() {
+				// a column the data file does not carry is left out, as the Java reader does
+				if value, present := r.table[testCell{filePath: file.GetFilePath(), position: position, column: column}]; present {
+					row.Values[column] = testFieldValue(value)
+				}
 			}
 			batch.Rows = append(batch.Rows, row)
 		}
@@ -94,21 +101,12 @@ func (r *testReader) ReadRows(_ context.Context, request *proto.ReadRowsRequest,
 	return &testStream{batches: []*proto.ReadRowsBatch{batch}, err: r.recvErr}, nil
 }
 
-// testColumnValue mirrors what the Java reader sends: an unset value for a stored NULL, and
-// the placeholder for a column the file does not carry at all.
-func testColumnValue(value any, present bool) *proto.ColumnValue {
-	if !present {
-		return &proto.ColumnValue{Value: &proto.ColumnValue_StringValue{StringValue: placeholder}}
+// testFieldValue mirrors what the Java reader sends: an unset value for a stored NULL.
+func testFieldValue(value any) *proto.IcebergPayload_IceRecord_FieldValue {
+	if text, ok := value.(string); ok {
+		return &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: text}}
 	}
-
-	switch typed := value.(type) {
-	case string:
-		return &proto.ColumnValue{Value: &proto.ColumnValue_StringValue{StringValue: typed}}
-	case int64:
-		return &proto.ColumnValue{Value: &proto.ColumnValue_LongValue{LongValue: typed}}
-	default:
-		return &proto.ColumnValue{}
-	}
+	return &proto.IcebergPayload_IceRecord_FieldValue{}
 }
 
 // testStream hands back canned batches, then err (io.EOF when unset). The embedded interface
@@ -134,17 +132,22 @@ func (s *testStream) Recv() (*proto.ReadRowsBatch, error) {
 	return batch, nil
 }
 
+// testConfiguredStream is a stream that keeps source column names, so destination columns
+// in the tests read the same as the source ones.
+func testConfiguredStream(normalized bool) *types.ConfiguredStream {
+	return &types.ConfiguredStream{StreamMetadata: types.StreamMetadata{Normalization: normalized, UseSourceColumnNames: true}}
+}
+
 func testResolver(t *testing.T, normalized bool, writer *testWriter, reader *testReader) *toastResolver {
 	t.Helper()
 
 	resolver := &toastResolver{
-		writer:        writer,
-		reader:        reader,
-		threadID:      "test-thread",
-		resolveColumn: func(column string) string { return column },
-		normalized:    normalized,
-		tracked:       make(map[string]struct{}),
-		carry:         make(map[string]*carryRow),
+		writer:   writer,
+		reader:   reader,
+		threadID: "test-thread",
+		stream:   testConfiguredStream(normalized),
+		tracked:  make(map[string]struct{}),
+		carry:    make(map[string]*carryRow),
 	}
 	t.Cleanup(resolver.drop)
 
@@ -167,8 +170,8 @@ func testRecord(olakeID, opType string, data map[string]any, unavailable ...stri
 func testOverBudget(t *testing.T) {
 	t.Helper()
 
-	carryUsage.Add(constants.MaxToastCarryBytes)
-	t.Cleanup(func() { carryUsage.Add(-constants.MaxToastCarryBytes) })
+	carryUsage.Add(maxCarryBytes)
+	t.Cleanup(func() { carryUsage.Add(-maxCarryBytes) })
 }
 
 // resolveStep is one Resolve call, i.e. one batch. before changes what the destination holds
@@ -390,6 +393,22 @@ func TestResolve(t *testing.T) {
 			expectedLookups:    1,
 			expectedUnresolved: 1,
 		},
+		// an UPDATE moved a row onto a key deleted in an earlier sync: the index points at
+		// the soft-delete row, whose columns are NULL, not the row's values
+		{
+			name:      "a soft-deleted stored row is not read as the row's values",
+			locations: committed,
+			table: testTable{
+				{"a.parquet", 0, constants.OpType}: "d",
+				{"a.parquet", 0, "payload"}:        nil,
+			},
+			steps: []resolveStep{{
+				records:  []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")},
+				expected: []map[string]any{{"payload": placeholder}},
+			}},
+			expectedLookups:    1,
+			expectedUnresolved: 1,
+		},
 		// the first read finds a file that predates the column; the failure must not be
 		// remembered, so the next change reads again
 		{
@@ -473,31 +492,51 @@ func TestResolve(t *testing.T) {
 }
 
 func TestResolveReadRequest(t *testing.T) {
+	locations := map[string]types.RowLocation{
+		"1": {FilePath: "b.parquet", Position: 5},
+		"2": {FilePath: "a.parquet", Position: 9},
+		"3": {FilePath: "a.parquet", Position: 2},
+	}
+	marked := []types.RawRecord{
+		testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
+		testRecord("2", "u", map[string]any{"id": 2, "payload": placeholder, "doc": placeholder}, "payload", "doc"),
+		testRecord("3", "u", map[string]any{"id": 3, "doc": placeholder}, "doc"),
+	}
+
 	testCases := []struct {
 		name            string
+		rawData         bool // normalization off: the whole source row is stored as JSON
 		locations       map[string]types.RowLocation
+		table           testTable
 		records         []types.RawRecord
-		expectedColumns []string
-		expectedFiles   []*proto.ReadRowsRequest_FileRows
+		expectedRows    map[string]map[int64][]string // file -> position -> columns read
 		expectedFlushes [][]string
 	}{
-		// one call per batch: files sorted, positions ascending, each column once
+		// one call per batch, rows grouped by file, each row asking only for its own columns
 		{
-			name: "reads are grouped by file in one call",
-			locations: map[string]types.RowLocation{
-				"1": {FilePath: "b.parquet", Position: 5},
-				"2": {FilePath: "a.parquet", Position: 9},
-				"3": {FilePath: "a.parquet", Position: 2},
+			name:      "each row reads only the columns it is missing",
+			locations: locations,
+			records:   marked,
+			expectedRows: map[string]map[int64][]string{
+				"a.parquet": {9: {constants.OpType, "payload", "doc"}, 2: {constants.OpType, "doc"}},
+				"b.parquet": {5: {constants.OpType, "payload"}},
 			},
-			records: []types.RawRecord{
-				testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
-				testRecord("2", "u", map[string]any{"id": 2, "payload": placeholder, "doc": placeholder}, "payload", "doc"),
-				testRecord("3", "u", map[string]any{"id": 3, "doc": placeholder}, "doc"),
+			expectedFlushes: [][]string{{"a.parquet", "b.parquet"}},
+		},
+		// every source column lives in the one JSON column, read once per row
+		{
+			name:      "without normalization each row reads the stored row once",
+			rawData:   true,
+			locations: locations,
+			table: testTable{
+				{"a.parquet", 2, constants.StringifiedData}: `{"id":3}`,
+				{"a.parquet", 9, constants.StringifiedData}: `{"id":2}`,
+				{"b.parquet", 5, constants.StringifiedData}: `{"id":1}`,
 			},
-			expectedColumns: []string{"payload", "doc"},
-			expectedFiles: []*proto.ReadRowsRequest_FileRows{
-				{FilePath: "a.parquet", Positions: []int64{2, 9}},
-				{FilePath: "b.parquet", Positions: []int64{5}},
+			records: marked,
+			expectedRows: map[string]map[int64][]string{
+				"a.parquet": {9: {constants.OpType, constants.StringifiedData}, 2: {constants.OpType, constants.StringifiedData}},
+				"b.parquet": {5: {constants.OpType, constants.StringifiedData}},
 			},
 			expectedFlushes: [][]string{{"a.parquet", "b.parquet"}},
 		},
@@ -514,26 +553,35 @@ func TestResolveReadRequest(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := &testWriter{locations: tc.locations}
-			reader := &testReader{table: testTable{}}
-			resolver := testResolver(t, true, writer, reader)
+			reader := &testReader{table: tc.table}
+			resolver := testResolver(t, !tc.rawData, writer, reader)
 
 			require.NoError(t, resolver.Resolve(context.Background(), tc.records))
 
 			assert.Equal(t, tc.expectedFlushes, writer.flushes, "files made readable")
-			if tc.expectedFiles == nil {
+			if tc.expectedRows == nil {
 				assert.Empty(t, reader.requests)
 				return
 			}
 			require.Len(t, reader.requests, 1)
 			request := reader.requests[0]
 			assert.Equal(t, "test-thread", request.GetThreadId())
-			// column order follows map iteration, so only the set is fixed
-			assert.ElementsMatch(t, tc.expectedColumns, request.GetColumns())
-			require.Len(t, request.GetFiles(), len(tc.expectedFiles))
-			for idx, expected := range tc.expectedFiles {
-				assert.Equal(t, expected.GetFilePath(), request.GetFiles()[idx].GetFilePath())
-				assert.Equal(t, expected.GetPositions(), request.GetFiles()[idx].GetPositions())
+
+			// files are sorted, and rows within a file are in position order
+			actual := make(map[string]map[int64][]string)
+			var paths []string
+			for _, file := range request.GetFiles() {
+				paths = append(paths, file.GetFilePath())
+				actual[file.GetFilePath()] = make(map[int64][]string)
+				var positions []int64
+				for _, row := range file.GetRows() {
+					positions = append(positions, row.GetPosition())
+					actual[file.GetFilePath()][row.GetPosition()] = row.GetColumns()
+				}
+				assert.True(t, slices.IsSorted(positions), "rows of %s in position order", file.GetFilePath())
 			}
+			assert.Equal(t, []string{"a.parquet", "b.parquet"}, paths)
+			assert.Equal(t, tc.expectedRows, actual)
 		})
 	}
 }
@@ -652,6 +700,31 @@ func TestResolveCarryBudget(t *testing.T) {
 	}
 }
 
+// Over budget, rows written in earlier batches go first: they sit in closed files, while a
+// recent row may sit in a file still open that a read would have to close early.
+func TestResolveTrimDropsLeastRecentRowsFirst(t *testing.T) {
+	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
+	marker := testRecord("0", "u", map[string]any{"id": 0, "payload": placeholder}, "payload")
+
+	// more than half the budget, so dropping it alone brings the process back under half
+	require.NoError(t, resolver.Resolve(context.Background(), []types.RawRecord{
+		marker, testRecord("old", "c", map[string]any{"payload": strings.Repeat("x", int(maxCarryBytes/2)+1)}),
+	}))
+	require.NoError(t, resolver.Resolve(context.Background(), []types.RawRecord{
+		marker, testRecord("new", "c", map[string]any{"payload": "recent"}),
+	}))
+
+	// another thread pushes the process just over budget
+	excess := maxCarryBytes - carryUsage.Load() + 1
+	carryUsage.Add(excess)
+	t.Cleanup(func() { carryUsage.Add(-excess) })
+	resolver.trim()
+
+	assert.NotContains(t, resolver.carry, "old")
+	assert.Contains(t, resolver.carry, "new")
+	assert.LessOrEqual(t, carryUsage.Load(), maxCarryBytes/2)
+}
+
 func TestToastResolverCloseReleasesBudget(t *testing.T) {
 	before := carryUsage.Load()
 	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
@@ -668,43 +741,63 @@ func TestToastResolverCloseReleasesBudget(t *testing.T) {
 	assert.Empty(t, resolver.carry)
 }
 
-func TestDecodeValue(t *testing.T) {
-	text := func(value string) *proto.ColumnValue {
-		return &proto.ColumnValue{Value: &proto.ColumnValue_StringValue{StringValue: value}}
-	}
-
+func TestFieldValue(t *testing.T) {
 	testCases := []struct {
-		name        string
-		value       *proto.ColumnValue
-		jsonKey     string
-		expected    any
-		expectedErr bool
+		name     string
+		value    *proto.IcebergPayload_IceRecord_FieldValue
+		expected any
 	}{
 		// an unset value is how the reader says the stored column is NULL
-		{name: "unset value is NULL", value: &proto.ColumnValue{}, expected: nil},
-		{name: "string", value: text("hello"), expected: "hello"},
-		{name: "long", value: &proto.ColumnValue{Value: &proto.ColumnValue_LongValue{LongValue: 7}}, expected: int64(7)},
-		{name: "double", value: &proto.ColumnValue{Value: &proto.ColumnValue_DoubleValue{DoubleValue: 1.5}}, expected: 1.5},
-		{name: "bool", value: &proto.ColumnValue{Value: &proto.ColumnValue_BoolValue{BoolValue: true}}, expected: true},
-		{name: "bytes come back as text", value: &proto.ColumnValue{Value: &proto.ColumnValue_BytesValue{BytesValue: []byte("raw")}}, expected: "raw"},
-		// normalization off: the key's raw JSON is spliced back unchanged
-		{name: "json key holding a string", value: text(`{"payload":"v"}`), jsonKey: "payload", expected: json.RawMessage(`"v"`)},
-		{name: "json key holding an object", value: text(`{"doc":{"k":1}}`), jsonKey: "doc", expected: json.RawMessage(`{"k":1}`)},
-		// the stored row predates the column: keep the placeholder rather than invent a NULL
-		{name: "json key missing from the stored row", value: text(`{"id":1}`), jsonKey: "payload", expected: placeholder},
-		{name: "json key on a non-text value", value: &proto.ColumnValue{Value: &proto.ColumnValue_LongValue{LongValue: 7}}, jsonKey: "payload", expectedErr: true},
-		{name: "json key on invalid json", value: text(`{not json`), jsonKey: "payload", expectedErr: true},
+		{name: "unset value is NULL", value: &proto.IcebergPayload_IceRecord_FieldValue{}, expected: nil},
+		{name: "string", value: &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: "hello"}}, expected: "hello"},
+		{name: "double", value: &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: 1.5}}, expected: 1.5},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			value, err := decodeValue(tc.value, tc.jsonKey)
+			assert.Equal(t, tc.expected, fieldValue(tc.value))
+		})
+	}
+}
+
+func TestRowValuesWithoutNormalization(t *testing.T) {
+	stored := func(value *proto.IcebergPayload_IceRecord_FieldValue) map[string]*proto.IcebergPayload_IceRecord_FieldValue {
+		return map[string]*proto.IcebergPayload_IceRecord_FieldValue{constants.StringifiedData: value}
+	}
+	text := func(value string) *proto.IcebergPayload_IceRecord_FieldValue {
+		return &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: value}}
+	}
+
+	testCases := []struct {
+		name        string
+		stored      *proto.IcebergPayload_IceRecord_FieldValue
+		columns     []string
+		expected    map[string]any
+		expectedErr bool
+	}{
+		// the key's raw JSON is spliced back unchanged, and the row is parsed once for all keys
+		{
+			name:     "each key's raw json is returned",
+			stored:   text(`{"payload":"v","doc":{"k":1}}`),
+			columns:  []string{"payload", "doc"},
+			expected: map[string]any{"payload": json.RawMessage(`"v"`), "doc": json.RawMessage(`{"k":1}`)},
+		},
+		// the stored row predates the column: keep the placeholder rather than invent a NULL
+		{name: "a key missing from the stored row is left out", stored: text(`{"id":1}`), columns: []string{"payload"}, expected: map[string]any{}},
+		{name: "a stored value that is not text", stored: &proto.IcebergPayload_IceRecord_FieldValue{}, columns: []string{"payload"}, expectedErr: true},
+		{name: "invalid json", stored: text(`{not json`), columns: []string{"payload"}, expectedErr: true},
+	}
+
+	resolver := &toastResolver{stream: testConfiguredStream(false)}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			values, err := resolver.rowValues(stored(tc.stored), tc.columns)
 			if tc.expectedErr {
 				assert.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, value)
+			assert.Equal(t, tc.expected, values)
 		})
 	}
 }

@@ -1,17 +1,18 @@
 package io.olake.iceberg.tableIndex;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PrimitiveIterator;
+import java.util.Set;
+import java.util.stream.IntStream;
 
-import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.SeekableInputStream;
-import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.parquet.ParquetSchemaUtil;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.column.page.PageReadStore;
 import org.apache.parquet.example.data.Group;
@@ -27,9 +28,9 @@ import org.apache.parquet.io.DelegatingSeekableInputStream;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.io.RecordReader;
 import org.apache.parquet.schema.MessageType;
-import org.apache.parquet.schema.Type;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
+
+import io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest;
 
 /**
  * Reads the requested columns of rows addressed by {@code (data file, row position)}.
@@ -37,20 +38,18 @@ import org.slf4j.LoggerFactory;
  * without one it reads whole row groups (correct, but more data).
  */
 public final class RowReader {
-  private static final Logger LOGGER = LoggerFactory.getLogger(RowReader.class);
-
-  /** Marks a column the data file does not carry, which is not the same as a stored NULL. */
-  public static final Object ABSENT = new Object();
-
   private RowReader() {
   }
 
-  /** One row's projected values, in the order the columns were requested. */
+  /**
+   * One row's projected values by column name. A column the data file does not carry is left
+   * out, which is not the same as a stored NULL (a null value).
+   */
   public static final class Row {
     public final long position;
-    public final List<Object> values;
+    public final Map<String, Object> values;
 
-    private Row(long position, List<Object> values) {
+    private Row(long position, Map<String, Object> values) {
       this.position = position;
       this.values = values;
     }
@@ -62,14 +61,16 @@ public final class RowReader {
   }
 
   /**
-   * Reads {@code positions} (ascending, unique) of one data file and hands each row to {@code consumer}.
-   * Positions past the end of the file are ignored.
+   * Reads the given rows of one data file, each with its own columns, and hands each row to
+   * {@code consumer}. {@code rows} are in ascending position order.
+   *
+   * <p>The file is projected to every column some row wants, since Parquet reads a set of
+   * rows across all projected columns; each row is still returned with only its own.
    */
-  public static void read(Table table, String filePath, List<Long> positions, List<String> columns, RowConsumer consumer)
+  public static void read(Table table, String filePath, List<ReadRowsRequest.Row> rows, RowConsumer consumer)
       throws Exception {
-    if (positions.isEmpty() || columns.isEmpty()) {
-      return;
-    }
+    Set<String> columns = new LinkedHashSet<>();
+    rows.forEach(row -> columns.addAll(row.getColumnsList()));
 
     InputFile inputFile = table.io().newInputFile(filePath);
     // ParquetInput adapts Iceberg's file to Parquet's type, so the read keeps using the
@@ -77,37 +78,29 @@ public final class RowReader {
     try (ParquetFileReader reader = ParquetFileReader.open(new ParquetInput(inputFile),
         ParquetReadOptions.builder().build())) {
       MessageType fileSchema = reader.getFooter().getFileMetaData().getSchema();
-      MessageType projection = project(table.schema(), fileSchema, columns);
-      if (projection.getFieldCount() == 0) {
-        LOGGER.warn("none of the requested columns {} exist in {}, skipping", columns, filePath);
-        return;
-      }
+      // Matched by Iceberg field id, as Iceberg readers do; a column the file was written
+      // without is left out.
+      MessageType projection = ParquetSchemaUtil.pruneColumns(fileSchema, table.schema().select(columns));
       reader.setRequestedSchema(projection);
 
-      List<Integer> columnSlots = slots(projection, columns);
       ColumnIOFactory columnIOFactory = new ColumnIOFactory();
-      int cursor = 0;
-      long firstRowOfBlock = 0;
+      int cursor = 0; // index in rows of the next row to read
+      long firstRowOfBlock = 0; // file position of the current row group's first row
 
-      for (int blockIndex = 0; blockIndex < reader.getRowGroups().size() && cursor < positions.size(); blockIndex++) {
+      for (int blockIndex = 0; blockIndex < reader.getRowGroups().size() && cursor < rows.size(); blockIndex++) {
         BlockMetaData block = reader.getRowGroups().get(blockIndex);
         long rowsInBlock = block.getRowCount();
-        long lastRowOfBlock = firstRowOfBlock + rowsInBlock - 1;
 
+        // the rows from cursor on that fall in this row group
         int blockStart = cursor;
-        while (cursor < positions.size() && positions.get(cursor) <= lastRowOfBlock) {
+        while (cursor < rows.size() && rows.get(cursor).getPosition() < firstRowOfBlock + rowsInBlock) {
           cursor++;
         }
-
-        if (blockStart == cursor) {
-          reader.skipNextRowGroup();
-          firstRowOfBlock += rowsInBlock;
-          continue;
+        if (cursor > blockStart) {
+          List<ReadRowsRequest.Row> wanted = rows.subList(blockStart, cursor);
+          PageReadStore pages = readPages(reader, blockIndex, block, projection, wanted, firstRowOfBlock, rowsInBlock);
+          emit(columnIOFactory, projection, fileSchema, pages, wanted, firstRowOfBlock, filePath, consumer);
         }
-
-        List<Long> wanted = positions.subList(blockStart, cursor);
-        PageReadStore pages = readPages(reader, blockIndex, block, projection, wanted, firstRowOfBlock, rowsInBlock);
-        emit(columnIOFactory, projection, fileSchema, pages, columnSlots, wanted, firstRowOfBlock, filePath, consumer);
 
         firstRowOfBlock += rowsInBlock;
       }
@@ -116,159 +109,89 @@ public final class RowReader {
 
   /**
    * Reads only the pages holding the wanted rows if the file has a page index, else the
-   * whole row group.
+   * whole row group. Each projected column's pages narrow the rows read, so a narrow column
+   * such as _op_type, whose one page spans thousands of rows, does not pull in every page of
+   * a wide column around the wanted rows.
    */
   private static PageReadStore readPages(ParquetFileReader reader, int blockIndex, BlockMetaData block,
-      MessageType projection, List<Long> wanted, long firstRowOfBlock, long rowsInBlock) throws IOException {
-    ColumnChunkMetaData chunk = chunkOf(block, projection.getFields().get(0).getName());
-    OffsetIndex offsetIndex = chunk == null ? null : reader.readOffsetIndex(chunk);
-    if (offsetIndex == null) {
-      return reader.readNextRowGroup();
+      MessageType projection, List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, long rowsInBlock)
+      throws IOException {
+    RowRanges ranges = null;
+    for (ColumnChunkMetaData chunk : block.getColumns()) {
+      if (!projection.containsPath(chunk.getPath().toArray())) {
+        continue;
+      }
+      OffsetIndex offsetIndex = reader.readOffsetIndex(chunk);
+      if (offsetIndex == null) {
+        return reader.readRowGroup(blockIndex);
+      }
+      RowRanges columnRanges = RowRanges.create(rowsInBlock,
+          pagesHolding(offsetIndex, wanted, firstRowOfBlock, rowsInBlock), offsetIndex);
+      ranges = ranges == null ? columnRanges : RowRanges.intersection(ranges, columnRanges);
     }
 
-    List<Integer> pages = new ArrayList<>();
+    return reader.readFilteredRowGroup(blockIndex, ranges);
+  }
+
+  /** Indexes, within one column chunk, of the pages holding the wanted rows. */
+  private static PrimitiveIterator.OfInt pagesHolding(OffsetIndex offsetIndex, List<ReadRowsRequest.Row> wanted,
+      long firstRowOfBlock, long rowsInBlock) {
+    IntStream.Builder pages = IntStream.builder();
     int cursor = 0;
-    for (int page = 0; page < offsetIndex.getPageCount(); page++) {
-      long firstRow = firstRowOfBlock + offsetIndex.getFirstRowIndex(page);
+    for (int page = 0; page < offsetIndex.getPageCount() && cursor < wanted.size(); page++) {
       long lastRow = firstRowOfBlock + offsetIndex.getLastRowIndex(page, rowsInBlock);
-      while (cursor < wanted.size() && wanted.get(cursor) < firstRow) {
+      if (wanted.get(cursor).getPosition() > lastRow) {
+        continue;
+      }
+      pages.add(page);
+      while (cursor < wanted.size() && wanted.get(cursor).getPosition() <= lastRow) {
         cursor++;
       }
-      if (cursor < wanted.size() && wanted.get(cursor) <= lastRow) {
-        pages.add(page);
-      }
     }
-
-    if (pages.isEmpty()) {
-      return reader.readNextRowGroup();
-    }
-
-    RowRanges ranges = RowRanges.create(rowsInBlock, pages.stream().mapToInt(Integer::intValue).iterator(), offsetIndex);
-    PageReadStore pages2 = reader.readFilteredRowGroup(blockIndex, ranges);
-    // readFilteredRowGroup does not advance the reader's own row-group cursor.
-    reader.skipNextRowGroup();
-
-    return pages2;
+    return pages.build().iterator();
   }
 
   /** Walks the rows read and emits the wanted ones. */
   private static void emit(ColumnIOFactory columnIOFactory, MessageType projection, MessageType fileSchema,
-      PageReadStore pages, List<Integer> columnSlots, List<Long> wanted, long firstRowOfBlock,
-      String filePath, RowConsumer consumer) throws Exception {
-    if (pages == null) {
-      return;
-    }
-
+      PageReadStore pages, List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, String filePath,
+      RowConsumer consumer) throws Exception {
     MessageColumnIO columnIO = columnIOFactory.getColumnIO(projection, fileSchema, true);
     RecordReader<Group> records = columnIO.getRecordReader(pages, new GroupRecordConverter(projection), FilterCompat.NOOP);
     PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes().orElse(null);
 
+    // every wanted row is among the rows read, which come in position order
     int cursor = 0;
-    for (long read = 0; read < pages.getRowCount() && cursor < wanted.size(); read++) {
+    for (long read = 0; cursor < wanted.size(); read++) {
       Group group = records.read();
       long position = firstRowOfBlock + (rowIndexes != null ? rowIndexes.nextLong() : read);
-      if (position < wanted.get(cursor)) {
+      if (position != wanted.get(cursor).getPosition()) {
         continue;
       }
-      if (position > wanted.get(cursor)) {
-        // passed a wanted row that was not returned: move to the next one
-        while (cursor < wanted.size() && wanted.get(cursor) < position) {
-          cursor++;
-        }
-        if (cursor >= wanted.size() || position != wanted.get(cursor)) {
-          continue;
-        }
-      }
 
-      List<Object> values = new ArrayList<>(columnSlots.size());
-      for (Integer slot : columnSlots) {
-        values.add(slot == null ? ABSENT : value(group, slot));
+      List<String> rowColumns = wanted.get(cursor).getColumnsList();
+      Map<String, Object> values = new HashMap<>(rowColumns.size());
+      for (String column : rowColumns) {
+        if (projection.containsField(column)) {
+          values.put(column, value(group, projection.getFieldIndex(column)));
+        }
       }
       consumer.accept(filePath, new Row(position, values));
       cursor++;
     }
   }
 
-  /** Reads one field of a row, or null when the column is null in that row. */
+  /**
+   * Reads one field of a row, or null when the column is null in that row. The columns read
+   * are text (Postgres text, json, arrays and the like, _op_type, the stored row) or numeric
+   * stored as double.
+   */
   private static Object value(Group group, int slot) {
     if (group.getFieldRepetitionCount(slot) == 0) {
       return null;
     }
-
-    Type field = group.getType().getType(slot);
-    switch (field.asPrimitiveType().getPrimitiveTypeName()) {
-      case BINARY:
-      case FIXED_LEN_BYTE_ARRAY:
-        // strings are UTF-8 binary with a logical type; other binary is returned as bytes
-        return field.getLogicalTypeAnnotation() == null
-            ? group.getBinary(slot, 0).getBytes()
-            : group.getString(slot, 0);
-      case INT32:
-        return (long) group.getInteger(slot, 0);
-      case INT64:
-        return group.getLong(slot, 0);
-      case FLOAT:
-        return (double) group.getFloat(slot, 0);
-      case DOUBLE:
-        return group.getDouble(slot, 0);
-      case BOOLEAN:
-        return group.getBoolean(slot, 0);
-      default:
-        return group.getValueToString(slot, 0);
-    }
-  }
-
-  /**
-   * Picks the requested columns from the file schema by Iceberg field id, so renames still
-   * match, else by name.
-   */
-  private static MessageType project(Schema tableSchema, MessageType fileSchema, List<String> columns) {
-    Map<Integer, Type> byId = new HashMap<>();
-    Map<String, Type> byName = new HashMap<>();
-    for (Type field : fileSchema.getFields()) {
-      if (field.getId() != null) {
-        byId.put(field.getId().intValue(), field);
-      }
-      byName.put(field.getName(), field);
-    }
-
-    List<Type> fields = new ArrayList<>(columns.size());
-    for (String column : columns) {
-      NestedField tableField = tableSchema.findField(column);
-      Type field = tableField == null ? null : byId.get(tableField.fieldId());
-      if (field == null) {
-        field = byName.get(column);
-      }
-      if (field != null && !fields.contains(field)) {
-        fields.add(field);
-      }
-    }
-
-    return new MessageType(fileSchema.getName(), fields);
-  }
-
-  /** Position of each requested column inside the projection, or null when absent. */
-  private static List<Integer> slots(MessageType projection, List<String> columns) {
-    Map<String, Integer> byName = new HashMap<>();
-    for (int slot = 0; slot < projection.getFieldCount(); slot++) {
-      byName.put(projection.getType(slot).getName(), slot);
-    }
-
-    List<Integer> slots = new ArrayList<>(columns.size());
-    for (String column : columns) {
-      slots.add(byName.get(column));
-    }
-
-    return slots;
-  }
-
-  private static ColumnChunkMetaData chunkOf(BlockMetaData block, String columnName) {
-    for (ColumnChunkMetaData chunk : block.getColumns()) {
-      if (chunk.getPath().toDotString().equals(columnName)) {
-        return chunk;
-      }
-    }
-    return null;
+    return group.getType().getType(slot).asPrimitiveType().getPrimitiveTypeName() == PrimitiveTypeName.DOUBLE
+        ? group.getDouble(slot, 0)
+        : group.getString(slot, 0);
   }
 
   /**

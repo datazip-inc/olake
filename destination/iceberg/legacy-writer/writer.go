@@ -11,7 +11,6 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
@@ -23,9 +22,6 @@ type LegacyWriter struct {
 	server      internal.ServerClient
 	indexThread *types.StreamIndexThread
 	upsertMode  bool
-	// openFiles are data files Java is still writing (no footer yet), so their rows
-	// cannot be read until EnsureReadable closes them. Tracked only with an index.
-	openFiles map[string]struct{}
 }
 
 func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) *LegacyWriter {
@@ -36,7 +32,6 @@ func New(options *destination.Options, schema map[string]string, stream types.St
 		server:      server,
 		upsertMode:  upsertMode,
 		indexThread: types.NewStreamIndexThread(options.TableIndex),
-		openFiles:   make(map[string]struct{}),
 	}
 }
 
@@ -50,23 +45,10 @@ func (w *LegacyWriter) Lookup(olakeID string) (types.RowLocation, bool, error) {
 	return w.indexThread.Lookup(olakeID)
 }
 
-// EnsureReadable asks Java to close its open files when any of paths is open, so rows
-// written earlier in this sync can be read.
-func (w *LegacyWriter) EnsureReadable(ctx context.Context, paths []string) error {
-	if _, anyOpen := utils.ArrayContains(paths, func(path string) bool {
-		_, open := w.openFiles[path]
-		return open
-	}); !anyOpen {
-		return nil
-	}
-
-	if err := w.server.FlushOpenFiles(ctx, w.options.ThreadID); err != nil {
-		return err
-	}
-
-	logger.Debugf("Thread[%s]: closed open data files to read unavailable column values", w.options.ThreadID)
-	clear(w.openFiles)
-
+// EnsureReadable has nothing to do: Java writes the data files and knows which are still
+// open, so ReadRows closes those itself. Tracking them here would go stale whenever Java
+// rolls a file on its own.
+func (w *LegacyWriter) EnsureReadable(context.Context, []string) error {
 	return nil
 }
 
@@ -163,7 +145,6 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	if w.indexThread != nil {
 		for _, fileMap := range ingestResponse.GetFilePositionMaps() {
 			logger.Debugf("Thread[%s]: file position map: %s (%d ranges)", w.options.ThreadID, fileMap.GetFilePath(), len(fileMap.GetRanges()))
-			w.openFiles[fileMap.GetFilePath()] = struct{}{}
 			for _, r := range fileMap.GetRanges() {
 				logger.Debugf("Thread[%s]:   range startIdx:%d startPos:%d count:%d", w.options.ThreadID, r.GetBatchStartIdx(), r.GetStartPosition(), r.GetCount())
 				for i := int32(0); i < r.GetCount(); i++ {
@@ -192,8 +173,6 @@ func (w *LegacyWriter) Abort() {
 
 func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]string) error {
 	w.schema = newSchema
-	// schema evolution already closed Java's open files
-	clear(w.openFiles)
 
 	return nil
 }

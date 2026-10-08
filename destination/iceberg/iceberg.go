@@ -156,7 +156,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	// Recovery needs the row's previous location, which only an upsert thread with a
 	// stream index has. Backfill and equality mode keep the placeholder.
 	if options.TableIndex != nil && upsertMode {
-		i.toast = newToastResolver(options.ThreadID, i.stream, i.writer, i.server.toastReadClient)
+		i.toast = newToastResolver(options.ThreadID, i.stream, i.writer, i.server.tableIndexClient)
 	}
 
 	return schema, &metadataState, nil

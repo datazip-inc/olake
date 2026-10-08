@@ -376,7 +376,9 @@ func (w *ArrowWriter) Lookup(olakeID string) (types.RowLocation, bool, error) {
 // can be read before the commit.
 func (w *ArrowWriter) EnsureReadable(ctx context.Context, paths []string) error {
 	for partitionKey, writer := range w.writers {
-		if !slices.Contains(paths, writer.dataWriter.filePath) {
+		// completeWriters (schema evolution) leaves a partition without a data writer until
+		// its next record; its files are already uploaded.
+		if writer.dataWriter == nil || !slices.Contains(paths, writer.dataWriter.filePath) {
 			continue
 		}
 

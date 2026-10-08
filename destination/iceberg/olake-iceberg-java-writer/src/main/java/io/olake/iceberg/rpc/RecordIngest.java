@@ -23480,6 +23480,4569 @@ java.lang.String defaultValue) {
 
   }
 
+  public interface ReadRowsRequestOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:io.olake.iceberg.rpc.ReadRowsRequest)
+      com.google.protobuf.MessageOrBuilder {
+
+    /**
+     * <code>string thread_id = 1;</code>
+     * @return The threadId.
+     */
+    java.lang.String getThreadId();
+    /**
+     * <code>string thread_id = 1;</code>
+     * @return The bytes for threadId.
+     */
+    com.google.protobuf.ByteString
+        getThreadIdBytes();
+
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows> 
+        getFilesList();
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows getFiles(int index);
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    int getFilesCount();
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder> 
+        getFilesOrBuilderList();
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder getFilesOrBuilder(
+        int index);
+  }
+  /**
+   * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsRequest}
+   */
+  public static final class ReadRowsRequest extends
+      com.google.protobuf.GeneratedMessageV3 implements
+      // @@protoc_insertion_point(message_implements:io.olake.iceberg.rpc.ReadRowsRequest)
+      ReadRowsRequestOrBuilder {
+  private static final long serialVersionUID = 0L;
+    // Use ReadRowsRequest.newBuilder() to construct.
+    private ReadRowsRequest(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+      super(builder);
+    }
+    private ReadRowsRequest() {
+      threadId_ = "";
+      files_ = java.util.Collections.emptyList();
+    }
+
+    @java.lang.Override
+    @SuppressWarnings({"unused"})
+    protected java.lang.Object newInstance(
+        UnusedPrivateParameter unused) {
+      return new ReadRowsRequest();
+    }
+
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor;
+    }
+
+    @java.lang.Override
+    protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+        internalGetFieldAccessorTable() {
+      return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_fieldAccessorTable
+          .ensureFieldAccessorsInitialized(
+              io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Builder.class);
+    }
+
+    public interface RowOrBuilder extends
+        // @@protoc_insertion_point(interface_extends:io.olake.iceberg.rpc.ReadRowsRequest.Row)
+        com.google.protobuf.MessageOrBuilder {
+
+      /**
+       * <code>int64 position = 1;</code>
+       * @return The position.
+       */
+      long getPosition();
+
+      /**
+       * <pre>
+       * Table columns to read for this row, by name.
+       * </pre>
+       *
+       * <code>repeated string columns = 2;</code>
+       * @return A list containing the columns.
+       */
+      java.util.List<java.lang.String>
+          getColumnsList();
+      /**
+       * <pre>
+       * Table columns to read for this row, by name.
+       * </pre>
+       *
+       * <code>repeated string columns = 2;</code>
+       * @return The count of columns.
+       */
+      int getColumnsCount();
+      /**
+       * <pre>
+       * Table columns to read for this row, by name.
+       * </pre>
+       *
+       * <code>repeated string columns = 2;</code>
+       * @param index The index of the element to return.
+       * @return The columns at the given index.
+       */
+      java.lang.String getColumns(int index);
+      /**
+       * <pre>
+       * Table columns to read for this row, by name.
+       * </pre>
+       *
+       * <code>repeated string columns = 2;</code>
+       * @param index The index of the value to return.
+       * @return The bytes of the columns at the given index.
+       */
+      com.google.protobuf.ByteString
+          getColumnsBytes(int index);
+    }
+    /**
+     * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsRequest.Row}
+     */
+    public static final class Row extends
+        com.google.protobuf.GeneratedMessageV3 implements
+        // @@protoc_insertion_point(message_implements:io.olake.iceberg.rpc.ReadRowsRequest.Row)
+        RowOrBuilder {
+    private static final long serialVersionUID = 0L;
+      // Use Row.newBuilder() to construct.
+      private Row(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+        super(builder);
+      }
+      private Row() {
+        columns_ =
+            com.google.protobuf.LazyStringArrayList.emptyList();
+      }
+
+      @java.lang.Override
+      @SuppressWarnings({"unused"})
+      protected java.lang.Object newInstance(
+          UnusedPrivateParameter unused) {
+        return new Row();
+      }
+
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder.class);
+      }
+
+      public static final int POSITION_FIELD_NUMBER = 1;
+      private long position_ = 0L;
+      /**
+       * <code>int64 position = 1;</code>
+       * @return The position.
+       */
+      @java.lang.Override
+      public long getPosition() {
+        return position_;
+      }
+
+      public static final int COLUMNS_FIELD_NUMBER = 2;
+      @SuppressWarnings("serial")
+      private com.google.protobuf.LazyStringArrayList columns_ =
+          com.google.protobuf.LazyStringArrayList.emptyList();
+      /**
+       * <pre>
+       * Table columns to read for this row, by name.
+       * </pre>
+       *
+       * <code>repeated string columns = 2;</code>
+       * @return A list containing the columns.
+       */
+      public com.google.protobuf.ProtocolStringList
+          getColumnsList() {
+        return columns_;
+      }
+      /**
+       * <pre>
+       * Table columns to read for this row, by name.
+       * </pre>
+       *
+       * <code>repeated string columns = 2;</code>
+       * @return The count of columns.
+       */
+      public int getColumnsCount() {
+        return columns_.size();
+      }
+      /**
+       * <pre>
+       * Table columns to read for this row, by name.
+       * </pre>
+       *
+       * <code>repeated string columns = 2;</code>
+       * @param index The index of the element to return.
+       * @return The columns at the given index.
+       */
+      public java.lang.String getColumns(int index) {
+        return columns_.get(index);
+      }
+      /**
+       * <pre>
+       * Table columns to read for this row, by name.
+       * </pre>
+       *
+       * <code>repeated string columns = 2;</code>
+       * @param index The index of the value to return.
+       * @return The bytes of the columns at the given index.
+       */
+      public com.google.protobuf.ByteString
+          getColumnsBytes(int index) {
+        return columns_.getByteString(index);
+      }
+
+      private byte memoizedIsInitialized = -1;
+      @java.lang.Override
+      public final boolean isInitialized() {
+        byte isInitialized = memoizedIsInitialized;
+        if (isInitialized == 1) return true;
+        if (isInitialized == 0) return false;
+
+        memoizedIsInitialized = 1;
+        return true;
+      }
+
+      @java.lang.Override
+      public void writeTo(com.google.protobuf.CodedOutputStream output)
+                          throws java.io.IOException {
+        if (position_ != 0L) {
+          output.writeInt64(1, position_);
+        }
+        for (int i = 0; i < columns_.size(); i++) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 2, columns_.getRaw(i));
+        }
+        getUnknownFields().writeTo(output);
+      }
+
+      @java.lang.Override
+      public int getSerializedSize() {
+        int size = memoizedSize;
+        if (size != -1) return size;
+
+        size = 0;
+        if (position_ != 0L) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt64Size(1, position_);
+        }
+        {
+          int dataSize = 0;
+          for (int i = 0; i < columns_.size(); i++) {
+            dataSize += computeStringSizeNoTag(columns_.getRaw(i));
+          }
+          size += dataSize;
+          size += 1 * getColumnsList().size();
+        }
+        size += getUnknownFields().getSerializedSize();
+        memoizedSize = size;
+        return size;
+      }
+
+      @java.lang.Override
+      public boolean equals(final java.lang.Object obj) {
+        if (obj == this) {
+         return true;
+        }
+        if (!(obj instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row)) {
+          return super.equals(obj);
+        }
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row other = (io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row) obj;
+
+        if (getPosition()
+            != other.getPosition()) return false;
+        if (!getColumnsList()
+            .equals(other.getColumnsList())) return false;
+        if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+        return true;
+      }
+
+      @java.lang.Override
+      public int hashCode() {
+        if (memoizedHashCode != 0) {
+          return memoizedHashCode;
+        }
+        int hash = 41;
+        hash = (19 * hash) + getDescriptor().hashCode();
+        hash = (37 * hash) + POSITION_FIELD_NUMBER;
+        hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+            getPosition());
+        if (getColumnsCount() > 0) {
+          hash = (37 * hash) + COLUMNS_FIELD_NUMBER;
+          hash = (53 * hash) + getColumnsList().hashCode();
+        }
+        hash = (29 * hash) + getUnknownFields().hashCode();
+        memoizedHashCode = hash;
+        return hash;
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(
+          java.nio.ByteBuffer data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(
+          java.nio.ByteBuffer data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(
+          com.google.protobuf.ByteString data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(
+          com.google.protobuf.ByteString data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(byte[] data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(
+          byte[] data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseDelimitedFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input);
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseDelimitedFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(
+          com.google.protobuf.CodedInputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row parseFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      @java.lang.Override
+      public Builder newBuilderForType() { return newBuilder(); }
+      public static Builder newBuilder() {
+        return DEFAULT_INSTANCE.toBuilder();
+      }
+      public static Builder newBuilder(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row prototype) {
+        return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+      }
+      @java.lang.Override
+      public Builder toBuilder() {
+        return this == DEFAULT_INSTANCE
+            ? new Builder() : new Builder().mergeFrom(this);
+      }
+
+      @java.lang.Override
+      protected Builder newBuilderForType(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        Builder builder = new Builder(parent);
+        return builder;
+      }
+      /**
+       * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsRequest.Row}
+       */
+      public static final class Builder extends
+          com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+          // @@protoc_insertion_point(builder_implements:io.olake.iceberg.rpc.ReadRowsRequest.Row)
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder {
+        public static final com.google.protobuf.Descriptors.Descriptor
+            getDescriptor() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_descriptor;
+        }
+
+        @java.lang.Override
+        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+            internalGetFieldAccessorTable() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_fieldAccessorTable
+              .ensureFieldAccessorsInitialized(
+                  io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder.class);
+        }
+
+        // Construct using io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.newBuilder()
+        private Builder() {
+
+        }
+
+        private Builder(
+            com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+          super(parent);
+
+        }
+        @java.lang.Override
+        public Builder clear() {
+          super.clear();
+          bitField0_ = 0;
+          position_ = 0L;
+          columns_ =
+              com.google.protobuf.LazyStringArrayList.emptyList();
+          return this;
+        }
+
+        @java.lang.Override
+        public com.google.protobuf.Descriptors.Descriptor
+            getDescriptorForType() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_descriptor;
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row getDefaultInstanceForType() {
+          return io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.getDefaultInstance();
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row build() {
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row result = buildPartial();
+          if (!result.isInitialized()) {
+            throw newUninitializedMessageException(result);
+          }
+          return result;
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row buildPartial() {
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row result = new io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row(this);
+          if (bitField0_ != 0) { buildPartial0(result); }
+          onBuilt();
+          return result;
+        }
+
+        private void buildPartial0(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row result) {
+          int from_bitField0_ = bitField0_;
+          if (((from_bitField0_ & 0x00000001) != 0)) {
+            result.position_ = position_;
+          }
+          if (((from_bitField0_ & 0x00000002) != 0)) {
+            columns_.makeImmutable();
+            result.columns_ = columns_;
+          }
+        }
+
+        @java.lang.Override
+        public Builder clone() {
+          return super.clone();
+        }
+        @java.lang.Override
+        public Builder setField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.setField(field, value);
+        }
+        @java.lang.Override
+        public Builder clearField(
+            com.google.protobuf.Descriptors.FieldDescriptor field) {
+          return super.clearField(field);
+        }
+        @java.lang.Override
+        public Builder clearOneof(
+            com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+          return super.clearOneof(oneof);
+        }
+        @java.lang.Override
+        public Builder setRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            int index, java.lang.Object value) {
+          return super.setRepeatedField(field, index, value);
+        }
+        @java.lang.Override
+        public Builder addRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.addRepeatedField(field, value);
+        }
+        @java.lang.Override
+        public Builder mergeFrom(com.google.protobuf.Message other) {
+          if (other instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row) {
+            return mergeFrom((io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row)other);
+          } else {
+            super.mergeFrom(other);
+            return this;
+          }
+        }
+
+        public Builder mergeFrom(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row other) {
+          if (other == io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.getDefaultInstance()) return this;
+          if (other.getPosition() != 0L) {
+            setPosition(other.getPosition());
+          }
+          if (!other.columns_.isEmpty()) {
+            if (columns_.isEmpty()) {
+              columns_ = other.columns_;
+              bitField0_ |= 0x00000002;
+            } else {
+              ensureColumnsIsMutable();
+              columns_.addAll(other.columns_);
+            }
+            onChanged();
+          }
+          this.mergeUnknownFields(other.getUnknownFields());
+          onChanged();
+          return this;
+        }
+
+        @java.lang.Override
+        public final boolean isInitialized() {
+          return true;
+        }
+
+        @java.lang.Override
+        public Builder mergeFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          if (extensionRegistry == null) {
+            throw new java.lang.NullPointerException();
+          }
+          try {
+            boolean done = false;
+            while (!done) {
+              int tag = input.readTag();
+              switch (tag) {
+                case 0:
+                  done = true;
+                  break;
+                case 8: {
+                  position_ = input.readInt64();
+                  bitField0_ |= 0x00000001;
+                  break;
+                } // case 8
+                case 18: {
+                  java.lang.String s = input.readStringRequireUtf8();
+                  ensureColumnsIsMutable();
+                  columns_.add(s);
+                  break;
+                } // case 18
+                default: {
+                  if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                    done = true; // was an endgroup tag
+                  }
+                  break;
+                } // default:
+              } // switch (tag)
+            } // while (!done)
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.unwrapIOException();
+          } finally {
+            onChanged();
+          } // finally
+          return this;
+        }
+        private int bitField0_;
+
+        private long position_ ;
+        /**
+         * <code>int64 position = 1;</code>
+         * @return The position.
+         */
+        @java.lang.Override
+        public long getPosition() {
+          return position_;
+        }
+        /**
+         * <code>int64 position = 1;</code>
+         * @param value The position to set.
+         * @return This builder for chaining.
+         */
+        public Builder setPosition(long value) {
+
+          position_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>int64 position = 1;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearPosition() {
+          bitField0_ = (bitField0_ & ~0x00000001);
+          position_ = 0L;
+          onChanged();
+          return this;
+        }
+
+        private com.google.protobuf.LazyStringArrayList columns_ =
+            com.google.protobuf.LazyStringArrayList.emptyList();
+        private void ensureColumnsIsMutable() {
+          if (!columns_.isModifiable()) {
+            columns_ = new com.google.protobuf.LazyStringArrayList(columns_);
+          }
+          bitField0_ |= 0x00000002;
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @return A list containing the columns.
+         */
+        public com.google.protobuf.ProtocolStringList
+            getColumnsList() {
+          columns_.makeImmutable();
+          return columns_;
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @return The count of columns.
+         */
+        public int getColumnsCount() {
+          return columns_.size();
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @param index The index of the element to return.
+         * @return The columns at the given index.
+         */
+        public java.lang.String getColumns(int index) {
+          return columns_.get(index);
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @param index The index of the value to return.
+         * @return The bytes of the columns at the given index.
+         */
+        public com.google.protobuf.ByteString
+            getColumnsBytes(int index) {
+          return columns_.getByteString(index);
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @param index The index to set the value at.
+         * @param value The columns to set.
+         * @return This builder for chaining.
+         */
+        public Builder setColumns(
+            int index, java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          ensureColumnsIsMutable();
+          columns_.set(index, value);
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @param value The columns to add.
+         * @return This builder for chaining.
+         */
+        public Builder addColumns(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          ensureColumnsIsMutable();
+          columns_.add(value);
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @param values The columns to add.
+         * @return This builder for chaining.
+         */
+        public Builder addAllColumns(
+            java.lang.Iterable<java.lang.String> values) {
+          ensureColumnsIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, columns_);
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearColumns() {
+          columns_ =
+            com.google.protobuf.LazyStringArrayList.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000002);;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * Table columns to read for this row, by name.
+         * </pre>
+         *
+         * <code>repeated string columns = 2;</code>
+         * @param value The bytes of the columns to add.
+         * @return This builder for chaining.
+         */
+        public Builder addColumnsBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          ensureColumnsIsMutable();
+          columns_.add(value);
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        @java.lang.Override
+        public final Builder setUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.setUnknownFields(unknownFields);
+        }
+
+        @java.lang.Override
+        public final Builder mergeUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.mergeUnknownFields(unknownFields);
+        }
+
+
+        // @@protoc_insertion_point(builder_scope:io.olake.iceberg.rpc.ReadRowsRequest.Row)
+      }
+
+      // @@protoc_insertion_point(class_scope:io.olake.iceberg.rpc.ReadRowsRequest.Row)
+      private static final io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row DEFAULT_INSTANCE;
+      static {
+        DEFAULT_INSTANCE = new io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row();
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row getDefaultInstance() {
+        return DEFAULT_INSTANCE;
+      }
+
+      private static final com.google.protobuf.Parser<Row>
+          PARSER = new com.google.protobuf.AbstractParser<Row>() {
+        @java.lang.Override
+        public Row parsePartialFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          Builder builder = newBuilder();
+          try {
+            builder.mergeFrom(input, extensionRegistry);
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.setUnfinishedMessage(builder.buildPartial());
+          } catch (com.google.protobuf.UninitializedMessageException e) {
+            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+          } catch (java.io.IOException e) {
+            throw new com.google.protobuf.InvalidProtocolBufferException(e)
+                .setUnfinishedMessage(builder.buildPartial());
+          }
+          return builder.buildPartial();
+        }
+      };
+
+      public static com.google.protobuf.Parser<Row> parser() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Parser<Row> getParserForType() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row getDefaultInstanceForType() {
+        return DEFAULT_INSTANCE;
+      }
+
+    }
+
+    public interface FileRowsOrBuilder extends
+        // @@protoc_insertion_point(interface_extends:io.olake.iceberg.rpc.ReadRowsRequest.FileRows)
+        com.google.protobuf.MessageOrBuilder {
+
+      /**
+       * <code>string file_path = 1;</code>
+       * @return The filePath.
+       */
+      java.lang.String getFilePath();
+      /**
+       * <code>string file_path = 1;</code>
+       * @return The bytes for filePath.
+       */
+      com.google.protobuf.ByteString
+          getFilePathBytes();
+
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> 
+          getRowsList();
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row getRows(int index);
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      int getRowsCount();
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder> 
+          getRowsOrBuilderList();
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder getRowsOrBuilder(
+          int index);
+    }
+    /**
+     * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsRequest.FileRows}
+     */
+    public static final class FileRows extends
+        com.google.protobuf.GeneratedMessageV3 implements
+        // @@protoc_insertion_point(message_implements:io.olake.iceberg.rpc.ReadRowsRequest.FileRows)
+        FileRowsOrBuilder {
+    private static final long serialVersionUID = 0L;
+      // Use FileRows.newBuilder() to construct.
+      private FileRows(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+        super(builder);
+      }
+      private FileRows() {
+        filePath_ = "";
+        rows_ = java.util.Collections.emptyList();
+      }
+
+      @java.lang.Override
+      @SuppressWarnings({"unused"})
+      protected java.lang.Object newInstance(
+          UnusedPrivateParameter unused) {
+        return new FileRows();
+      }
+
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder.class);
+      }
+
+      public static final int FILE_PATH_FIELD_NUMBER = 1;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object filePath_ = "";
+      /**
+       * <code>string file_path = 1;</code>
+       * @return The filePath.
+       */
+      @java.lang.Override
+      public java.lang.String getFilePath() {
+        java.lang.Object ref = filePath_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          filePath_ = s;
+          return s;
+        }
+      }
+      /**
+       * <code>string file_path = 1;</code>
+       * @return The bytes for filePath.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getFilePathBytes() {
+        java.lang.Object ref = filePath_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          filePath_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
+      public static final int ROWS_FIELD_NUMBER = 2;
+      @SuppressWarnings("serial")
+      private java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> rows_;
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      @java.lang.Override
+      public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> getRowsList() {
+        return rows_;
+      }
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      @java.lang.Override
+      public java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder> 
+          getRowsOrBuilderList() {
+        return rows_;
+      }
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      @java.lang.Override
+      public int getRowsCount() {
+        return rows_.size();
+      }
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row getRows(int index) {
+        return rows_.get(index);
+      }
+      /**
+       * <pre>
+       * Rows to read, in ascending position order.
+       * </pre>
+       *
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+       */
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder getRowsOrBuilder(
+          int index) {
+        return rows_.get(index);
+      }
+
+      private byte memoizedIsInitialized = -1;
+      @java.lang.Override
+      public final boolean isInitialized() {
+        byte isInitialized = memoizedIsInitialized;
+        if (isInitialized == 1) return true;
+        if (isInitialized == 0) return false;
+
+        memoizedIsInitialized = 1;
+        return true;
+      }
+
+      @java.lang.Override
+      public void writeTo(com.google.protobuf.CodedOutputStream output)
+                          throws java.io.IOException {
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 1, filePath_);
+        }
+        for (int i = 0; i < rows_.size(); i++) {
+          output.writeMessage(2, rows_.get(i));
+        }
+        getUnknownFields().writeTo(output);
+      }
+
+      @java.lang.Override
+      public int getSerializedSize() {
+        int size = memoizedSize;
+        if (size != -1) return size;
+
+        size = 0;
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, filePath_);
+        }
+        for (int i = 0; i < rows_.size(); i++) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeMessageSize(2, rows_.get(i));
+        }
+        size += getUnknownFields().getSerializedSize();
+        memoizedSize = size;
+        return size;
+      }
+
+      @java.lang.Override
+      public boolean equals(final java.lang.Object obj) {
+        if (obj == this) {
+         return true;
+        }
+        if (!(obj instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows)) {
+          return super.equals(obj);
+        }
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows other = (io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows) obj;
+
+        if (!getFilePath()
+            .equals(other.getFilePath())) return false;
+        if (!getRowsList()
+            .equals(other.getRowsList())) return false;
+        if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+        return true;
+      }
+
+      @java.lang.Override
+      public int hashCode() {
+        if (memoizedHashCode != 0) {
+          return memoizedHashCode;
+        }
+        int hash = 41;
+        hash = (19 * hash) + getDescriptor().hashCode();
+        hash = (37 * hash) + FILE_PATH_FIELD_NUMBER;
+        hash = (53 * hash) + getFilePath().hashCode();
+        if (getRowsCount() > 0) {
+          hash = (37 * hash) + ROWS_FIELD_NUMBER;
+          hash = (53 * hash) + getRowsList().hashCode();
+        }
+        hash = (29 * hash) + getUnknownFields().hashCode();
+        memoizedHashCode = hash;
+        return hash;
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(
+          java.nio.ByteBuffer data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(
+          java.nio.ByteBuffer data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(
+          com.google.protobuf.ByteString data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(
+          com.google.protobuf.ByteString data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(byte[] data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(
+          byte[] data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseDelimitedFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input);
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseDelimitedFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(
+          com.google.protobuf.CodedInputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows parseFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      @java.lang.Override
+      public Builder newBuilderForType() { return newBuilder(); }
+      public static Builder newBuilder() {
+        return DEFAULT_INSTANCE.toBuilder();
+      }
+      public static Builder newBuilder(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows prototype) {
+        return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+      }
+      @java.lang.Override
+      public Builder toBuilder() {
+        return this == DEFAULT_INSTANCE
+            ? new Builder() : new Builder().mergeFrom(this);
+      }
+
+      @java.lang.Override
+      protected Builder newBuilderForType(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        Builder builder = new Builder(parent);
+        return builder;
+      }
+      /**
+       * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsRequest.FileRows}
+       */
+      public static final class Builder extends
+          com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+          // @@protoc_insertion_point(builder_implements:io.olake.iceberg.rpc.ReadRowsRequest.FileRows)
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder {
+        public static final com.google.protobuf.Descriptors.Descriptor
+            getDescriptor() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_descriptor;
+        }
+
+        @java.lang.Override
+        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+            internalGetFieldAccessorTable() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_fieldAccessorTable
+              .ensureFieldAccessorsInitialized(
+                  io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder.class);
+        }
+
+        // Construct using io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.newBuilder()
+        private Builder() {
+
+        }
+
+        private Builder(
+            com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+          super(parent);
+
+        }
+        @java.lang.Override
+        public Builder clear() {
+          super.clear();
+          bitField0_ = 0;
+          filePath_ = "";
+          if (rowsBuilder_ == null) {
+            rows_ = java.util.Collections.emptyList();
+          } else {
+            rows_ = null;
+            rowsBuilder_.clear();
+          }
+          bitField0_ = (bitField0_ & ~0x00000002);
+          return this;
+        }
+
+        @java.lang.Override
+        public com.google.protobuf.Descriptors.Descriptor
+            getDescriptorForType() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_descriptor;
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows getDefaultInstanceForType() {
+          return io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.getDefaultInstance();
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows build() {
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows result = buildPartial();
+          if (!result.isInitialized()) {
+            throw newUninitializedMessageException(result);
+          }
+          return result;
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows buildPartial() {
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows result = new io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows(this);
+          buildPartialRepeatedFields(result);
+          if (bitField0_ != 0) { buildPartial0(result); }
+          onBuilt();
+          return result;
+        }
+
+        private void buildPartialRepeatedFields(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows result) {
+          if (rowsBuilder_ == null) {
+            if (((bitField0_ & 0x00000002) != 0)) {
+              rows_ = java.util.Collections.unmodifiableList(rows_);
+              bitField0_ = (bitField0_ & ~0x00000002);
+            }
+            result.rows_ = rows_;
+          } else {
+            result.rows_ = rowsBuilder_.build();
+          }
+        }
+
+        private void buildPartial0(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows result) {
+          int from_bitField0_ = bitField0_;
+          if (((from_bitField0_ & 0x00000001) != 0)) {
+            result.filePath_ = filePath_;
+          }
+        }
+
+        @java.lang.Override
+        public Builder clone() {
+          return super.clone();
+        }
+        @java.lang.Override
+        public Builder setField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.setField(field, value);
+        }
+        @java.lang.Override
+        public Builder clearField(
+            com.google.protobuf.Descriptors.FieldDescriptor field) {
+          return super.clearField(field);
+        }
+        @java.lang.Override
+        public Builder clearOneof(
+            com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+          return super.clearOneof(oneof);
+        }
+        @java.lang.Override
+        public Builder setRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            int index, java.lang.Object value) {
+          return super.setRepeatedField(field, index, value);
+        }
+        @java.lang.Override
+        public Builder addRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.addRepeatedField(field, value);
+        }
+        @java.lang.Override
+        public Builder mergeFrom(com.google.protobuf.Message other) {
+          if (other instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows) {
+            return mergeFrom((io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows)other);
+          } else {
+            super.mergeFrom(other);
+            return this;
+          }
+        }
+
+        public Builder mergeFrom(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows other) {
+          if (other == io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.getDefaultInstance()) return this;
+          if (!other.getFilePath().isEmpty()) {
+            filePath_ = other.filePath_;
+            bitField0_ |= 0x00000001;
+            onChanged();
+          }
+          if (rowsBuilder_ == null) {
+            if (!other.rows_.isEmpty()) {
+              if (rows_.isEmpty()) {
+                rows_ = other.rows_;
+                bitField0_ = (bitField0_ & ~0x00000002);
+              } else {
+                ensureRowsIsMutable();
+                rows_.addAll(other.rows_);
+              }
+              onChanged();
+            }
+          } else {
+            if (!other.rows_.isEmpty()) {
+              if (rowsBuilder_.isEmpty()) {
+                rowsBuilder_.dispose();
+                rowsBuilder_ = null;
+                rows_ = other.rows_;
+                bitField0_ = (bitField0_ & ~0x00000002);
+                rowsBuilder_ = 
+                  com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                     getRowsFieldBuilder() : null;
+              } else {
+                rowsBuilder_.addAllMessages(other.rows_);
+              }
+            }
+          }
+          this.mergeUnknownFields(other.getUnknownFields());
+          onChanged();
+          return this;
+        }
+
+        @java.lang.Override
+        public final boolean isInitialized() {
+          return true;
+        }
+
+        @java.lang.Override
+        public Builder mergeFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          if (extensionRegistry == null) {
+            throw new java.lang.NullPointerException();
+          }
+          try {
+            boolean done = false;
+            while (!done) {
+              int tag = input.readTag();
+              switch (tag) {
+                case 0:
+                  done = true;
+                  break;
+                case 10: {
+                  filePath_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000001;
+                  break;
+                } // case 10
+                case 18: {
+                  io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row m =
+                      input.readMessage(
+                          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.parser(),
+                          extensionRegistry);
+                  if (rowsBuilder_ == null) {
+                    ensureRowsIsMutable();
+                    rows_.add(m);
+                  } else {
+                    rowsBuilder_.addMessage(m);
+                  }
+                  break;
+                } // case 18
+                default: {
+                  if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                    done = true; // was an endgroup tag
+                  }
+                  break;
+                } // default:
+              } // switch (tag)
+            } // while (!done)
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.unwrapIOException();
+          } finally {
+            onChanged();
+          } // finally
+          return this;
+        }
+        private int bitField0_;
+
+        private java.lang.Object filePath_ = "";
+        /**
+         * <code>string file_path = 1;</code>
+         * @return The filePath.
+         */
+        public java.lang.String getFilePath() {
+          java.lang.Object ref = filePath_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            filePath_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <code>string file_path = 1;</code>
+         * @return The bytes for filePath.
+         */
+        public com.google.protobuf.ByteString
+            getFilePathBytes() {
+          java.lang.Object ref = filePath_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            filePath_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <code>string file_path = 1;</code>
+         * @param value The filePath to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilePath(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          filePath_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>string file_path = 1;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFilePath() {
+          filePath_ = getDefaultInstance().getFilePath();
+          bitField0_ = (bitField0_ & ~0x00000001);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>string file_path = 1;</code>
+         * @param value The bytes for filePath to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilePathBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          filePath_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+
+        private java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> rows_ =
+          java.util.Collections.emptyList();
+        private void ensureRowsIsMutable() {
+          if (!((bitField0_ & 0x00000002) != 0)) {
+            rows_ = new java.util.ArrayList<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row>(rows_);
+            bitField0_ |= 0x00000002;
+           }
+        }
+
+        private com.google.protobuf.RepeatedFieldBuilderV3<
+            io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder> rowsBuilder_;
+
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> getRowsList() {
+          if (rowsBuilder_ == null) {
+            return java.util.Collections.unmodifiableList(rows_);
+          } else {
+            return rowsBuilder_.getMessageList();
+          }
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public int getRowsCount() {
+          if (rowsBuilder_ == null) {
+            return rows_.size();
+          } else {
+            return rowsBuilder_.getCount();
+          }
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row getRows(int index) {
+          if (rowsBuilder_ == null) {
+            return rows_.get(index);
+          } else {
+            return rowsBuilder_.getMessage(index);
+          }
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder setRows(
+            int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row value) {
+          if (rowsBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureRowsIsMutable();
+            rows_.set(index, value);
+            onChanged();
+          } else {
+            rowsBuilder_.setMessage(index, value);
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder setRows(
+            int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder builderForValue) {
+          if (rowsBuilder_ == null) {
+            ensureRowsIsMutable();
+            rows_.set(index, builderForValue.build());
+            onChanged();
+          } else {
+            rowsBuilder_.setMessage(index, builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder addRows(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row value) {
+          if (rowsBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureRowsIsMutable();
+            rows_.add(value);
+            onChanged();
+          } else {
+            rowsBuilder_.addMessage(value);
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder addRows(
+            int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row value) {
+          if (rowsBuilder_ == null) {
+            if (value == null) {
+              throw new NullPointerException();
+            }
+            ensureRowsIsMutable();
+            rows_.add(index, value);
+            onChanged();
+          } else {
+            rowsBuilder_.addMessage(index, value);
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder addRows(
+            io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder builderForValue) {
+          if (rowsBuilder_ == null) {
+            ensureRowsIsMutable();
+            rows_.add(builderForValue.build());
+            onChanged();
+          } else {
+            rowsBuilder_.addMessage(builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder addRows(
+            int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder builderForValue) {
+          if (rowsBuilder_ == null) {
+            ensureRowsIsMutable();
+            rows_.add(index, builderForValue.build());
+            onChanged();
+          } else {
+            rowsBuilder_.addMessage(index, builderForValue.build());
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder addAllRows(
+            java.lang.Iterable<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> values) {
+          if (rowsBuilder_ == null) {
+            ensureRowsIsMutable();
+            com.google.protobuf.AbstractMessageLite.Builder.addAll(
+                values, rows_);
+            onChanged();
+          } else {
+            rowsBuilder_.addAllMessages(values);
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder clearRows() {
+          if (rowsBuilder_ == null) {
+            rows_ = java.util.Collections.emptyList();
+            bitField0_ = (bitField0_ & ~0x00000002);
+            onChanged();
+          } else {
+            rowsBuilder_.clear();
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public Builder removeRows(int index) {
+          if (rowsBuilder_ == null) {
+            ensureRowsIsMutable();
+            rows_.remove(index);
+            onChanged();
+          } else {
+            rowsBuilder_.remove(index);
+          }
+          return this;
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder getRowsBuilder(
+            int index) {
+          return getRowsFieldBuilder().getBuilder(index);
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder getRowsOrBuilder(
+            int index) {
+          if (rowsBuilder_ == null) {
+            return rows_.get(index);  } else {
+            return rowsBuilder_.getMessageOrBuilder(index);
+          }
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder> 
+             getRowsOrBuilderList() {
+          if (rowsBuilder_ != null) {
+            return rowsBuilder_.getMessageOrBuilderList();
+          } else {
+            return java.util.Collections.unmodifiableList(rows_);
+          }
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder addRowsBuilder() {
+          return getRowsFieldBuilder().addBuilder(
+              io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.getDefaultInstance());
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder addRowsBuilder(
+            int index) {
+          return getRowsFieldBuilder().addBuilder(
+              index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.getDefaultInstance());
+        }
+        /**
+         * <pre>
+         * Rows to read, in ascending position order.
+         * </pre>
+         *
+         * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
+         */
+        public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder> 
+             getRowsBuilderList() {
+          return getRowsFieldBuilder().getBuilderList();
+        }
+        private com.google.protobuf.RepeatedFieldBuilderV3<
+            io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder> 
+            getRowsFieldBuilder() {
+          if (rowsBuilder_ == null) {
+            rowsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder>(
+                    rows_,
+                    ((bitField0_ & 0x00000002) != 0),
+                    getParentForChildren(),
+                    isClean());
+            rows_ = null;
+          }
+          return rowsBuilder_;
+        }
+        @java.lang.Override
+        public final Builder setUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.setUnknownFields(unknownFields);
+        }
+
+        @java.lang.Override
+        public final Builder mergeUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.mergeUnknownFields(unknownFields);
+        }
+
+
+        // @@protoc_insertion_point(builder_scope:io.olake.iceberg.rpc.ReadRowsRequest.FileRows)
+      }
+
+      // @@protoc_insertion_point(class_scope:io.olake.iceberg.rpc.ReadRowsRequest.FileRows)
+      private static final io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows DEFAULT_INSTANCE;
+      static {
+        DEFAULT_INSTANCE = new io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows();
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows getDefaultInstance() {
+        return DEFAULT_INSTANCE;
+      }
+
+      private static final com.google.protobuf.Parser<FileRows>
+          PARSER = new com.google.protobuf.AbstractParser<FileRows>() {
+        @java.lang.Override
+        public FileRows parsePartialFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          Builder builder = newBuilder();
+          try {
+            builder.mergeFrom(input, extensionRegistry);
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.setUnfinishedMessage(builder.buildPartial());
+          } catch (com.google.protobuf.UninitializedMessageException e) {
+            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+          } catch (java.io.IOException e) {
+            throw new com.google.protobuf.InvalidProtocolBufferException(e)
+                .setUnfinishedMessage(builder.buildPartial());
+          }
+          return builder.buildPartial();
+        }
+      };
+
+      public static com.google.protobuf.Parser<FileRows> parser() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Parser<FileRows> getParserForType() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows getDefaultInstanceForType() {
+        return DEFAULT_INSTANCE;
+      }
+
+    }
+
+    public static final int THREAD_ID_FIELD_NUMBER = 1;
+    @SuppressWarnings("serial")
+    private volatile java.lang.Object threadId_ = "";
+    /**
+     * <code>string thread_id = 1;</code>
+     * @return The threadId.
+     */
+    @java.lang.Override
+    public java.lang.String getThreadId() {
+      java.lang.Object ref = threadId_;
+      if (ref instanceof java.lang.String) {
+        return (java.lang.String) ref;
+      } else {
+        com.google.protobuf.ByteString bs = 
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        threadId_ = s;
+        return s;
+      }
+    }
+    /**
+     * <code>string thread_id = 1;</code>
+     * @return The bytes for threadId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getThreadIdBytes() {
+      java.lang.Object ref = threadId_;
+      if (ref instanceof java.lang.String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        threadId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+
+    public static final int FILES_FIELD_NUMBER = 2;
+    @SuppressWarnings("serial")
+    private java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows> files_;
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows> getFilesList() {
+      return files_;
+    }
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    @java.lang.Override
+    public java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder> 
+        getFilesOrBuilderList() {
+      return files_;
+    }
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    @java.lang.Override
+    public int getFilesCount() {
+      return files_.size();
+    }
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    @java.lang.Override
+    public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows getFiles(int index) {
+      return files_.get(index);
+    }
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+     */
+    @java.lang.Override
+    public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder getFilesOrBuilder(
+        int index) {
+      return files_.get(index);
+    }
+
+    private byte memoizedIsInitialized = -1;
+    @java.lang.Override
+    public final boolean isInitialized() {
+      byte isInitialized = memoizedIsInitialized;
+      if (isInitialized == 1) return true;
+      if (isInitialized == 0) return false;
+
+      memoizedIsInitialized = 1;
+      return true;
+    }
+
+    @java.lang.Override
+    public void writeTo(com.google.protobuf.CodedOutputStream output)
+                        throws java.io.IOException {
+      if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(threadId_)) {
+        com.google.protobuf.GeneratedMessageV3.writeString(output, 1, threadId_);
+      }
+      for (int i = 0; i < files_.size(); i++) {
+        output.writeMessage(2, files_.get(i));
+      }
+      getUnknownFields().writeTo(output);
+    }
+
+    @java.lang.Override
+    public int getSerializedSize() {
+      int size = memoizedSize;
+      if (size != -1) return size;
+
+      size = 0;
+      if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(threadId_)) {
+        size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, threadId_);
+      }
+      for (int i = 0; i < files_.size(); i++) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(2, files_.get(i));
+      }
+      size += getUnknownFields().getSerializedSize();
+      memoizedSize = size;
+      return size;
+    }
+
+    @java.lang.Override
+    public boolean equals(final java.lang.Object obj) {
+      if (obj == this) {
+       return true;
+      }
+      if (!(obj instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest)) {
+        return super.equals(obj);
+      }
+      io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest other = (io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest) obj;
+
+      if (!getThreadId()
+          .equals(other.getThreadId())) return false;
+      if (!getFilesList()
+          .equals(other.getFilesList())) return false;
+      if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+      return true;
+    }
+
+    @java.lang.Override
+    public int hashCode() {
+      if (memoizedHashCode != 0) {
+        return memoizedHashCode;
+      }
+      int hash = 41;
+      hash = (19 * hash) + getDescriptor().hashCode();
+      hash = (37 * hash) + THREAD_ID_FIELD_NUMBER;
+      hash = (53 * hash) + getThreadId().hashCode();
+      if (getFilesCount() > 0) {
+        hash = (37 * hash) + FILES_FIELD_NUMBER;
+        hash = (53 * hash) + getFilesList().hashCode();
+      }
+      hash = (29 * hash) + getUnknownFields().hashCode();
+      memoizedHashCode = hash;
+      return hash;
+    }
+
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(
+        java.nio.ByteBuffer data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(
+        java.nio.ByteBuffer data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(
+        com.google.protobuf.ByteString data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(
+        com.google.protobuf.ByteString data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(byte[] data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(
+        byte[] data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseDelimitedFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input);
+    }
+
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseDelimitedFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(
+        com.google.protobuf.CodedInputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest parseFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+
+    @java.lang.Override
+    public Builder newBuilderForType() { return newBuilder(); }
+    public static Builder newBuilder() {
+      return DEFAULT_INSTANCE.toBuilder();
+    }
+    public static Builder newBuilder(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest prototype) {
+      return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+    }
+    @java.lang.Override
+    public Builder toBuilder() {
+      return this == DEFAULT_INSTANCE
+          ? new Builder() : new Builder().mergeFrom(this);
+    }
+
+    @java.lang.Override
+    protected Builder newBuilderForType(
+        com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+      Builder builder = new Builder(parent);
+      return builder;
+    }
+    /**
+     * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsRequest}
+     */
+    public static final class Builder extends
+        com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+        // @@protoc_insertion_point(builder_implements:io.olake.iceberg.rpc.ReadRowsRequest)
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsRequestOrBuilder {
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Builder.class);
+      }
+
+      // Construct using io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.newBuilder()
+      private Builder() {
+
+      }
+
+      private Builder(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        super(parent);
+
+      }
+      @java.lang.Override
+      public Builder clear() {
+        super.clear();
+        bitField0_ = 0;
+        threadId_ = "";
+        if (filesBuilder_ == null) {
+          files_ = java.util.Collections.emptyList();
+        } else {
+          files_ = null;
+          filesBuilder_.clear();
+        }
+        bitField0_ = (bitField0_ & ~0x00000002);
+        return this;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Descriptors.Descriptor
+          getDescriptorForType() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor;
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest getDefaultInstanceForType() {
+        return io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.getDefaultInstance();
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest build() {
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(result);
+        }
+        return result;
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest buildPartial() {
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest result = new io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest(this);
+        buildPartialRepeatedFields(result);
+        if (bitField0_ != 0) { buildPartial0(result); }
+        onBuilt();
+        return result;
+      }
+
+      private void buildPartialRepeatedFields(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest result) {
+        if (filesBuilder_ == null) {
+          if (((bitField0_ & 0x00000002) != 0)) {
+            files_ = java.util.Collections.unmodifiableList(files_);
+            bitField0_ = (bitField0_ & ~0x00000002);
+          }
+          result.files_ = files_;
+        } else {
+          result.files_ = filesBuilder_.build();
+        }
+      }
+
+      private void buildPartial0(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest result) {
+        int from_bitField0_ = bitField0_;
+        if (((from_bitField0_ & 0x00000001) != 0)) {
+          result.threadId_ = threadId_;
+        }
+      }
+
+      @java.lang.Override
+      public Builder clone() {
+        return super.clone();
+      }
+      @java.lang.Override
+      public Builder setField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.setField(field, value);
+      }
+      @java.lang.Override
+      public Builder clearField(
+          com.google.protobuf.Descriptors.FieldDescriptor field) {
+        return super.clearField(field);
+      }
+      @java.lang.Override
+      public Builder clearOneof(
+          com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+        return super.clearOneof(oneof);
+      }
+      @java.lang.Override
+      public Builder setRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          int index, java.lang.Object value) {
+        return super.setRepeatedField(field, index, value);
+      }
+      @java.lang.Override
+      public Builder addRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.addRepeatedField(field, value);
+      }
+      @java.lang.Override
+      public Builder mergeFrom(com.google.protobuf.Message other) {
+        if (other instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest) {
+          return mergeFrom((io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest)other);
+        } else {
+          super.mergeFrom(other);
+          return this;
+        }
+      }
+
+      public Builder mergeFrom(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest other) {
+        if (other == io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.getDefaultInstance()) return this;
+        if (!other.getThreadId().isEmpty()) {
+          threadId_ = other.threadId_;
+          bitField0_ |= 0x00000001;
+          onChanged();
+        }
+        if (filesBuilder_ == null) {
+          if (!other.files_.isEmpty()) {
+            if (files_.isEmpty()) {
+              files_ = other.files_;
+              bitField0_ = (bitField0_ & ~0x00000002);
+            } else {
+              ensureFilesIsMutable();
+              files_.addAll(other.files_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.files_.isEmpty()) {
+            if (filesBuilder_.isEmpty()) {
+              filesBuilder_.dispose();
+              filesBuilder_ = null;
+              files_ = other.files_;
+              bitField0_ = (bitField0_ & ~0x00000002);
+              filesBuilder_ = 
+                com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                   getFilesFieldBuilder() : null;
+            } else {
+              filesBuilder_.addAllMessages(other.files_);
+            }
+          }
+        }
+        this.mergeUnknownFields(other.getUnknownFields());
+        onChanged();
+        return this;
+      }
+
+      @java.lang.Override
+      public final boolean isInitialized() {
+        return true;
+      }
+
+      @java.lang.Override
+      public Builder mergeFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        if (extensionRegistry == null) {
+          throw new java.lang.NullPointerException();
+        }
+        try {
+          boolean done = false;
+          while (!done) {
+            int tag = input.readTag();
+            switch (tag) {
+              case 0:
+                done = true;
+                break;
+              case 10: {
+                threadId_ = input.readStringRequireUtf8();
+                bitField0_ |= 0x00000001;
+                break;
+              } // case 10
+              case 18: {
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows m =
+                    input.readMessage(
+                        io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.parser(),
+                        extensionRegistry);
+                if (filesBuilder_ == null) {
+                  ensureFilesIsMutable();
+                  files_.add(m);
+                } else {
+                  filesBuilder_.addMessage(m);
+                }
+                break;
+              } // case 18
+              default: {
+                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                  done = true; // was an endgroup tag
+                }
+                break;
+              } // default:
+            } // switch (tag)
+          } // while (!done)
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          throw e.unwrapIOException();
+        } finally {
+          onChanged();
+        } // finally
+        return this;
+      }
+      private int bitField0_;
+
+      private java.lang.Object threadId_ = "";
+      /**
+       * <code>string thread_id = 1;</code>
+       * @return The threadId.
+       */
+      public java.lang.String getThreadId() {
+        java.lang.Object ref = threadId_;
+        if (!(ref instanceof java.lang.String)) {
+          com.google.protobuf.ByteString bs =
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          threadId_ = s;
+          return s;
+        } else {
+          return (java.lang.String) ref;
+        }
+      }
+      /**
+       * <code>string thread_id = 1;</code>
+       * @return The bytes for threadId.
+       */
+      public com.google.protobuf.ByteString
+          getThreadIdBytes() {
+        java.lang.Object ref = threadId_;
+        if (ref instanceof String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          threadId_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+      /**
+       * <code>string thread_id = 1;</code>
+       * @param value The threadId to set.
+       * @return This builder for chaining.
+       */
+      public Builder setThreadId(
+          java.lang.String value) {
+        if (value == null) { throw new NullPointerException(); }
+        threadId_ = value;
+        bitField0_ |= 0x00000001;
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>string thread_id = 1;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearThreadId() {
+        threadId_ = getDefaultInstance().getThreadId();
+        bitField0_ = (bitField0_ & ~0x00000001);
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>string thread_id = 1;</code>
+       * @param value The bytes for threadId to set.
+       * @return This builder for chaining.
+       */
+      public Builder setThreadIdBytes(
+          com.google.protobuf.ByteString value) {
+        if (value == null) { throw new NullPointerException(); }
+        checkByteStringIsUtf8(value);
+        threadId_ = value;
+        bitField0_ |= 0x00000001;
+        onChanged();
+        return this;
+      }
+
+      private java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows> files_ =
+        java.util.Collections.emptyList();
+      private void ensureFilesIsMutable() {
+        if (!((bitField0_ & 0x00000002) != 0)) {
+          files_ = new java.util.ArrayList<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows>(files_);
+          bitField0_ |= 0x00000002;
+         }
+      }
+
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder> filesBuilder_;
+
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows> getFilesList() {
+        if (filesBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(files_);
+        } else {
+          return filesBuilder_.getMessageList();
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public int getFilesCount() {
+        if (filesBuilder_ == null) {
+          return files_.size();
+        } else {
+          return filesBuilder_.getCount();
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows getFiles(int index) {
+        if (filesBuilder_ == null) {
+          return files_.get(index);
+        } else {
+          return filesBuilder_.getMessage(index);
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder setFiles(
+          int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows value) {
+        if (filesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureFilesIsMutable();
+          files_.set(index, value);
+          onChanged();
+        } else {
+          filesBuilder_.setMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder setFiles(
+          int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder builderForValue) {
+        if (filesBuilder_ == null) {
+          ensureFilesIsMutable();
+          files_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          filesBuilder_.setMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder addFiles(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows value) {
+        if (filesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureFilesIsMutable();
+          files_.add(value);
+          onChanged();
+        } else {
+          filesBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder addFiles(
+          int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows value) {
+        if (filesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureFilesIsMutable();
+          files_.add(index, value);
+          onChanged();
+        } else {
+          filesBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder addFiles(
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder builderForValue) {
+        if (filesBuilder_ == null) {
+          ensureFilesIsMutable();
+          files_.add(builderForValue.build());
+          onChanged();
+        } else {
+          filesBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder addFiles(
+          int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder builderForValue) {
+        if (filesBuilder_ == null) {
+          ensureFilesIsMutable();
+          files_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          filesBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder addAllFiles(
+          java.lang.Iterable<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows> values) {
+        if (filesBuilder_ == null) {
+          ensureFilesIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, files_);
+          onChanged();
+        } else {
+          filesBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder clearFiles() {
+        if (filesBuilder_ == null) {
+          files_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000002);
+          onChanged();
+        } else {
+          filesBuilder_.clear();
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public Builder removeFiles(int index) {
+        if (filesBuilder_ == null) {
+          ensureFilesIsMutable();
+          files_.remove(index);
+          onChanged();
+        } else {
+          filesBuilder_.remove(index);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder getFilesBuilder(
+          int index) {
+        return getFilesFieldBuilder().getBuilder(index);
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder getFilesOrBuilder(
+          int index) {
+        if (filesBuilder_ == null) {
+          return files_.get(index);  } else {
+          return filesBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder> 
+           getFilesOrBuilderList() {
+        if (filesBuilder_ != null) {
+          return filesBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(files_);
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder addFilesBuilder() {
+        return getFilesFieldBuilder().addBuilder(
+            io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder addFilesBuilder(
+          int index) {
+        return getFilesFieldBuilder().addBuilder(
+            index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.FileRows files = 2;</code>
+       */
+      public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder> 
+           getFilesBuilderList() {
+        return getFilesFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder> 
+          getFilesFieldBuilder() {
+        if (filesBuilder_ == null) {
+          filesBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+              io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRows.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder>(
+                  files_,
+                  ((bitField0_ & 0x00000002) != 0),
+                  getParentForChildren(),
+                  isClean());
+          files_ = null;
+        }
+        return filesBuilder_;
+      }
+      @java.lang.Override
+      public final Builder setUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.setUnknownFields(unknownFields);
+      }
+
+      @java.lang.Override
+      public final Builder mergeUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.mergeUnknownFields(unknownFields);
+      }
+
+
+      // @@protoc_insertion_point(builder_scope:io.olake.iceberg.rpc.ReadRowsRequest)
+    }
+
+    // @@protoc_insertion_point(class_scope:io.olake.iceberg.rpc.ReadRowsRequest)
+    private static final io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest DEFAULT_INSTANCE;
+    static {
+      DEFAULT_INSTANCE = new io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest();
+    }
+
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest getDefaultInstance() {
+      return DEFAULT_INSTANCE;
+    }
+
+    private static final com.google.protobuf.Parser<ReadRowsRequest>
+        PARSER = new com.google.protobuf.AbstractParser<ReadRowsRequest>() {
+      @java.lang.Override
+      public ReadRowsRequest parsePartialFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        Builder builder = newBuilder();
+        try {
+          builder.mergeFrom(input, extensionRegistry);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          throw e.setUnfinishedMessage(builder.buildPartial());
+        } catch (com.google.protobuf.UninitializedMessageException e) {
+          throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+        } catch (java.io.IOException e) {
+          throw new com.google.protobuf.InvalidProtocolBufferException(e)
+              .setUnfinishedMessage(builder.buildPartial());
+        }
+        return builder.buildPartial();
+      }
+    };
+
+    public static com.google.protobuf.Parser<ReadRowsRequest> parser() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public com.google.protobuf.Parser<ReadRowsRequest> getParserForType() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest getDefaultInstanceForType() {
+      return DEFAULT_INSTANCE;
+    }
+
+  }
+
+  public interface ReadRowsBatchOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:io.olake.iceberg.rpc.ReadRowsBatch)
+      com.google.protobuf.MessageOrBuilder {
+
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row> 
+        getRowsList();
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row getRows(int index);
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    int getRowsCount();
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder> 
+        getRowsOrBuilderList();
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder getRowsOrBuilder(
+        int index);
+  }
+  /**
+   * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsBatch}
+   */
+  public static final class ReadRowsBatch extends
+      com.google.protobuf.GeneratedMessageV3 implements
+      // @@protoc_insertion_point(message_implements:io.olake.iceberg.rpc.ReadRowsBatch)
+      ReadRowsBatchOrBuilder {
+  private static final long serialVersionUID = 0L;
+    // Use ReadRowsBatch.newBuilder() to construct.
+    private ReadRowsBatch(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+      super(builder);
+    }
+    private ReadRowsBatch() {
+      rows_ = java.util.Collections.emptyList();
+    }
+
+    @java.lang.Override
+    @SuppressWarnings({"unused"})
+    protected java.lang.Object newInstance(
+        UnusedPrivateParameter unused) {
+      return new ReadRowsBatch();
+    }
+
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_descriptor;
+    }
+
+    @java.lang.Override
+    protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+        internalGetFieldAccessorTable() {
+      return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_fieldAccessorTable
+          .ensureFieldAccessorsInitialized(
+              io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Builder.class);
+    }
+
+    public interface RowOrBuilder extends
+        // @@protoc_insertion_point(interface_extends:io.olake.iceberg.rpc.ReadRowsBatch.Row)
+        com.google.protobuf.MessageOrBuilder {
+
+      /**
+       * <code>string file_path = 1;</code>
+       * @return The filePath.
+       */
+      java.lang.String getFilePath();
+      /**
+       * <code>string file_path = 1;</code>
+       * @return The bytes for filePath.
+       */
+      com.google.protobuf.ByteString
+          getFilePathBytes();
+
+      /**
+       * <code>int64 position = 2;</code>
+       * @return The position.
+       */
+      long getPosition();
+
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      int getValuesCount();
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      boolean containsValues(
+          java.lang.String key);
+      /**
+       * Use {@link #getValuesMap()} instead.
+       */
+      @java.lang.Deprecated
+      java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue>
+      getValues();
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue>
+      getValuesMap();
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      /* nullable */
+io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getValuesOrDefault(
+          java.lang.String key,
+          /* nullable */
+io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultValue);
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getValuesOrThrow(
+          java.lang.String key);
+    }
+    /**
+     * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsBatch.Row}
+     */
+    public static final class Row extends
+        com.google.protobuf.GeneratedMessageV3 implements
+        // @@protoc_insertion_point(message_implements:io.olake.iceberg.rpc.ReadRowsBatch.Row)
+        RowOrBuilder {
+    private static final long serialVersionUID = 0L;
+      // Use Row.newBuilder() to construct.
+      private Row(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+        super(builder);
+      }
+      private Row() {
+        filePath_ = "";
+      }
+
+      @java.lang.Override
+      @SuppressWarnings({"unused"})
+      protected java.lang.Object newInstance(
+          UnusedPrivateParameter unused) {
+        return new Row();
+      }
+
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_descriptor;
+      }
+
+      @SuppressWarnings({"rawtypes"})
+      @java.lang.Override
+      protected com.google.protobuf.MapFieldReflectionAccessor internalGetMapFieldReflection(
+          int number) {
+        switch (number) {
+          case 3:
+            return internalGetValues();
+          default:
+            throw new RuntimeException(
+                "Invalid map field number: " + number);
+        }
+      }
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder.class);
+      }
+
+      public static final int FILE_PATH_FIELD_NUMBER = 1;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object filePath_ = "";
+      /**
+       * <code>string file_path = 1;</code>
+       * @return The filePath.
+       */
+      @java.lang.Override
+      public java.lang.String getFilePath() {
+        java.lang.Object ref = filePath_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          filePath_ = s;
+          return s;
+        }
+      }
+      /**
+       * <code>string file_path = 1;</code>
+       * @return The bytes for filePath.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getFilePathBytes() {
+        java.lang.Object ref = filePath_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          filePath_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
+      public static final int POSITION_FIELD_NUMBER = 2;
+      private long position_ = 0L;
+      /**
+       * <code>int64 position = 2;</code>
+       * @return The position.
+       */
+      @java.lang.Override
+      public long getPosition() {
+        return position_;
+      }
+
+      public static final int VALUES_FIELD_NUMBER = 3;
+      private static final class ValuesDefaultEntryHolder {
+        static final com.google.protobuf.MapEntry<
+            java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> defaultEntry =
+                com.google.protobuf.MapEntry
+                .<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue>newDefaultInstance(
+                    io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_ValuesEntry_descriptor, 
+                    com.google.protobuf.WireFormat.FieldType.STRING,
+                    "",
+                    com.google.protobuf.WireFormat.FieldType.MESSAGE,
+                    io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.getDefaultInstance());
+      }
+      @SuppressWarnings("serial")
+      private com.google.protobuf.MapField<
+          java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> values_;
+      private com.google.protobuf.MapField<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue>
+      internalGetValues() {
+        if (values_ == null) {
+          return com.google.protobuf.MapField.emptyMapField(
+              ValuesDefaultEntryHolder.defaultEntry);
+        }
+        return values_;
+      }
+      public int getValuesCount() {
+        return internalGetValues().getMap().size();
+      }
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      @java.lang.Override
+      public boolean containsValues(
+          java.lang.String key) {
+        if (key == null) { throw new NullPointerException("map key"); }
+        return internalGetValues().getMap().containsKey(key);
+      }
+      /**
+       * Use {@link #getValuesMap()} instead.
+       */
+      @java.lang.Override
+      @java.lang.Deprecated
+      public java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> getValues() {
+        return getValuesMap();
+      }
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      @java.lang.Override
+      public java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> getValuesMap() {
+        return internalGetValues().getMap();
+      }
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      @java.lang.Override
+      public /* nullable */
+io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getValuesOrDefault(
+          java.lang.String key,
+          /* nullable */
+io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultValue) {
+        if (key == null) { throw new NullPointerException("map key"); }
+        java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> map =
+            internalGetValues().getMap();
+        return map.containsKey(key) ? map.get(key) : defaultValue;
+      }
+      /**
+       * <pre>
+       * The columns requested for this row, by name. A column the data file does not carry
+       * is left out; an unset value is a stored NULL.
+       * </pre>
+       *
+       * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+       */
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getValuesOrThrow(
+          java.lang.String key) {
+        if (key == null) { throw new NullPointerException("map key"); }
+        java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> map =
+            internalGetValues().getMap();
+        if (!map.containsKey(key)) {
+          throw new java.lang.IllegalArgumentException();
+        }
+        return map.get(key);
+      }
+
+      private byte memoizedIsInitialized = -1;
+      @java.lang.Override
+      public final boolean isInitialized() {
+        byte isInitialized = memoizedIsInitialized;
+        if (isInitialized == 1) return true;
+        if (isInitialized == 0) return false;
+
+        memoizedIsInitialized = 1;
+        return true;
+      }
+
+      @java.lang.Override
+      public void writeTo(com.google.protobuf.CodedOutputStream output)
+                          throws java.io.IOException {
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 1, filePath_);
+        }
+        if (position_ != 0L) {
+          output.writeInt64(2, position_);
+        }
+        com.google.protobuf.GeneratedMessageV3
+          .serializeStringMapTo(
+            output,
+            internalGetValues(),
+            ValuesDefaultEntryHolder.defaultEntry,
+            3);
+        getUnknownFields().writeTo(output);
+      }
+
+      @java.lang.Override
+      public int getSerializedSize() {
+        int size = memoizedSize;
+        if (size != -1) return size;
+
+        size = 0;
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, filePath_);
+        }
+        if (position_ != 0L) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt64Size(2, position_);
+        }
+        for (java.util.Map.Entry<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> entry
+             : internalGetValues().getMap().entrySet()) {
+          com.google.protobuf.MapEntry<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue>
+          values__ = ValuesDefaultEntryHolder.defaultEntry.newBuilderForType()
+              .setKey(entry.getKey())
+              .setValue(entry.getValue())
+              .build();
+          size += com.google.protobuf.CodedOutputStream
+              .computeMessageSize(3, values__);
+        }
+        size += getUnknownFields().getSerializedSize();
+        memoizedSize = size;
+        return size;
+      }
+
+      @java.lang.Override
+      public boolean equals(final java.lang.Object obj) {
+        if (obj == this) {
+         return true;
+        }
+        if (!(obj instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row)) {
+          return super.equals(obj);
+        }
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row other = (io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row) obj;
+
+        if (!getFilePath()
+            .equals(other.getFilePath())) return false;
+        if (getPosition()
+            != other.getPosition()) return false;
+        if (!internalGetValues().equals(
+            other.internalGetValues())) return false;
+        if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+        return true;
+      }
+
+      @java.lang.Override
+      public int hashCode() {
+        if (memoizedHashCode != 0) {
+          return memoizedHashCode;
+        }
+        int hash = 41;
+        hash = (19 * hash) + getDescriptor().hashCode();
+        hash = (37 * hash) + FILE_PATH_FIELD_NUMBER;
+        hash = (53 * hash) + getFilePath().hashCode();
+        hash = (37 * hash) + POSITION_FIELD_NUMBER;
+        hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+            getPosition());
+        if (!internalGetValues().getMap().isEmpty()) {
+          hash = (37 * hash) + VALUES_FIELD_NUMBER;
+          hash = (53 * hash) + internalGetValues().hashCode();
+        }
+        hash = (29 * hash) + getUnknownFields().hashCode();
+        memoizedHashCode = hash;
+        return hash;
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(
+          java.nio.ByteBuffer data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(
+          java.nio.ByteBuffer data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(
+          com.google.protobuf.ByteString data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(
+          com.google.protobuf.ByteString data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(byte[] data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(
+          byte[] data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseDelimitedFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input);
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseDelimitedFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(
+          com.google.protobuf.CodedInputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row parseFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      @java.lang.Override
+      public Builder newBuilderForType() { return newBuilder(); }
+      public static Builder newBuilder() {
+        return DEFAULT_INSTANCE.toBuilder();
+      }
+      public static Builder newBuilder(io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row prototype) {
+        return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+      }
+      @java.lang.Override
+      public Builder toBuilder() {
+        return this == DEFAULT_INSTANCE
+            ? new Builder() : new Builder().mergeFrom(this);
+      }
+
+      @java.lang.Override
+      protected Builder newBuilderForType(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        Builder builder = new Builder(parent);
+        return builder;
+      }
+      /**
+       * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsBatch.Row}
+       */
+      public static final class Builder extends
+          com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+          // @@protoc_insertion_point(builder_implements:io.olake.iceberg.rpc.ReadRowsBatch.Row)
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder {
+        public static final com.google.protobuf.Descriptors.Descriptor
+            getDescriptor() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_descriptor;
+        }
+
+        @SuppressWarnings({"rawtypes"})
+        protected com.google.protobuf.MapFieldReflectionAccessor internalGetMapFieldReflection(
+            int number) {
+          switch (number) {
+            case 3:
+              return internalGetValues();
+            default:
+              throw new RuntimeException(
+                  "Invalid map field number: " + number);
+          }
+        }
+        @SuppressWarnings({"rawtypes"})
+        protected com.google.protobuf.MapFieldReflectionAccessor internalGetMutableMapFieldReflection(
+            int number) {
+          switch (number) {
+            case 3:
+              return internalGetMutableValues();
+            default:
+              throw new RuntimeException(
+                  "Invalid map field number: " + number);
+          }
+        }
+        @java.lang.Override
+        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+            internalGetFieldAccessorTable() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_fieldAccessorTable
+              .ensureFieldAccessorsInitialized(
+                  io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder.class);
+        }
+
+        // Construct using io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.newBuilder()
+        private Builder() {
+
+        }
+
+        private Builder(
+            com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+          super(parent);
+
+        }
+        @java.lang.Override
+        public Builder clear() {
+          super.clear();
+          bitField0_ = 0;
+          filePath_ = "";
+          position_ = 0L;
+          internalGetMutableValues().clear();
+          return this;
+        }
+
+        @java.lang.Override
+        public com.google.protobuf.Descriptors.Descriptor
+            getDescriptorForType() {
+          return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_descriptor;
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row getDefaultInstanceForType() {
+          return io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.getDefaultInstance();
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row build() {
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row result = buildPartial();
+          if (!result.isInitialized()) {
+            throw newUninitializedMessageException(result);
+          }
+          return result;
+        }
+
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row buildPartial() {
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row result = new io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row(this);
+          if (bitField0_ != 0) { buildPartial0(result); }
+          onBuilt();
+          return result;
+        }
+
+        private void buildPartial0(io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row result) {
+          int from_bitField0_ = bitField0_;
+          if (((from_bitField0_ & 0x00000001) != 0)) {
+            result.filePath_ = filePath_;
+          }
+          if (((from_bitField0_ & 0x00000002) != 0)) {
+            result.position_ = position_;
+          }
+          if (((from_bitField0_ & 0x00000004) != 0)) {
+            result.values_ = internalGetValues().build(ValuesDefaultEntryHolder.defaultEntry);
+          }
+        }
+
+        @java.lang.Override
+        public Builder clone() {
+          return super.clone();
+        }
+        @java.lang.Override
+        public Builder setField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.setField(field, value);
+        }
+        @java.lang.Override
+        public Builder clearField(
+            com.google.protobuf.Descriptors.FieldDescriptor field) {
+          return super.clearField(field);
+        }
+        @java.lang.Override
+        public Builder clearOneof(
+            com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+          return super.clearOneof(oneof);
+        }
+        @java.lang.Override
+        public Builder setRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            int index, java.lang.Object value) {
+          return super.setRepeatedField(field, index, value);
+        }
+        @java.lang.Override
+        public Builder addRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.addRepeatedField(field, value);
+        }
+        @java.lang.Override
+        public Builder mergeFrom(com.google.protobuf.Message other) {
+          if (other instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row) {
+            return mergeFrom((io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row)other);
+          } else {
+            super.mergeFrom(other);
+            return this;
+          }
+        }
+
+        public Builder mergeFrom(io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row other) {
+          if (other == io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.getDefaultInstance()) return this;
+          if (!other.getFilePath().isEmpty()) {
+            filePath_ = other.filePath_;
+            bitField0_ |= 0x00000001;
+            onChanged();
+          }
+          if (other.getPosition() != 0L) {
+            setPosition(other.getPosition());
+          }
+          internalGetMutableValues().mergeFrom(
+              other.internalGetValues());
+          bitField0_ |= 0x00000004;
+          this.mergeUnknownFields(other.getUnknownFields());
+          onChanged();
+          return this;
+        }
+
+        @java.lang.Override
+        public final boolean isInitialized() {
+          return true;
+        }
+
+        @java.lang.Override
+        public Builder mergeFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          if (extensionRegistry == null) {
+            throw new java.lang.NullPointerException();
+          }
+          try {
+            boolean done = false;
+            while (!done) {
+              int tag = input.readTag();
+              switch (tag) {
+                case 0:
+                  done = true;
+                  break;
+                case 10: {
+                  filePath_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000001;
+                  break;
+                } // case 10
+                case 16: {
+                  position_ = input.readInt64();
+                  bitField0_ |= 0x00000002;
+                  break;
+                } // case 16
+                case 26: {
+                  com.google.protobuf.MapEntry<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue>
+                  values__ = input.readMessage(
+                      ValuesDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
+                  internalGetMutableValues().ensureBuilderMap().put(
+                      values__.getKey(), values__.getValue());
+                  bitField0_ |= 0x00000004;
+                  break;
+                } // case 26
+                default: {
+                  if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                    done = true; // was an endgroup tag
+                  }
+                  break;
+                } // default:
+              } // switch (tag)
+            } // while (!done)
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.unwrapIOException();
+          } finally {
+            onChanged();
+          } // finally
+          return this;
+        }
+        private int bitField0_;
+
+        private java.lang.Object filePath_ = "";
+        /**
+         * <code>string file_path = 1;</code>
+         * @return The filePath.
+         */
+        public java.lang.String getFilePath() {
+          java.lang.Object ref = filePath_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            filePath_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <code>string file_path = 1;</code>
+         * @return The bytes for filePath.
+         */
+        public com.google.protobuf.ByteString
+            getFilePathBytes() {
+          java.lang.Object ref = filePath_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            filePath_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <code>string file_path = 1;</code>
+         * @param value The filePath to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilePath(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          filePath_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>string file_path = 1;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearFilePath() {
+          filePath_ = getDefaultInstance().getFilePath();
+          bitField0_ = (bitField0_ & ~0x00000001);
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>string file_path = 1;</code>
+         * @param value The bytes for filePath to set.
+         * @return This builder for chaining.
+         */
+        public Builder setFilePathBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          filePath_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+
+        private long position_ ;
+        /**
+         * <code>int64 position = 2;</code>
+         * @return The position.
+         */
+        @java.lang.Override
+        public long getPosition() {
+          return position_;
+        }
+        /**
+         * <code>int64 position = 2;</code>
+         * @param value The position to set.
+         * @return This builder for chaining.
+         */
+        public Builder setPosition(long value) {
+
+          position_ = value;
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>int64 position = 2;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearPosition() {
+          bitField0_ = (bitField0_ & ~0x00000002);
+          position_ = 0L;
+          onChanged();
+          return this;
+        }
+
+        private static final class ValuesConverter implements com.google.protobuf.MapFieldBuilder.Converter<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> {
+          @java.lang.Override
+          public io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue build(io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder val) {
+            if (val instanceof io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue) { return (io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue) val; }
+            return ((io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder) val).build();
+          }
+
+          @java.lang.Override
+          public com.google.protobuf.MapEntry<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> defaultEntry() {
+            return ValuesDefaultEntryHolder.defaultEntry;
+          }
+        };
+        private static final ValuesConverter valuesConverter = new ValuesConverter();
+
+        private com.google.protobuf.MapFieldBuilder<
+            java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder> values_;
+        private com.google.protobuf.MapFieldBuilder<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder>
+            internalGetValues() {
+          if (values_ == null) {
+            return new com.google.protobuf.MapFieldBuilder<>(valuesConverter);
+          }
+          return values_;
+        }
+        private com.google.protobuf.MapFieldBuilder<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder>
+            internalGetMutableValues() {
+          if (values_ == null) {
+            values_ = new com.google.protobuf.MapFieldBuilder<>(valuesConverter);
+          }
+          bitField0_ |= 0x00000004;
+          onChanged();
+          return values_;
+        }
+        public int getValuesCount() {
+          return internalGetValues().ensureBuilderMap().size();
+        }
+        /**
+         * <pre>
+         * The columns requested for this row, by name. A column the data file does not carry
+         * is left out; an unset value is a stored NULL.
+         * </pre>
+         *
+         * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+         */
+        @java.lang.Override
+        public boolean containsValues(
+            java.lang.String key) {
+          if (key == null) { throw new NullPointerException("map key"); }
+          return internalGetValues().ensureBuilderMap().containsKey(key);
+        }
+        /**
+         * Use {@link #getValuesMap()} instead.
+         */
+        @java.lang.Override
+        @java.lang.Deprecated
+        public java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> getValues() {
+          return getValuesMap();
+        }
+        /**
+         * <pre>
+         * The columns requested for this row, by name. A column the data file does not carry
+         * is left out; an unset value is a stored NULL.
+         * </pre>
+         *
+         * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+         */
+        @java.lang.Override
+        public java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> getValuesMap() {
+          return internalGetValues().getImmutableMap();
+        }
+        /**
+         * <pre>
+         * The columns requested for this row, by name. A column the data file does not carry
+         * is left out; an unset value is a stored NULL.
+         * </pre>
+         *
+         * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+         */
+        @java.lang.Override
+        public /* nullable */
+io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getValuesOrDefault(
+            java.lang.String key,
+            /* nullable */
+io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultValue) {
+          if (key == null) { throw new NullPointerException("map key"); }
+          java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder> map = internalGetMutableValues().ensureBuilderMap();
+          return map.containsKey(key) ? valuesConverter.build(map.get(key)) : defaultValue;
+        }
+        /**
+         * <pre>
+         * The columns requested for this row, by name. A column the data file does not carry
+         * is left out; an unset value is a stored NULL.
+         * </pre>
+         *
+         * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+         */
+        @java.lang.Override
+        public io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getValuesOrThrow(
+            java.lang.String key) {
+          if (key == null) { throw new NullPointerException("map key"); }
+          java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder> map = internalGetMutableValues().ensureBuilderMap();
+          if (!map.containsKey(key)) {
+            throw new java.lang.IllegalArgumentException();
+          }
+          return valuesConverter.build(map.get(key));
+        }
+        public Builder clearValues() {
+          bitField0_ = (bitField0_ & ~0x00000004);
+          internalGetMutableValues().clear();
+          return this;
+        }
+        /**
+         * <pre>
+         * The columns requested for this row, by name. A column the data file does not carry
+         * is left out; an unset value is a stored NULL.
+         * </pre>
+         *
+         * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+         */
+        public Builder removeValues(
+            java.lang.String key) {
+          if (key == null) { throw new NullPointerException("map key"); }
+          internalGetMutableValues().ensureBuilderMap()
+              .remove(key);
+          return this;
+        }
+        /**
+         * Use alternate mutation accessors instead.
+         */
+        @java.lang.Deprecated
+        public java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue>
+            getMutableValues() {
+          bitField0_ |= 0x00000004;
+          return internalGetMutableValues().ensureMessageMap();
+        }
+        /**
+         * <pre>
+         * The columns requested for this row, by name. A column the data file does not carry
+         * is left out; an unset value is a stored NULL.
+         * </pre>
+         *
+         * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+         */
+        public Builder putValues(
+            java.lang.String key,
+            io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue value) {
+          if (key == null) { throw new NullPointerException("map key"); }
+          if (value == null) { throw new NullPointerException("map value"); }
+          internalGetMutableValues().ensureBuilderMap()
+              .put(key, value);
+          bitField0_ |= 0x00000004;
+          return this;
+        }
+        /**
+         * <pre>
+         * The columns requested for this row, by name. A column the data file does not carry
+         * is left out; an unset value is a stored NULL.
+         * </pre>
+         *
+         * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+         */
+        public Builder putAllValues(
+            java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> values) {
+          for (java.util.Map.Entry<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue> e : values.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) {
+              throw new NullPointerException();
+            }
+          }
+          internalGetMutableValues().ensureBuilderMap()
+              .putAll(values);
+          bitField0_ |= 0x00000004;
+          return this;
+        }
+        /**
+         * <pre>
+         * The columns requested for this row, by name. A column the data file does not carry
+         * is left out; an unset value is a stored NULL.
+         * </pre>
+         *
+         * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
+         */
+        public io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder putValuesBuilderIfAbsent(
+            java.lang.String key) {
+          java.util.Map<java.lang.String, io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder> builderMap = internalGetMutableValues().ensureBuilderMap();
+          io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValueOrBuilder entry = builderMap.get(key);
+          if (entry == null) {
+            entry = io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.newBuilder();
+            builderMap.put(key, entry);
+          }
+          if (entry instanceof io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue) {
+            entry = ((io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue) entry).toBuilder();
+            builderMap.put(key, entry);
+          }
+          return (io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.Builder) entry;
+        }
+        @java.lang.Override
+        public final Builder setUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.setUnknownFields(unknownFields);
+        }
+
+        @java.lang.Override
+        public final Builder mergeUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.mergeUnknownFields(unknownFields);
+        }
+
+
+        // @@protoc_insertion_point(builder_scope:io.olake.iceberg.rpc.ReadRowsBatch.Row)
+      }
+
+      // @@protoc_insertion_point(class_scope:io.olake.iceberg.rpc.ReadRowsBatch.Row)
+      private static final io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row DEFAULT_INSTANCE;
+      static {
+        DEFAULT_INSTANCE = new io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row();
+      }
+
+      public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row getDefaultInstance() {
+        return DEFAULT_INSTANCE;
+      }
+
+      private static final com.google.protobuf.Parser<Row>
+          PARSER = new com.google.protobuf.AbstractParser<Row>() {
+        @java.lang.Override
+        public Row parsePartialFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          Builder builder = newBuilder();
+          try {
+            builder.mergeFrom(input, extensionRegistry);
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.setUnfinishedMessage(builder.buildPartial());
+          } catch (com.google.protobuf.UninitializedMessageException e) {
+            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+          } catch (java.io.IOException e) {
+            throw new com.google.protobuf.InvalidProtocolBufferException(e)
+                .setUnfinishedMessage(builder.buildPartial());
+          }
+          return builder.buildPartial();
+        }
+      };
+
+      public static com.google.protobuf.Parser<Row> parser() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Parser<Row> getParserForType() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row getDefaultInstanceForType() {
+        return DEFAULT_INSTANCE;
+      }
+
+    }
+
+    public static final int ROWS_FIELD_NUMBER = 1;
+    @SuppressWarnings("serial")
+    private java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row> rows_;
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row> getRowsList() {
+      return rows_;
+    }
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    @java.lang.Override
+    public java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder> 
+        getRowsOrBuilderList() {
+      return rows_;
+    }
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    @java.lang.Override
+    public int getRowsCount() {
+      return rows_.size();
+    }
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    @java.lang.Override
+    public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row getRows(int index) {
+      return rows_.get(index);
+    }
+    /**
+     * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+     */
+    @java.lang.Override
+    public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder getRowsOrBuilder(
+        int index) {
+      return rows_.get(index);
+    }
+
+    private byte memoizedIsInitialized = -1;
+    @java.lang.Override
+    public final boolean isInitialized() {
+      byte isInitialized = memoizedIsInitialized;
+      if (isInitialized == 1) return true;
+      if (isInitialized == 0) return false;
+
+      memoizedIsInitialized = 1;
+      return true;
+    }
+
+    @java.lang.Override
+    public void writeTo(com.google.protobuf.CodedOutputStream output)
+                        throws java.io.IOException {
+      for (int i = 0; i < rows_.size(); i++) {
+        output.writeMessage(1, rows_.get(i));
+      }
+      getUnknownFields().writeTo(output);
+    }
+
+    @java.lang.Override
+    public int getSerializedSize() {
+      int size = memoizedSize;
+      if (size != -1) return size;
+
+      size = 0;
+      for (int i = 0; i < rows_.size(); i++) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(1, rows_.get(i));
+      }
+      size += getUnknownFields().getSerializedSize();
+      memoizedSize = size;
+      return size;
+    }
+
+    @java.lang.Override
+    public boolean equals(final java.lang.Object obj) {
+      if (obj == this) {
+       return true;
+      }
+      if (!(obj instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch)) {
+        return super.equals(obj);
+      }
+      io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch other = (io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch) obj;
+
+      if (!getRowsList()
+          .equals(other.getRowsList())) return false;
+      if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+      return true;
+    }
+
+    @java.lang.Override
+    public int hashCode() {
+      if (memoizedHashCode != 0) {
+        return memoizedHashCode;
+      }
+      int hash = 41;
+      hash = (19 * hash) + getDescriptor().hashCode();
+      if (getRowsCount() > 0) {
+        hash = (37 * hash) + ROWS_FIELD_NUMBER;
+        hash = (53 * hash) + getRowsList().hashCode();
+      }
+      hash = (29 * hash) + getUnknownFields().hashCode();
+      memoizedHashCode = hash;
+      return hash;
+    }
+
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(
+        java.nio.ByteBuffer data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(
+        java.nio.ByteBuffer data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(
+        com.google.protobuf.ByteString data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(
+        com.google.protobuf.ByteString data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(byte[] data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(
+        byte[] data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseDelimitedFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input);
+    }
+
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseDelimitedFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(
+        com.google.protobuf.CodedInputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch parseFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+
+    @java.lang.Override
+    public Builder newBuilderForType() { return newBuilder(); }
+    public static Builder newBuilder() {
+      return DEFAULT_INSTANCE.toBuilder();
+    }
+    public static Builder newBuilder(io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch prototype) {
+      return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+    }
+    @java.lang.Override
+    public Builder toBuilder() {
+      return this == DEFAULT_INSTANCE
+          ? new Builder() : new Builder().mergeFrom(this);
+    }
+
+    @java.lang.Override
+    protected Builder newBuilderForType(
+        com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+      Builder builder = new Builder(parent);
+      return builder;
+    }
+    /**
+     * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsBatch}
+     */
+    public static final class Builder extends
+        com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+        // @@protoc_insertion_point(builder_implements:io.olake.iceberg.rpc.ReadRowsBatch)
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsBatchOrBuilder {
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.class, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Builder.class);
+      }
+
+      // Construct using io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.newBuilder()
+      private Builder() {
+
+      }
+
+      private Builder(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        super(parent);
+
+      }
+      @java.lang.Override
+      public Builder clear() {
+        super.clear();
+        bitField0_ = 0;
+        if (rowsBuilder_ == null) {
+          rows_ = java.util.Collections.emptyList();
+        } else {
+          rows_ = null;
+          rowsBuilder_.clear();
+        }
+        bitField0_ = (bitField0_ & ~0x00000001);
+        return this;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Descriptors.Descriptor
+          getDescriptorForType() {
+        return io.olake.iceberg.rpc.RecordIngest.internal_static_io_olake_iceberg_rpc_ReadRowsBatch_descriptor;
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch getDefaultInstanceForType() {
+        return io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.getDefaultInstance();
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch build() {
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(result);
+        }
+        return result;
+      }
+
+      @java.lang.Override
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch buildPartial() {
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch result = new io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch(this);
+        buildPartialRepeatedFields(result);
+        if (bitField0_ != 0) { buildPartial0(result); }
+        onBuilt();
+        return result;
+      }
+
+      private void buildPartialRepeatedFields(io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch result) {
+        if (rowsBuilder_ == null) {
+          if (((bitField0_ & 0x00000001) != 0)) {
+            rows_ = java.util.Collections.unmodifiableList(rows_);
+            bitField0_ = (bitField0_ & ~0x00000001);
+          }
+          result.rows_ = rows_;
+        } else {
+          result.rows_ = rowsBuilder_.build();
+        }
+      }
+
+      private void buildPartial0(io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch result) {
+        int from_bitField0_ = bitField0_;
+      }
+
+      @java.lang.Override
+      public Builder clone() {
+        return super.clone();
+      }
+      @java.lang.Override
+      public Builder setField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.setField(field, value);
+      }
+      @java.lang.Override
+      public Builder clearField(
+          com.google.protobuf.Descriptors.FieldDescriptor field) {
+        return super.clearField(field);
+      }
+      @java.lang.Override
+      public Builder clearOneof(
+          com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+        return super.clearOneof(oneof);
+      }
+      @java.lang.Override
+      public Builder setRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          int index, java.lang.Object value) {
+        return super.setRepeatedField(field, index, value);
+      }
+      @java.lang.Override
+      public Builder addRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.addRepeatedField(field, value);
+      }
+      @java.lang.Override
+      public Builder mergeFrom(com.google.protobuf.Message other) {
+        if (other instanceof io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch) {
+          return mergeFrom((io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch)other);
+        } else {
+          super.mergeFrom(other);
+          return this;
+        }
+      }
+
+      public Builder mergeFrom(io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch other) {
+        if (other == io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.getDefaultInstance()) return this;
+        if (rowsBuilder_ == null) {
+          if (!other.rows_.isEmpty()) {
+            if (rows_.isEmpty()) {
+              rows_ = other.rows_;
+              bitField0_ = (bitField0_ & ~0x00000001);
+            } else {
+              ensureRowsIsMutable();
+              rows_.addAll(other.rows_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.rows_.isEmpty()) {
+            if (rowsBuilder_.isEmpty()) {
+              rowsBuilder_.dispose();
+              rowsBuilder_ = null;
+              rows_ = other.rows_;
+              bitField0_ = (bitField0_ & ~0x00000001);
+              rowsBuilder_ = 
+                com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                   getRowsFieldBuilder() : null;
+            } else {
+              rowsBuilder_.addAllMessages(other.rows_);
+            }
+          }
+        }
+        this.mergeUnknownFields(other.getUnknownFields());
+        onChanged();
+        return this;
+      }
+
+      @java.lang.Override
+      public final boolean isInitialized() {
+        return true;
+      }
+
+      @java.lang.Override
+      public Builder mergeFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        if (extensionRegistry == null) {
+          throw new java.lang.NullPointerException();
+        }
+        try {
+          boolean done = false;
+          while (!done) {
+            int tag = input.readTag();
+            switch (tag) {
+              case 0:
+                done = true;
+                break;
+              case 10: {
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row m =
+                    input.readMessage(
+                        io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.parser(),
+                        extensionRegistry);
+                if (rowsBuilder_ == null) {
+                  ensureRowsIsMutable();
+                  rows_.add(m);
+                } else {
+                  rowsBuilder_.addMessage(m);
+                }
+                break;
+              } // case 10
+              default: {
+                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                  done = true; // was an endgroup tag
+                }
+                break;
+              } // default:
+            } // switch (tag)
+          } // while (!done)
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          throw e.unwrapIOException();
+        } finally {
+          onChanged();
+        } // finally
+        return this;
+      }
+      private int bitField0_;
+
+      private java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row> rows_ =
+        java.util.Collections.emptyList();
+      private void ensureRowsIsMutable() {
+        if (!((bitField0_ & 0x00000001) != 0)) {
+          rows_ = new java.util.ArrayList<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row>(rows_);
+          bitField0_ |= 0x00000001;
+         }
+      }
+
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder> rowsBuilder_;
+
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row> getRowsList() {
+        if (rowsBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(rows_);
+        } else {
+          return rowsBuilder_.getMessageList();
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public int getRowsCount() {
+        if (rowsBuilder_ == null) {
+          return rows_.size();
+        } else {
+          return rowsBuilder_.getCount();
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row getRows(int index) {
+        if (rowsBuilder_ == null) {
+          return rows_.get(index);
+        } else {
+          return rowsBuilder_.getMessage(index);
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder setRows(
+          int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row value) {
+        if (rowsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRowsIsMutable();
+          rows_.set(index, value);
+          onChanged();
+        } else {
+          rowsBuilder_.setMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder setRows(
+          int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder builderForValue) {
+        if (rowsBuilder_ == null) {
+          ensureRowsIsMutable();
+          rows_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          rowsBuilder_.setMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder addRows(io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row value) {
+        if (rowsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRowsIsMutable();
+          rows_.add(value);
+          onChanged();
+        } else {
+          rowsBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder addRows(
+          int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row value) {
+        if (rowsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRowsIsMutable();
+          rows_.add(index, value);
+          onChanged();
+        } else {
+          rowsBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder addRows(
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder builderForValue) {
+        if (rowsBuilder_ == null) {
+          ensureRowsIsMutable();
+          rows_.add(builderForValue.build());
+          onChanged();
+        } else {
+          rowsBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder addRows(
+          int index, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder builderForValue) {
+        if (rowsBuilder_ == null) {
+          ensureRowsIsMutable();
+          rows_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          rowsBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder addAllRows(
+          java.lang.Iterable<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row> values) {
+        if (rowsBuilder_ == null) {
+          ensureRowsIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, rows_);
+          onChanged();
+        } else {
+          rowsBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder clearRows() {
+        if (rowsBuilder_ == null) {
+          rows_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000001);
+          onChanged();
+        } else {
+          rowsBuilder_.clear();
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public Builder removeRows(int index) {
+        if (rowsBuilder_ == null) {
+          ensureRowsIsMutable();
+          rows_.remove(index);
+          onChanged();
+        } else {
+          rowsBuilder_.remove(index);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder getRowsBuilder(
+          int index) {
+        return getRowsFieldBuilder().getBuilder(index);
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder getRowsOrBuilder(
+          int index) {
+        if (rowsBuilder_ == null) {
+          return rows_.get(index);  } else {
+          return rowsBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder> 
+           getRowsOrBuilderList() {
+        if (rowsBuilder_ != null) {
+          return rowsBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(rows_);
+        }
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder addRowsBuilder() {
+        return getRowsFieldBuilder().addBuilder(
+            io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder addRowsBuilder(
+          int index) {
+        return getRowsFieldBuilder().addBuilder(
+            index, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .io.olake.iceberg.rpc.ReadRowsBatch.Row rows = 1;</code>
+       */
+      public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder> 
+           getRowsBuilderList() {
+        return getRowsFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder> 
+          getRowsFieldBuilder() {
+        if (rowsBuilder_ == null) {
+          rowsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+              io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.Row.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.RowOrBuilder>(
+                  rows_,
+                  ((bitField0_ & 0x00000001) != 0),
+                  getParentForChildren(),
+                  isClean());
+          rows_ = null;
+        }
+        return rowsBuilder_;
+      }
+      @java.lang.Override
+      public final Builder setUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.setUnknownFields(unknownFields);
+      }
+
+      @java.lang.Override
+      public final Builder mergeUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.mergeUnknownFields(unknownFields);
+      }
+
+
+      // @@protoc_insertion_point(builder_scope:io.olake.iceberg.rpc.ReadRowsBatch)
+    }
+
+    // @@protoc_insertion_point(class_scope:io.olake.iceberg.rpc.ReadRowsBatch)
+    private static final io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch DEFAULT_INSTANCE;
+    static {
+      DEFAULT_INSTANCE = new io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch();
+    }
+
+    public static io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch getDefaultInstance() {
+      return DEFAULT_INSTANCE;
+    }
+
+    private static final com.google.protobuf.Parser<ReadRowsBatch>
+        PARSER = new com.google.protobuf.AbstractParser<ReadRowsBatch>() {
+      @java.lang.Override
+      public ReadRowsBatch parsePartialFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        Builder builder = newBuilder();
+        try {
+          builder.mergeFrom(input, extensionRegistry);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          throw e.setUnfinishedMessage(builder.buildPartial());
+        } catch (com.google.protobuf.UninitializedMessageException e) {
+          throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+        } catch (java.io.IOException e) {
+          throw new com.google.protobuf.InvalidProtocolBufferException(e)
+              .setUnfinishedMessage(builder.buildPartial());
+        }
+        return builder.buildPartial();
+      }
+    };
+
+    public static com.google.protobuf.Parser<ReadRowsBatch> parser() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public com.google.protobuf.Parser<ReadRowsBatch> getParserForType() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch getDefaultInstanceForType() {
+      return DEFAULT_INSTANCE;
+    }
+
+  }
+
   private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_io_olake_iceberg_rpc_IcebergPayload_descriptor;
   private static final 
@@ -23595,6 +28158,36 @@ java.lang.String defaultValue) {
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_olake_iceberg_rpc_MigrateEqualityDeletesResponse_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_olake_iceberg_rpc_ReadRowsRequest_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_olake_iceberg_rpc_ReadRowsBatch_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_ValuesEntry_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_ValuesEntry_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -23701,20 +28294,36 @@ java.lang.String defaultValue) {
       "teMode\"y\n\036MigrateEqualityDeletesResponse" +
       "\022\023\n\013snapshot_id\030\001 \001(\003\022\036\n\026rewritten_delet" +
       "e_files\030\002 \001(\003\022\"\n\032positional_deletes_writ" +
-      "ten\030\003 \001(\0032v\n\023RecordIngestService\022_\n\013Send" +
-      "Records\022$.io.olake.iceberg.rpc.IcebergPa" +
-      "yload\032*.io.olake.iceberg.rpc.RecordInges" +
-      "tResponse2q\n\022ArrowIngestService\022[\n\nIcebe" +
-      "rgAPI\022\".io.olake.iceberg.rpc.ArrowPayloa" +
-      "d\032).io.olake.iceberg.rpc.ArrowIngestResp" +
-      "onse2\213\002\n\021TableIndexService\022p\n\024ScanTableF" +
-      "orIndexing\022+.io.olake.iceberg.rpc.TableI" +
-      "ndexScanRequest\032).io.olake.iceberg.rpc.T" +
-      "ableIndexScanBatch0\001\022\203\001\n\026MigrateEquality" +
-      "Deletes\0223.io.olake.iceberg.rpc.MigrateEq" +
-      "ualityDeletesRequest\0324.io.olake.iceberg." +
-      "rpc.MigrateEqualityDeletesResponseB\035B\014Re" +
-      "cordIngestZ\riceberg/protob\006proto3"
+      "ten\030\003 \001(\003\"\345\001\n\017ReadRowsRequest\022\021\n\tthread_" +
+      "id\030\001 \001(\t\022=\n\005files\030\002 \003(\0132..io.olake.icebe" +
+      "rg.rpc.ReadRowsRequest.FileRows\032(\n\003Row\022\020" +
+      "\n\010position\030\001 \001(\003\022\017\n\007columns\030\002 \003(\t\032V\n\010Fil" +
+      "eRows\022\021\n\tfile_path\030\001 \001(\t\0227\n\004rows\030\002 \003(\0132)" +
+      ".io.olake.iceberg.rpc.ReadRowsRequest.Ro" +
+      "w\"\242\002\n\rReadRowsBatch\0225\n\004rows\030\001 \003(\0132\'.io.o" +
+      "lake.iceberg.rpc.ReadRowsBatch.Row\032\331\001\n\003R" +
+      "ow\022\021\n\tfile_path\030\001 \001(\t\022\020\n\010position\030\002 \001(\003\022" +
+      "C\n\006values\030\003 \003(\01323.io.olake.iceberg.rpc.R" +
+      "eadRowsBatch.Row.ValuesEntry\032h\n\013ValuesEn" +
+      "try\022\013\n\003key\030\001 \001(\t\022H\n\005value\030\002 \001(\01329.io.ola" +
+      "ke.iceberg.rpc.IcebergPayload.IceRecord." +
+      "FieldValue:\0028\0012v\n\023RecordIngestService\022_\n" +
+      "\013SendRecords\022$.io.olake.iceberg.rpc.Iceb" +
+      "ergPayload\032*.io.olake.iceberg.rpc.Record" +
+      "IngestResponse2q\n\022ArrowIngestService\022[\n\n" +
+      "IcebergAPI\022\".io.olake.iceberg.rpc.ArrowP" +
+      "ayload\032).io.olake.iceberg.rpc.ArrowInges" +
+      "tResponse2\345\002\n\021TableIndexService\022p\n\024ScanT" +
+      "ableForIndexing\022+.io.olake.iceberg.rpc.T" +
+      "ableIndexScanRequest\032).io.olake.iceberg." +
+      "rpc.TableIndexScanBatch0\001\022\203\001\n\026MigrateEqu" +
+      "alityDeletes\0223.io.olake.iceberg.rpc.Migr" +
+      "ateEqualityDeletesRequest\0324.io.olake.ice" +
+      "berg.rpc.MigrateEqualityDeletesResponse\022" +
+      "X\n\010ReadRows\022%.io.olake.iceberg.rpc.ReadR" +
+      "owsRequest\032#.io.olake.iceberg.rpc.ReadRo" +
+      "wsBatch0\001B\035B\014RecordIngestZ\riceberg/proto" +
+      "b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -23858,6 +28467,42 @@ java.lang.String defaultValue) {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_olake_iceberg_rpc_MigrateEqualityDeletesResponse_descriptor,
         new java.lang.String[] { "SnapshotId", "RewrittenDeleteFiles", "PositionalDeletesWritten", });
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor =
+      getDescriptor().getMessageTypes().get(9);
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor,
+        new java.lang.String[] { "ThreadId", "Files", });
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_descriptor =
+      internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor.getNestedTypes().get(0);
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_descriptor,
+        new java.lang.String[] { "Position", "Columns", });
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_descriptor =
+      internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor.getNestedTypes().get(1);
+    internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_olake_iceberg_rpc_ReadRowsRequest_FileRows_descriptor,
+        new java.lang.String[] { "FilePath", "Rows", });
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_descriptor =
+      getDescriptor().getMessageTypes().get(10);
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_olake_iceberg_rpc_ReadRowsBatch_descriptor,
+        new java.lang.String[] { "Rows", });
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_descriptor =
+      internal_static_io_olake_iceberg_rpc_ReadRowsBatch_descriptor.getNestedTypes().get(0);
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_descriptor,
+        new java.lang.String[] { "FilePath", "Position", "Values", });
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_ValuesEntry_descriptor =
+      internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_descriptor.getNestedTypes().get(0);
+    internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_ValuesEntry_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_olake_iceberg_rpc_ReadRowsBatch_Row_ValuesEntry_descriptor,
+        new java.lang.String[] { "Key", "Value", });
   }
 
   // @@protoc_insertion_point(outer_class_scope)

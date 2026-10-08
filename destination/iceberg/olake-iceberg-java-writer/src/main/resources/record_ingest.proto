@@ -232,6 +232,11 @@ service TableIndexService {
   // MigrateEqualityDeletes rewrites the table's existing equality delete files
   // into equivalent positional delete files in a single atomic commit.
   rpc MigrateEqualityDeletes(MigrateEqualityDeletesRequest) returns (MigrateEqualityDeletesResponse);
+  // ReadRows streams the requested columns of rows addressed by data file and position,
+  // the locations the index holds. Used to refill values a CDC change could not carry
+  // (Postgres unchanged TOAST). A data file the thread's writer still holds open is
+  // closed first, without committing, so rows written earlier in the sync are readable.
+  rpc ReadRows(ReadRowsRequest) returns (stream ReadRowsBatch);
 }
 
 message TableIndexScanRequest {
@@ -267,4 +272,34 @@ message MigrateEqualityDeletesResponse {
   int64 snapshot_id = 1;
   int64 rewritten_delete_files = 2;
   int64 positional_deletes_written = 3;
+}
+
+message ReadRowsRequest {
+  string thread_id = 1;
+
+  message Row {
+    int64 position = 1;
+    // Table columns to read for this row, by name.
+    repeated string columns = 2;
+  }
+
+  message FileRows {
+    string file_path = 1;
+    // Rows to read, in ascending position order.
+    repeated Row rows = 2;
+  }
+
+  repeated FileRows files = 2;
+}
+
+message ReadRowsBatch {
+  message Row {
+    string file_path = 1;
+    int64 position = 2;
+    // The columns requested for this row, by name. A column the data file does not carry
+    // is left out; an unset value is a stored NULL.
+    map<string, IcebergPayload.IceRecord.FieldValue> values = 3;
+  }
+
+  repeated Row rows = 1;
 }
