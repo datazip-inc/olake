@@ -35,6 +35,9 @@ const (
 	AvailableStreamsPath   = "AVAILABLE_STREAMS_PATH"
 	SelectedStreamsPath    = "SELECTED_STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
+	// output paths of a streams v2 difference
+	DifferenceAvailableStreamsPath = "DIFFERENCE_AVAILABLE_STREAMS_PATH"
+	DifferenceSelectedStreamsPath  = "DIFFERENCE_SELECTED_STREAMS_PATH"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8

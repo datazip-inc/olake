@@ -145,7 +145,9 @@ func resolveTargetQueryEngines() error {
 	return nil
 }
 
-// compareStreams reads two streams.json files, computes the difference, and writes the result to difference_streams.json
+// compareStreams reads the old and new catalogs, computes the difference, and writes the result to
+// difference_streams.json, or to difference_available_streams.json and difference_selected_streams.json
+// for the available/selected streams format
 func compareStreams() error {
 	oldStreams, err := types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
 	if err != nil {
@@ -160,7 +162,12 @@ func compareStreams() error {
 	diffCatalog := types.GetStreamsDelta(oldStreams, newStreams)
 	// log the difference catalog to stdout
 
-	if err := diffCatalog.WriteToFile(viper.GetString(constants.DifferencePath)); err != nil {
+	if differenceSelectedStreamsPath != "" {
+		err = diffCatalog.WriteSplitToFiles(viper.GetString(constants.DifferenceAvailableStreamsPath), viper.GetString(constants.DifferenceSelectedStreamsPath))
+	} else {
+		err = diffCatalog.WriteToFile(viper.GetString(constants.DifferencePath))
+	}
+	if err != nil {
 		return fmt.Errorf("failed to write difference streams: %w", err)
 	}
 	logger.Infof("Successfully wrote stream differences")

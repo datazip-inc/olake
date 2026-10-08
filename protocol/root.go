@@ -67,6 +67,8 @@ var RootCmd = &cobra.Command{
 		viper.SetDefault(constants.AvailableStreamsPath, filepath.Join(os.TempDir(), "available_streams.json"))
 		viper.SetDefault(constants.SelectedStreamsPath, filepath.Join(os.TempDir(), "selected_streams.json"))
 		viper.SetDefault(constants.DifferencePath, filepath.Join(os.TempDir(), "difference_streams.json"))
+		viper.SetDefault(constants.DifferenceAvailableStreamsPath, filepath.Join(os.TempDir(), "difference_available_streams.json"))
+		viper.SetDefault(constants.DifferenceSelectedStreamsPath, filepath.Join(os.TempDir(), "difference_selected_streams.json"))
 		// An S3 job without --config or --destination (spec) has no folder to derive: filepath.Dir("not-set")
 		// would give ".", so keep the TempDir defaults, where ResolveS3Paths downloads the telemetry files.
 		noPathFlag := configPath == "not-set" && destinationConfigPath == "not-set"
@@ -89,6 +91,8 @@ var RootCmd = &cobra.Command{
 			viper.Set(constants.StatePath, statePathEnv)
 			viper.Set(constants.StreamsPath, streamsPathEnv)
 			viper.Set(constants.DifferencePath, differencePathEnv)
+			viper.Set(constants.DifferenceAvailableStreamsPath, filepath.Join(diffBaseDir, "difference_available_streams.json"))
+			viper.Set(constants.DifferenceSelectedStreamsPath, filepath.Join(diffBaseDir, "difference_selected_streams.json"))
 			viper.Set(constants.AvailableStreamsPath, availableStreamsPathEnv)
 			viper.Set(constants.SelectedStreamsPath, selectedStreamsPathEnv)
 		}
@@ -192,7 +196,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
 	RootCmd.PersistentFlags().StringVarP(&differenceAvailableStreamsPath, "difference-available-streams", "", "", "new available_streams file path to be compared. Must be passed together with --difference-selected-streams.")
-	RootCmd.PersistentFlags().StringVarP(&differenceSelectedStreamsPath, "difference-selected-streams", "", "", "new selected_streams file path to be compared. Must be passed together with --difference-available-streams.")
+	RootCmd.PersistentFlags().StringVarP(&differenceSelectedStreamsPath, "difference-selected-streams", "", "", "new selected_streams file path to be compared. Must be passed together with --difference-available-streams. Generates difference_available_streams.json and difference_selected_streams.json, usable with clear-destination.")
 	RootCmd.PersistentFlags().BoolVarP(&convertStreams, "convert-streams", "", false, "(Optional) With discover: convert the --streams file into available_streams.json and selected_streams.json next to it, without connecting to the source")
 	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
 	// Without this, Cobra rejects unknown positional args at Find time (legacyArgs)
@@ -250,14 +254,13 @@ func validateCatalogFlags(streamsFlagRequired bool) error {
 func validateDifferenceFlags() error {
 	hasLegacy := differencePath != ""
 	hasAvailable, hasSelected := differenceAvailableStreamsPath != "", differenceSelectedStreamsPath != ""
-	hasNew := hasAvailable && hasSelected
-	if hasLegacy && hasNew {
+	if hasLegacy && (hasAvailable || hasSelected) {
 		return errs.Precondition(errs.ConfigInvalid, codeConflictingDifferenceFlags,
 			fmt.Errorf("--difference cannot be combined with --difference-available-streams/--difference-selected-streams"))
 	}
 	if hasAvailable != hasSelected {
 		return errs.Precondition(errs.ConfigInvalid, codeIncompleteDifferenceFlagPair,
-			fmt.Errorf("--difference-available-streams and --difference-selected-streams must be passed"))
+			fmt.Errorf("--difference-available-streams and --difference-selected-streams must be passed together"))
 	}
 	return nil
 }

@@ -167,10 +167,15 @@ func (c *Catalog) sortByNamespaceStreamName() {
 
 // writeSplitFiles writes the catalog as available_streams.json and selected_streams.json.
 func (c *Catalog) writeSplitFiles() error {
-	if err := (&Catalog{Streams: c.Streams}).WriteToFile(viper.GetString(constants.AvailableStreamsPath)); err != nil {
+	return c.WriteSplitToFiles(viper.GetString(constants.AvailableStreamsPath), viper.GetString(constants.SelectedStreamsPath))
+}
+
+// WriteSplitToFiles writes streams[] to availablePath and selected_streams to selectedPath.
+func (c *Catalog) WriteSplitToFiles(availablePath, selectedPath string) error {
+	if err := (&Catalog{Streams: c.Streams}).WriteToFile(availablePath); err != nil {
 		return fmt.Errorf("failed to create available_streams file: %w", err)
 	}
-	if err := (&Catalog{SelectedStreams: c.SelectedStreams}).WriteToFile(viper.GetString(constants.SelectedStreamsPath)); err != nil {
+	if err := (&Catalog{SelectedStreams: c.SelectedStreams}).WriteToFile(selectedPath); err != nil {
 		return fmt.Errorf("failed to create selected_streams file: %w", err)
 	}
 	return nil
@@ -424,6 +429,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// new stream definition from streams array
 			newStream, newStreamExists := newStreamsMap[streamID]
 			if !newStreamExists {
+				logger.Warnf("Skipping; selected stream %s has no matching entry in the new available streams", streamID)
 				continue
 			}
 

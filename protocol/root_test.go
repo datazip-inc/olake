@@ -165,6 +165,7 @@ func TestValidateDifferenceFlags(t *testing.T) {
 		{name: "new format pair", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: false},
 		{name: "available without selected", available: "new_available_streams.json", expectErr: true, expectedCode: codeIncompleteDifferenceFlagPair},
 		{name: "selected without available", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeIncompleteDifferenceFlagPair},
+		{name: "legacy and selected only", difference: "new_streams.json", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeConflictingDifferenceFlags},
 		{name: "legacy and new format together", difference: "new_streams.json", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeConflictingDifferenceFlags},
 	}
 
