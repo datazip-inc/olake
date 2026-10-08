@@ -27,11 +27,11 @@ type Config struct {
 
 // Store is the implementation of the ObjectStore interface for Azure Blob Storage.
 type Store struct {
-	client     *azblob.Client
-	cred       *azblob.SharedKeyCredential
-	container  string
-	prefix     string
-	serviceURL string
+	client        *azblob.Client
+	cred          *azblob.SharedKeyCredential
+	container     string
+	prefix        string
+	azureEndpoint string
 }
 
 // New creates a new Azure Blob Storage client with shared key credential and returns a new Store.
@@ -40,20 +40,20 @@ func New(cfg Config) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure SharedKeyCredential: %w", err)
 	}
-	serviceURL := cfg.Endpoint
-	if serviceURL == "" {
-		serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net/", cfg.AccountName)
+	azureEndpoint := cfg.Endpoint
+	if azureEndpoint == "" {
+		azureEndpoint = fmt.Sprintf("https://%s.blob.core.windows.net/", cfg.AccountName)
 	}
-	client, err := azblob.NewClientWithSharedKeyCredential(serviceURL, cred, nil)
+	client, err := azblob.NewClientWithSharedKeyCredential(azureEndpoint, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Blob Storage client: %w", err)
 	}
 	return &Store{
-		client:     client,
-		cred:       cred,
-		container:  cfg.ContainerName,
-		prefix:     strings.Trim(cfg.Path, "/"),
-		serviceURL: serviceURL,
+		client:        client,
+		cred:          cred,
+		container:     cfg.ContainerName,
+		prefix:        strings.Trim(cfg.Path, "/"),
+		azureEndpoint: azureEndpoint,
 	}, nil
 }
 
@@ -163,7 +163,7 @@ func (a *Store) waitForCopy(ctx context.Context, dst *blob.Client, srcKey, dstKe
 func (a *Store) blobReadURL(key string) (string, error) {
 	permissions := sas.BlobPermissions{Read: true}
 	protocol := sas.ProtocolHTTPS
-	if strings.HasPrefix(a.serviceURL, "http://") {
+	if strings.HasPrefix(a.azureEndpoint, "http://") {
 		protocol = sas.ProtocolHTTPSandHTTP
 	}
 	sasValues := sas.BlobSignatureValues{
