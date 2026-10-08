@@ -17,7 +17,7 @@ on:
     - 'drivers/*/driver.mk'
     - 'tests/**'
     - '.github/workflows/performance-test.yml'
-    - '.github/actions/driver-deps/action.yml'
+    - '.github/actions/driver-deps/**'
   pull_request:
     branches:
     - "master"
