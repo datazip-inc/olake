@@ -384,8 +384,66 @@ test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .s
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
 # like <module>/... prefix-matches into sibling modules.
+# Also writes a merged cover profile (COVER_OUT) spanning every workspace module.
+COVER_OUT ?= /tmp/cover.out
 test.unit: $(addprefix prepare.,$(DRIVERS))
-	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip '^Test.*(Discover|Sync|2PC|Performance|Rebalance)$$'
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) pkgs=$$(go list -m -f '{{.Dir}}' | sed 's#^$(CURDIR)#.#; s#$$#/...#'); \
+	go test -v -count=1 -skip '^Test.*(Discover|Sync|2PC|Performance|Rebalance)$$' \
+		-coverpkg=$$(echo $$pkgs | tr ' ' ',') -coverprofile=$(COVER_OUT) -covermode=atomic $$pkgs
+
+COVER_ROWS ?= /tmp/cover-rows.md
+
+# awk: cover profile -> markdown table (one row per package group + Overall).
+define COVER_MD_AWK
+NR == 1 { next }
+{ stm[$$1] = $$2; if ($$3 > 0) hit[$$1] = 1 }
+END {
+	for (k in stm) {
+		split(k, a, ":"); f = a[1]
+		sub("github.com/datazip-inc/olake/", "", f)
+		n = split(f, p, "/")
+		if (n == 1) g = "(root)"
+		else if ((p[1] == "drivers" || p[1] == "destination") && n >= 3) g = p[1] "/" p[2]
+		else g = p[1]
+		tot[g] += stm[k]; all += stm[k]
+		if (k in hit) { cov[g] += stm[k]; allcov += stm[k] }
+	}
+	print "| Package | Coverage | Statements |"
+	print "|---|---|---|"
+	for (g in tot) printf "| `%s` | %.1f%% | %d/%d |\n", g, 100 * cov[g] / tot[g], cov[g], tot[g] | "sort"
+	close("sort")
+	if (all > 0) printf "| **Overall** | **%.1f%%** | **%d/%d** |\n", 100 * allcov / all, allcov, all
+}
+endef
+export COVER_MD_AWK
+
+# awk: markdown table -> aligned boxed table for terminals / job logs.
+define COVER_BOX_AWK
+NR == 2 { next }
+{
+	rows = NR
+	for (i = 2; i < NF; i++) { gsub(/^ +| +$$/, "", $$i); c[NR, i] = $$i; if (length($$i) > w[i]) w[i] = length($$i) }
+}
+END {
+	sep = "+"
+	for (i = 2; i <= 4; i++) { s = sprintf("%*s", w[i] + 2, ""); gsub(/ /, "-", s); sep = sep s "+" }
+	for (r = 1; r <= rows; r++) {
+		if (r == 2) continue
+		if (r == 1 || r == 3 || r == rows) print sep
+		out = "|"
+		for (i = 2; i <= 4; i++) out = out sprintf(" %-*s |", w[i], c[r, i])
+		print out
+	}
+	print sep
+}
+endef
+export COVER_BOX_AWK
+
+# Prints the per-package coverage table for COVER_OUT and saves the markdown version to COVER_ROWS.
+coverage.table:
+	@[ -s $(COVER_OUT) ] || { echo "no cover profile at $(COVER_OUT)"; exit 0; }; \
+	awk "$$COVER_MD_AWK" $(COVER_OUT) > $(COVER_ROWS); \
+	tr -d '`*' < $(COVER_ROWS) | awk -F'|' "$$COVER_BOX_AWK"
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
@@ -449,4 +507,4 @@ help:
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \
 	olake.destination.all.start olake.destination.all.stop olake.destination.all.teardown olake.destination.all.restart olake.destination.all.refresh \
 	olake.all.start olake.all.stop olake.all.teardown olake.all.restart olake.all.refresh \
-	test.discover test.sync test.2pc test.unit test.build.all help
+	test.discover test.sync test.2pc test.unit coverage.table test.build.all help
