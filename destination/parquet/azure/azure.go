@@ -83,12 +83,12 @@ func (a *Store) UploadFile(ctx context.Context, key string, file *os.File) error
 }
 
 func (a *Store) Get(ctx context.Context, key string) ([]byte, error) {
-	resp, err := a.client.DownloadStream(ctx, a.container, key, nil)
+	out, err := a.client.DownloadStream(ctx, a.container, key, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	defer out.Body.Close()
+	return io.ReadAll(out.Body)
 }
 
 func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
