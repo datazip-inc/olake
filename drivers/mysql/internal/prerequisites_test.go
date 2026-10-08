@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
@@ -207,6 +208,19 @@ func TestMySQLCheckBinlogAccess(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, ok)
 		assert.Contains(t, current, "no binlog position available")
+	})
+
+	// a failed row read is not an empty result, so it must not read as binlog being off
+	t.Run("row read error is an evaluation error", func(t *testing.T) {
+		m, mock := newMockMySQL(t)
+		mock.ExpectQuery("SELECT @@version").WillReturnRows(sqlmock.NewRows([]string{"@@version"}).AddRow("8.0.36"))
+		mock.ExpectQuery(jdbc.MySQLMasterStatusQuery()).WillReturnRows(
+			sqlmock.NewRows(statusColumns).AddRow("binlog.000003", 157, "", "", "").RowError(0, errors.New("connection reset")))
+
+		_, ok, err := m.checkBinlogAccess(context.Background())
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, binlog.ErrNoBinlogPosition)
+		assert.False(t, ok)
 	})
 }
 

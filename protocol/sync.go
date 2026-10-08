@@ -117,12 +117,6 @@ var syncCmd = &cobra.Command{
 			state.Streams = selectedStreamsMetadata.NewStreamsState
 		}
 
-		// Runs before full-refresh streams are cleared below. Only checks marked Required fail
-		// here; legacy configs record advisory checks and pass as before update_method.
-		if perr := connector.ValidateCDCPrerequisites(selectedStreamsMetadata.CDCStreams); perr != nil {
-			return perr
-		}
-
 		// for clearing streams
 		dropStreams := []types.StreamInterface{}
 		dropStreams = append(dropStreams, selectedStreamsMetadata.FullLoadStreams...)

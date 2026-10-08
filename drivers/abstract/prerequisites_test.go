@@ -137,48 +137,26 @@ func TestRequireCDCPrerequisites(t *testing.T) {
 	}
 }
 
-func TestPrerequisitesWithoutReporter(t *testing.T) {
-	driver := NewAbstractDriver(context.Background(), stubDriver{typ: "oracle"})
-	assert.Nil(t, driver.Prerequisites())
-}
+func TestAbstractDriverPrerequisites(t *testing.T) {
+	recorded := types.PrerequisiteResults{{Name: "binlog_format", Required: true, Passed: true}}
 
-func TestValidateCDCPrerequisites(t *testing.T) {
-	failedRequired := types.PrerequisiteResults{{Name: "binlog_format", Required: true, Passed: false}}
-	failedOptional := types.PrerequisiteResults{{Name: "binlog_retention", Required: false, Passed: false}}
-
-	testCases := []struct {
-		name          string
-		prerequisites types.PrerequisiteResults
-		cdcStreams    int
-		expectedCode  string
+	tests := []struct {
+		name   string
+		driver DriverInterface
+		want   types.PrerequisiteResults
 	}{
-		// backfill and incremental syncs are never blocked by CDC checks
-		{name: "no cdc streams", prerequisites: failedRequired, cdcStreams: 0},
 		{
-			name:          "failed required check blocks cdc",
-			prerequisites: failedRequired,
-			cdcStreams:    1,
-			expectedCode:  "mysql.cdc_prerequisites_failed",
+			name:   "driver reporting prerequisites",
+			driver: reportingDriver{stubDriver: stubDriver{typ: "mysql"}, prerequisites: recorded},
+			want:   recorded,
 		},
-		{name: "failed optional check does not block", prerequisites: failedOptional, cdcStreams: 1},
+		// drivers that run no checks report nothing
+		{name: "driver without reporter", driver: stubDriver{typ: "oracle"}},
 	}
-
-	for _, tc := range testCases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			driver := NewAbstractDriver(context.Background(), reportingDriver{
-				stubDriver:    stubDriver{typ: "mysql"},
-				prerequisites: tc.prerequisites,
-			})
-			err := driver.ValidateCDCPrerequisites(make([]types.StreamInterface, tc.cdcStreams))
-			if tc.expectedCode == "" {
-				assert.NoError(t, err)
-				return
-			}
-			require.Error(t, err)
-
-			got := errs.From(errs.Classify(err))
-			assert.Equal(t, errs.CDCPreconditionFailed, got.Category)
-			assert.Equal(t, tc.expectedCode, got.Code)
+			driver := NewAbstractDriver(context.Background(), tc.driver)
+			assert.Equal(t, tc.want, driver.Prerequisites())
 		})
 	}
 }

@@ -103,17 +103,6 @@ func RequireCDCPrerequisites(driverType string, prerequisites types.Prerequisite
 		strings.Join(names, ", "), errors.Join(causes...))
 }
 
-// ValidateCDCPrerequisites fails when CDC streams are selected and a required check did not pass.
-// Full-refresh and incremental-only syncs are never blocked. Only checks marked Required can fail
-// here: a config that explicitly selects CDC has already failed in Setup, and a config that
-// predates update_method records advisory checks, so it passes as it did before.
-func (a *AbstractDriver) ValidateCDCPrerequisites(cdcStreams []types.StreamInterface) error {
-	if len(cdcStreams) == 0 {
-		return nil
-	}
-	return RequireCDCPrerequisites(a.driver.Type(), a.Prerequisites())
-}
-
 // Prerequisites returns the checks recorded by the driver's Setup, if it runs any.
 func (a *AbstractDriver) Prerequisites() types.PrerequisiteResults {
 	if r, ok := a.driver.(PrerequisiteReporter); ok {
