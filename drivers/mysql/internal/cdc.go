@@ -14,7 +14,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
@@ -51,7 +50,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		SchemaClient:            m.client,
 	}
 
-	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, mySQLGlobalState.State, streamsToSync, m.dataTypeConverter)
 }
 
 func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
@@ -74,11 +73,11 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		binlogPos, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
+		binlogState, err := binlog.GetCurrentBinlogState(ctx, m.client)
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %w", err)
 		}
-		m.state.SetGlobal(MySQLGlobalState{ServerID: newServerID(), State: binlog.Binlog{Position: binlogPos}})
+		m.state.SetGlobal(MySQLGlobalState{ServerID: newServerID(), State: binlogState})
 		m.state.ResetStreams()
 	}
 	m.streams = streams
@@ -104,7 +103,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 	}
 
 	var finishedStreams []string
-	var recoveryPos mysql.Position
+	var recoveryState binlog.Binlog
 
 	for streamID, rawMtState := range metadataStates {
 		if rawMtState == nil {
@@ -116,14 +115,27 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 			if err != nil {
 				return nil, fmt.Errorf("failed to unmarshal metadata state: %w", err)
 			}
+			comparison, err := mysqlMetadataState.Compare(mySQLGlobalState.State)
+			if err != nil {
+				return nil, fmt.Errorf("invalid metadata for stream[%s]: %w", streamID, err)
+			}
 
-			// Recovery is only needed when metadata is strictly AHEAD of state.
-			// metadata.Compare(state) > 0 means either:
-			//   - same file but metadata.Pos > state.Pos, OR
-			//   - metadata is on a later binlog file (e.g. mysql-bin.000043 vs .000042)
-			if mysqlMetadataState.Position.Compare(mySQLGlobalState.State.Position) > 0 {
-				// metadata ahead of state: genuine crash-recovery path
-				recoveryPos = mysqlMetadataState.Position
+			// Only destination progress strictly ahead of source state needs recovery.
+			if comparison > 0 {
+				if recoveryState.Position.Name != "" || recoveryState.GTIDSet != nil {
+					comparison, err := mysqlMetadataState.Compare(recoveryState)
+					if err != nil {
+						return nil, err
+					}
+					if comparison != 0 {
+						return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
+							fmt.Errorf("recovery checkpoints disagree across streams"))
+					}
+				}
+				// Keep the migration mapping when file and GTID metadata describe the same boundary.
+				if recoveryState.GTIDSet == nil || mysqlMetadataState.GTIDSet != nil {
+					recoveryState = mysqlMetadataState
+				}
 				finishedStreams = append(finishedStreams, streamID)
 			}
 			// state >= metadata: blank sync scenario — stream forward normally
@@ -147,6 +159,11 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 		remainingStreams = m.streams
 	}
 
+	// All selected streams already committed this GTID boundary; no binlog replay is needed.
+	recovered := recoveryState.GTIDSet != nil && len(remainingStreams) == 0
+	if recovered {
+		mySQLGlobalState.State = recoveryState
+	}
 	conn, err := m.prepareBinlogConn(ctx, mySQLGlobalState, remainingStreams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare binlog conn: %w", err)
@@ -155,16 +172,16 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 	// persist binlog connection for post cdc
 	m.BinlogConn = conn
 
-	err = m.BinlogConn.StreamMessages(ctx, m.client, recoveryPos, OnMessage)
-	if err != nil {
-		return nil, err
+	if !recovered {
+		if err := conn.StreamMessages(ctx, m.client, recoveryState, OnMessage); err != nil {
+			return nil, err
+		}
+	}
+	if recoveryState.GTIDSet == nil && recoveryState.Position.Name != "" {
+		conn.CurrentPos = recoveryState.Position
 	}
 
-	if recoveryPos.Name != "" {
-		m.BinlogConn.CurrentPos = recoveryPos
-	}
-
-	return binlog.Binlog{Position: m.BinlogConn.CurrentPos}, nil
+	return conn.Checkpoint(), nil
 }
 
 func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
@@ -178,9 +195,7 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 	default:
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
-			State: binlog.Binlog{
-				Position: m.BinlogConn.CurrentPos,
-			},
+			State:    m.BinlogConn.Checkpoint(),
 		})
 		return nil
 	}
