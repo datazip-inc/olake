@@ -426,7 +426,7 @@ func IsDriverRelational(driver string) bool {
 }
 
 func IsDriverAppendOnly(driver string) bool {
-	_, isAppendOnly := utils.ArrayContains(constants.AppendOnlyDrivers, func(src constants.DriverType) bool {
+	_, isAppendOnly := utils.ArrayContains(constants.DefaultAppendModeDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
 	})
 	return isAppendOnly
