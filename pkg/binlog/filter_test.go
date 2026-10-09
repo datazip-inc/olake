@@ -109,10 +109,10 @@ func TestResolveColumnsFallbackMatchesBinlogMetadata(t *testing.T) {
 	ctx := context.Background()
 	row := []interface{}{int64(5), "héllo", int64(1), int64(3)}
 
-	fromBinlog, err := filterWithCache(nil).resolveColumns(ctx, &replication.RowsEvent{Table: fullTableMap()})
+	fromBinlog, err := filterWithCache(nil).resolveColumns(ctx, &replication.RowsEvent{Table: fullTableMap()}, mysql.Position{})
 	require.NoError(t, err)
 
-	fromSchema, err := filterWithCache(fixtureMeta()).resolveColumns(ctx, &replication.RowsEvent{Table: baseTableMap()})
+	fromSchema, err := filterWithCache(fixtureMeta()).resolveColumns(ctx, &replication.RowsEvent{Table: baseTableMap()}, mysql.Position{})
 	require.NoError(t, err)
 
 	assert.Equal(t, fromBinlog.names, fromSchema.names)
@@ -139,7 +139,7 @@ func TestResolveColumnsUnsignedFromFallback(t *testing.T) {
 	// UNSIGNED drives stripSignExtension in the driver; losing it corrupts large values
 	// silently rather than failing.
 	view, err := filterWithCache(fixtureMeta()).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: baseTableMap()})
+		&replication.RowsEvent{Table: baseTableMap()}, mysql.Position{})
 	require.NoError(t, err)
 	assert.Equal(t, "UNSIGNED BIGINT", view.types[0])
 }
@@ -155,7 +155,7 @@ func TestResolveColumnsSignednessOnlyFallback(t *testing.T) {
 	meta.Columns[2].EnumValues = []string{"WRONG", "ALSO WRONG"}
 
 	view, err := filterWithCache(meta).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: tableMap})
+		&replication.RowsEvent{Table: tableMap}, mysql.Position{})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"active", "inactive"}, view.enumValues[2], "binlog members still win")
@@ -170,7 +170,7 @@ func TestResolveColumnsMinimalPrefersBinlogCollations(t *testing.T) {
 	meta.Columns[1].CollationID = latin1SwedishCI // stale; the binlog says utf8mb4
 
 	view, err := filterWithCache(meta).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: minimalTableMap()})
+		&replication.RowsEvent{Table: minimalTableMap()}, mysql.Position{})
 	require.NoError(t, err)
 
 	assert.Equal(t, uint64(utf8mb4GeneralCI), view.collations[1], "binlog collation wins over information_schema")
@@ -185,7 +185,7 @@ func TestResolveColumnsMinimalPrefersBinlogCollations(t *testing.T) {
 // information_schema. The filter has no client, so returning a view at all is the assertion.
 func TestResolveColumnsNoNumericColumnsSkipsSchemaLookup(t *testing.T) {
 	view, err := filterWithCacheFor("shop.notes", nil).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: stringOnlyTableMap()})
+		&replication.RowsEvent{Table: stringOnlyTableMap()}, mysql.Position{})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"body", "created_at"}, view.names)
@@ -198,7 +198,7 @@ func TestResolveColumnsRejectsSchemaDrift(t *testing.T) {
 	meta.Columns = meta.Columns[:3] // a column was added after our information_schema read
 
 	_, err := filterWithCache(meta).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: baseTableMap()})
+		&replication.RowsEvent{Table: baseTableMap()}, mysql.Position{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "schema drift")
 }
@@ -206,14 +206,14 @@ func TestResolveColumnsRejectsSchemaDrift(t *testing.T) {
 func TestResolveColumnsWithoutSchemaClient(t *testing.T) {
 	// A bare TableMapEvent and no client must fail loudly, not emit missing columns.
 	_, err := filterWithCache(nil).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: baseTableMap()})
+		&replication.RowsEvent{Table: baseTableMap()}, mysql.Position{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no schema client is configured")
 }
 
 func TestConvertRowToMapEnumAndSetEdgeCases(t *testing.T) {
 	view, err := filterWithCache(fixtureMeta()).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: baseTableMap()})
+		&replication.RowsEvent{Table: baseTableMap()}, mysql.Position{})
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -241,7 +241,7 @@ func TestConvertRowToMapEnumAndSetEdgeCases(t *testing.T) {
 
 func TestConvertRowToMapColumnCountMismatch(t *testing.T) {
 	view, err := filterWithCache(fixtureMeta()).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: baseTableMap()})
+		&replication.RowsEvent{Table: baseTableMap()}, mysql.Position{})
 	require.NoError(t, err)
 
 	_, err = convertRowToMap([]interface{}{int64(1), "a"}, view, identityConverter)

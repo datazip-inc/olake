@@ -51,7 +51,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		SchemaClient:            m.client,
 	}
 
-	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, mySQLGlobalState.State, streamsToSync, m.dataTypeConverter)
 }
 
 func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
@@ -178,9 +178,7 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 	default:
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
-			State: binlog.Binlog{
-				Position: m.BinlogConn.CurrentPos,
-			},
+			State:    m.BinlogConn.State(),
 		})
 		return nil
 	}

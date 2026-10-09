@@ -1,9 +1,13 @@
 package binlog
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseEnumSetMembers(t *testing.T) {
@@ -81,4 +85,88 @@ func TestIsDDL(t *testing.T) {
 			assert.Equal(t, tt.want, isDDL([]byte(tt.query)))
 		})
 	}
+}
+
+// A saved schema anchored after the resume position may already include DDL the reader has
+// not reached, so seed must drop it; an empty anchor compares as earliest and is dropped too.
+func TestSeedKeepsOnlySchemasValidAtResume(t *testing.T) {
+	resume := mysql.Position{Name: "mysql-bin.000010", Pos: 500}
+	saved := map[string]*tableMeta{
+		"shop.before": {Columns: []columnMeta{{Name: "id"}}, AnchoredAt: mysql.Position{Name: "mysql-bin.000010", Pos: 400}},
+		"shop.same":   {Columns: []columnMeta{{Name: "id"}}, AnchoredAt: resume},
+		"shop.after":  {Columns: []columnMeta{{Name: "id"}}, AnchoredAt: mysql.Position{Name: "mysql-bin.000012", Pos: 900}},
+		"shop.empty":  {Columns: []columnMeta{{Name: "id"}}},
+	}
+
+	c := newSchemaCache(nil)
+	c.seed(saved, resume)
+
+	assert.Contains(t, c.tables, "shop.before")
+	assert.Contains(t, c.tables, "shop.same")
+	assert.NotContains(t, c.tables, "shop.after")
+	assert.NotContains(t, c.tables, "shop.empty")
+}
+
+func TestBinlogSchemasRoundTrip(t *testing.T) {
+	in := Binlog{
+		Position: mysql.Position{Name: "mysql-bin.000010", Pos: 500},
+		Schemas: map[string]*tableMeta{
+			"shop.orders": {
+				Columns:    []columnMeta{{Name: "status", EnumValues: []string{"new", "paid"}}},
+				AnchoredAt: mysql.Position{Name: "mysql-bin.000010", Pos: 400},
+			},
+		},
+	}
+	raw, err := json.Marshal(in)
+	require.NoError(t, err)
+
+	var out Binlog
+	require.NoError(t, json.Unmarshal(raw, &out))
+	assert.Equal(t, in, out)
+}
+
+// State files written before schemas were persisted must still load, with an empty cache.
+func TestOldStateWithoutSchemasSeedsNothing(t *testing.T) {
+	var out Binlog
+	require.NoError(t, json.Unmarshal([]byte(`{"position":{"Name":"mysql-bin.000010","Pos":500}}`), &out))
+	assert.Nil(t, out.Schemas)
+
+	c := newSchemaCache(nil)
+	c.seed(out.Schemas, out.Position)
+	assert.Empty(t, c.tables)
+}
+
+// The cache has no client, so any information_schema query would fail: getting the seeded
+// schema back proves a resumed run decodes with the schema as of its start position.
+func TestSeededSchemaAnswersWithoutQuery(t *testing.T) {
+	resume := mysql.Position{Name: "mysql-bin.000010", Pos: 500}
+	c := newSchemaCache(nil)
+	c.seed(map[string]*tableMeta{
+		"shop.orders": {
+			Columns:    []columnMeta{{Name: "status", EnumValues: []string{"new", "paid"}}},
+			AnchoredAt: mysql.Position{Name: "mysql-bin.000010", Pos: 400},
+		},
+	}, resume)
+
+	meta, err := c.get(context.Background(), "shop", "orders", mysql.Position{Name: "mysql-bin.000010", Pos: 700})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"new", "paid"}, meta.Columns[0].EnumValues)
+}
+
+func TestConnectionSeedsAndReturnsState(t *testing.T) {
+	pos := mysql.Position{Name: "mysql-bin.000010", Pos: 500}
+	saved := map[string]*tableMeta{
+		"shop.orders": {Columns: []columnMeta{{Name: "status"}}, AnchoredAt: mysql.Position{Name: "mysql-bin.000010", Pos: 400}},
+		"shop.future": {Columns: []columnMeta{{Name: "id"}}, AnchoredAt: mysql.Position{Name: "mysql-bin.000012", Pos: 900}},
+	}
+
+	conn, err := NewConnection(context.Background(), &Config{ServerID: 1001, Flavor: "mysql"},
+		Binlog{Position: pos, Schemas: saved}, nil, identityConverter)
+	require.NoError(t, err)
+	defer conn.Cleanup()
+
+	state := conn.State()
+	assert.Equal(t, pos, state.Position)
+	assert.Contains(t, state.Schemas, "shop.orders")
+	assert.NotContains(t, state.Schemas, "shop.future")
 }

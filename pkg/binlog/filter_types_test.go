@@ -254,9 +254,9 @@ func TestConvertRowToMapAllTypes(t *testing.T) {
 	full := fullTableMapFrom(t, cols)
 	bare := bareTableMapFrom(cols)
 
-	fullView, err := filterWithCache(nil).resolveColumns(ctx, &replication.RowsEvent{Table: full})
+	fullView, err := filterWithCache(nil).resolveColumns(ctx, &replication.RowsEvent{Table: full}, mysql.Position{})
 	require.NoError(t, err)
-	fallbackView, err := filterWithCacheFor("shop.wide", metaFrom(cols)).resolveColumns(ctx, &replication.RowsEvent{Table: bare})
+	fallbackView, err := filterWithCacheFor("shop.wide", metaFrom(cols)).resolveColumns(ctx, &replication.RowsEvent{Table: bare}, mysql.Position{})
 	require.NoError(t, err)
 
 	fromFull, err := convertRowToMap(row, fullView, identityConverter)
@@ -264,7 +264,7 @@ func TestConvertRowToMapAllTypes(t *testing.T) {
 	fromFallback, err := convertRowToMap(row, fallbackView, identityConverter)
 	require.NoError(t, err)
 	nullCollationView, err := filterWithCacheFor("shop.wide", metaFromNullBinaryCollation(cols)).
-		resolveColumns(ctx, &replication.RowsEvent{Table: bare})
+		resolveColumns(ctx, &replication.RowsEvent{Table: bare}, mysql.Position{})
 	require.NoError(t, err)
 	fromNullCollation, err := convertRowToMap(row, nullCollationView, identityConverter)
 	require.NoError(t, err)
@@ -289,7 +289,7 @@ func TestResolvedTypesAllTypes(t *testing.T) {
 	cols := allTypeColumns()
 	full := fullTableMapFrom(t, cols)
 
-	view, err := filterWithCache(nil).resolveColumns(context.Background(), &replication.RowsEvent{Table: full})
+	view, err := filterWithCache(nil).resolveColumns(context.Background(), &replication.RowsEvent{Table: full}, mysql.Position{})
 	require.NoError(t, err)
 
 	want := map[string]string{
@@ -323,7 +323,7 @@ func TestConvertRowToMapAllTypesUnsignedFallback(t *testing.T) {
 	bare := bareTableMapFrom(cols)
 
 	view, err := filterWithCacheFor("shop.wide", metaFrom(cols)).resolveColumns(context.Background(),
-		&replication.RowsEvent{Table: bare})
+		&replication.RowsEvent{Table: bare}, mysql.Position{})
 	require.NoError(t, err)
 
 	for i, c := range cols {
