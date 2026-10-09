@@ -427,7 +427,7 @@ func (p *Parquet) readObject(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (p *Parquet) retryRemote(ctx context.Context, fn func(context.Context) error) error {
-	return utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, fn)
+	return utils.RetryWithSkip(ctx, 3, time.Minute, p.store.IsRateLimitError, fn)
 }
 
 func (p *Parquet) stagingRootPrefix() string {

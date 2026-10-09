@@ -849,6 +849,10 @@ func (m *memoryStore) IsNotFound(err error) bool {
 	return errors.Is(err, errMemoryNotFound)
 }
 
+func (m *memoryStore) IsRateLimitError(error) bool {
+	return false
+}
+
 func testAzureParquet(t *testing.T, threadID string, backfill bool) (*Parquet, *memoryS3) {
 	t.Helper()
 	store := newMemoryS3()

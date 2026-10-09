@@ -124,7 +124,7 @@ func (s *Store) DeletePrefix(ctx context.Context, prefix string) error {
 // (~5000 mutations/sec/bucket). Same behavior as the old clearS3Files googleapis branch.
 func (s *Store) deletePrefixIndividually(ctx context.Context, prefix string) error {
 	var pageErr error
-	listErr := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
+	listErr := utils.RetryWithSkip(ctx, 3, time.Minute, s.IsRateLimitError, func(_ context.Context) error {
 		pageErr = nil
 		return s.client.ListObjectsPagesWithContext(ctx, &awss3.ListObjectsInput{
 			Bucket: aws.String(s.bucket),
@@ -139,7 +139,7 @@ func (s *Store) deletePrefixIndividually(ctx context.Context, prefix string) err
 			}
 			concurrency := min(runtime.GOMAXPROCS(0)*4, len(pageKeys))
 			if pageErr = utils.Concurrent(ctx, pageKeys, concurrency, func(_ context.Context, key string, _ int) error {
-				return utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
+				return utils.RetryWithSkip(ctx, 3, time.Minute, s.IsRateLimitError, func(_ context.Context) error {
 					return s.Delete(ctx, key)
 				})
 			}); pageErr != nil {
@@ -203,7 +203,24 @@ func (s *Store) IsNotFound(err error) bool {
 	return errors.As(err, &awsErr) && (awsErr.Code() == awss3.ErrCodeNoSuchKey || awsErr.Code() == "NotFound")
 }
 
-func isRateLimitError(err error) bool {
-	var rf awserr.RequestFailure
-	return errors.As(err, &rf) && (rf.StatusCode() == 429 || rf.StatusCode() == 503)
+// IsRateLimitError is used to check if an error is a throttle response
+// AWS S3 returns HTTP 503 for throttling (SlowDown / ServiceUnavailable).
+// GCP Cloud Storage returns HTTP 429 (Too Many Requests).
+//
+// For batch delete operations, errors are wrapped in s3manager.BatchError which does NOT
+// implement awserr.RequestFailure directly. The actual RequestFailure is nested inside
+// BatchError.Errors[].OrigErr, so we must inspect those inner errors as well.
+func (s *Store) IsRateLimitError(err error) bool {
+	isThrottled := func(target error) bool {
+		var rf awserr.RequestFailure
+		return errors.As(target, &rf) && (rf.StatusCode() == 429 || rf.StatusCode() == 503)
+	}
+	if isThrottled(err) {
+		return true
+	}
+	var batchErr awserr.Error
+	if errors.As(err, &batchErr) {
+		return isThrottled(batchErr.OrigErr())
+	}
+	return false
 }

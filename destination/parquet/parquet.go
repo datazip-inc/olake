@@ -3,7 +3,6 @@ package parquet
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -15,8 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/parquet/azure"
@@ -728,34 +725,6 @@ func (p *Parquet) clearLocalFiles(paths []string) error {
 	}
 
 	return nil
-}
-
-// isRateLimitError checks if the error is a rate-limit/throttle response from the ObjectStore
-// AWS S3 returns HTTP 503 for throttling (SlowDown / ServiceUnavailable).
-// GCP Cloud Storage returns HTTP 429 (Too Many Requests).
-// Azure Blob Storage returns HTTP 429 (Too Many Requests).
-//
-// For batch delete operations, errors are wrapped in s3manager.BatchError which does NOT
-// implement awserr.RequestFailure directly. The actual RequestFailure is nested inside
-// BatchError.Errors[].OrigErr, so we must inspect those inner errors as well.
-func isRateLimitError(err error) bool {
-	isThrottled := func(target error) bool {
-		var rf awserr.RequestFailure
-		if errors.As(target, &rf) && (rf.StatusCode() == 429 || rf.StatusCode() == 503) {
-			return true
-		}
-		var respErr *azcore.ResponseError
-		return errors.As(target, &respErr) && (respErr.StatusCode == 429 || respErr.StatusCode == 503)
-	}
-	if isThrottled(err) {
-		return true
-	}
-	// AWS SDK v1 batch errors don't implement Unwrap(), so we peel one layer manually.
-	var batchErr awserr.Error
-	if errors.As(err, &batchErr) {
-		return isThrottled(batchErr.OrigErr())
-	}
-	return false
 }
 
 func (p *Parquet) clearRemoteFiles(ctx context.Context, paths []string) error {

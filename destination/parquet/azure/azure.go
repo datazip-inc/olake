@@ -2,6 +2,7 @@ package azure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
@@ -199,4 +201,10 @@ func (a *Store) DeletePrefix(ctx context.Context, prefix string) error {
 // IsNotFound checks missing blob errr
 func (a *Store) IsNotFound(err error) bool {
 	return bloberror.HasCode(err, bloberror.BlobNotFound)
+}
+
+// IsRateLimitError reports Azure HTTP 429/503 throttle responses
+func (a *Store) IsRateLimitError(err error) bool {
+	var respErr *azcore.ResponseError
+	return errors.As(err, &respErr) && (respErr.StatusCode == 429 || respErr.StatusCode == 503)
 }
