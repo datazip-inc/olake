@@ -5,14 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
-	"github.com/datazip-inc/olake/tests/testutils/constants"
 	pqgo "github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/require"
 )
@@ -25,14 +23,6 @@ const (
 	azuriteContainer   = "warehouse"
 	azuriteHostURL     = "http://127.0.0.1:11000/devstoreaccount1"
 )
-
-// azuriteTestDrivers lists the drivers wired for the Azurite sub-test inside the common Sync flow
-var azuriteTestDrivers = []constants.DriverType{constants.Postgres}
-
-// hasAzuriteTest reports whether the driver participates in the Azurite sub-test
-func hasAzuriteTest(driver string) bool {
-	return slices.Contains(azuriteTestDrivers, constants.DriverType(driver))
-}
 
 // newAzuriteClient creates a new azurite client.
 func newAzuriteClient() (*azblob.Client, error) {

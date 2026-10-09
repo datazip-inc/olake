@@ -1810,13 +1810,13 @@ func (cfg *IntegrationTest) TestSync(t *testing.T) {
 		})
 	}
 
-	if hasAzuriteTest(cfg.TestConfig.Driver) {
-		t.Run("Azurite", func(t *testing.T) {
-			if err := cfg.testAzureBlob(ctx, t, currentTestTable); err != nil {
-				t.Fatalf("Azurite test failed: %v", err)
-			}
-		})
-	}
+	// test azure parquet destination
+	t.Run("Azurite", func(t *testing.T) {
+		if err := cfg.testAzureBlob(ctx, t, currentTestTable); err != nil {
+			t.Fatalf("Azurite test failed: %v", err)
+		}
+	})
+
 	// 3. Clean up
 	if keepTestData() {
 		t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
