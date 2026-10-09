@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,36 +16,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	// azuriteAccountName, azuriteAccountKey, azuriteContainer, and azuriteHostURL must match the
-	// azurite service in olake/destination/iceberg/local-test/docker-compose.yml
-	azuriteAccountName = "devstoreaccount1"
-	azuriteAccountKey  = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
-	azuriteContainer   = "warehouse"
-	azuriteHostURL     = "http://127.0.0.1:11000/devstoreaccount1"
-)
+type azureDestWriter struct {
+	AccountName   string `json:"azure_storage_account_name"`
+	AccountKey    string `json:"azure_storage_account_key"`
+	ContainerName string `json:"azure_container_name"`
+	Path          string `json:"azure_path"`
+	Endpoint      string `json:"azure_endpoint"`
+}
+
+func loadAzureDest(t *testing.T, cfg *TestConfig) azureDestWriter {
+	t.Helper()
+	var doc struct {
+		Writer azureDestWriter `json:"writer"`
+	}
+	path := filepath.Join(cfg.HostTestDataPath, "parquet_azure_destination.json")
+	require.NoError(t, UnmarshalFile(path, &doc, false), "read azure dest %s", path)
+	doc.Writer.Endpoint = strings.Replace(doc.Writer.Endpoint, "host.docker.internal", "127.0.0.1", 1)
+	return doc.Writer
+}
 
 // newAzuriteClient creates a new azurite client.
-func newAzuriteClient() (*azblob.Client, error) {
-	cred, err := azblob.NewSharedKeyCredential(azuriteAccountName, azuriteAccountKey)
+func newAzuriteClient(dest azureDestWriter) (*azblob.Client, error) {
+	cred, err := azblob.NewSharedKeyCredential(dest.AccountName, dest.AccountKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create azurite client: %w", err)
 	}
-	client, err := azblob.NewClientWithSharedKeyCredential(azuriteHostURL, cred, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create azurite client: %w", err)
-	}
-	return client, nil
+	return azblob.NewClientWithSharedKeyCredential(dest.Endpoint, cred, nil)
 }
 
 // requireAzurite creates the azurite container and returns the client
-func requireAzurite(t *testing.T) *azblob.Client {
+func requireAzurite(t *testing.T, dest azureDestWriter) *azblob.Client {
 	t.Helper()
-	client, err := newAzuriteClient()
+	client, err := newAzuriteClient(dest)
 	require.NoError(t, err)
-
-	ctx := context.Background()
-	_, err = client.CreateContainer(ctx, azuriteContainer, nil)
+	_, err = client.CreateContainer(context.Background(), dest.ContainerName, nil)
 	if err != nil && !bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
 		t.Skipf("azurite not running on :11000: %v", err)
 	}
@@ -73,7 +78,10 @@ func (cfg *IntegrationTest) testAzureBlob(ctx context.Context, t *testing.T, tes
 	require.NoError(t, updateSelectedStreams(cfg.TestConfig, cfg.Namespace, "", "", []string{testTable}, cfg.ColumnToExclude))
 	// Full refresh - make azure independent of CDC
 	require.NoError(t, updateStreamConfig(cfg.TestConfig, cfg.Namespace, testTable, "full_refresh", ""))
-	requireAzurite(t)
+
+	dest := loadAzureDest(t, cfg.TestConfig)
+	requireAzurite(t, dest)
+
 	// Full load (no --state) with a small buffer so rolled files hug the threshold
 	code, out, err := runOlake(ctx, t, cfg.TestConfig, syncArgs(*cfg.TestConfig, false, "parquet-azure")...)
 	require.NoError(t, err)
@@ -88,17 +96,18 @@ func (cfg *IntegrationTest) verifyAzureParquetSync(t *testing.T, table string) {
 	t.Helper()
 	ctx := t.Context()
 
-	client, err := newAzuriteClient()
+	dest := loadAzureDest(t, cfg.TestConfig)
+	client, err := newAzuriteClient(dest)
 	require.NoError(t, err)
 
-	prefix := azureParquetPrefix("olake", cfg.DestinationDB, table)
-	objects, err := listParquetObjectsAzureClient(ctx, client, cfg.DestinationDB, table)
+	prefix := azureParquetPrefix(dest.Path, cfg.DestinationDB, table)
+	objects, err := listParquetObjectsAzureClient(ctx, client, dest, cfg.DestinationDB, table)
 	require.NoError(t, err)
 	require.NotEmpty(t, objects, "no parquet blobs under %s", prefix)
 
 	var totalRows int64
 	for _, obj := range objects {
-		resp, err := client.DownloadStream(ctx, azuriteContainer, obj, nil)
+		resp, err := client.DownloadStream(ctx, dest.ContainerName, obj, nil)
 		require.NoError(t, err, "failed to download blob %s", obj)
 		data, err := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
@@ -112,11 +121,11 @@ func (cfg *IntegrationTest) verifyAzureParquetSync(t *testing.T, table string) {
 }
 
 // listParquetObjectsAzureClient lists the parquet objects under the given prefix.
-func listParquetObjectsAzureClient(ctx context.Context, client *azblob.Client, destDB, table string) ([]string, error) {
-	prefix := azureParquetPrefix("olake", destDB, table)
+func listParquetObjectsAzureClient(ctx context.Context, client *azblob.Client, dest azureDestWriter, destDB, table string) ([]string, error) {
+	prefix := azureParquetPrefix(dest.Path, destDB, table)
 	var objects []string
 
-	pager := client.NewListBlobsFlatPager(azuriteContainer, &container.ListBlobsFlatOptions{
+	pager := client.NewListBlobsFlatPager(dest.ContainerName, &container.ListBlobsFlatOptions{
 		Prefix: &prefix,
 	})
 	for pager.More() {
