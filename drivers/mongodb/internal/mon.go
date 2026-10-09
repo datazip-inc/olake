@@ -171,8 +171,6 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	m.client = conn
 	// no need to check from discover if it have cdc support or not
 	m.CDCSupport = true
-	// check for default backoff count
-	m.config.RetryCount = utils.Ternary(m.config.RetryCount == 0, 1, m.config.RetryCount+1).(int)
 	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
