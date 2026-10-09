@@ -736,9 +736,7 @@ func (p *Parquet) clearRemoteFiles(ctx context.Context, paths []string) error {
 		}
 		prefix := p.store.ObjectKey(path.Join(parts[0], parts[1])) + "/"
 		logger.Debugf("clearing %s prefix: %s", p.store.Kind(), prefix)
-		if err := p.retryRemote(ctx, func(ctx context.Context) error {
-			return p.store.DeletePrefix(ctx, prefix)
-		}); err != nil {
+		if err := p.store.DeletePrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("failed to clear %s prefix %s: %w", p.store.Kind(), prefix, err)
 		}
 		logger.Debugf("successfully cleared %s prefix: %s", p.store.Kind(), prefix)

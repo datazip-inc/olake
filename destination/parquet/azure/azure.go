@@ -16,6 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
+	"github.com/datazip-inc/olake/utils"
 )
 
 const (
@@ -186,16 +187,18 @@ func (a *Store) Delete(ctx context.Context, key string) error {
 }
 
 func (a *Store) DeletePrefix(ctx context.Context, prefix string) error {
-	keys, err := a.List(ctx, prefix)
-	if err != nil {
-		return err
-	}
-	for _, key := range keys {
-		if err := a.Delete(ctx, key); err != nil {
+	return utils.RetryWithSkip(ctx, 3, time.Minute, a.IsRateLimitError, func(ctx context.Context) error {
+		keys, err := a.List(ctx, prefix)
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		for _, key := range keys {
+			if err := a.Delete(ctx, key); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // IsNotFound checks missing blob errr
