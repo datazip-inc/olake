@@ -59,7 +59,7 @@ func TestLoad2PCState(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, state.FullRefreshCommittedIDs, threadID)
 		require.True(t, *state.DedupInserts)
-		require.Equal(t, []byte("full-refresh"), store.get(p.objectKey(p.basePath+"/bucket_1/data.parquet")))
+		require.Equal(t, []byte("full-refresh"), store.get(p.store.ObjectKey(p.basePath+"/bucket_1/data.parquet")))
 		require.Empty(t, store.keys(prefix))
 	})
 
@@ -75,7 +75,7 @@ func TestLoad2PCState(t *testing.T) {
 		state, err := p.load2PCState(ctx)
 		require.NoError(t, err)
 		require.Equal(t, expected, state)
-		require.Equal(t, []byte("cdc"), store.get(p.objectKey(p.basePath+"/bucket_1/data.parquet")))
+		require.Equal(t, []byte("cdc"), store.get(p.store.ObjectKey(p.basePath+"/bucket_1/data.parquet")))
 		require.Empty(t, store.keys(p.stagingRootPrefix()))
 	})
 
@@ -108,15 +108,15 @@ func TestLoad2PCState(t *testing.T) {
 		expected := &types.MetadataState{ID: "incremental-thread", State: `{"cursor":30}`}
 		finishData, _, err := streamFinishState(expected)
 		require.NoError(t, err)
-		store.put(p.objectKey(p.basePath+"/bucket_1/already-promoted.parquet"), []byte("first"))
+		store.put(p.store.ObjectKey(p.basePath+"/bucket_1/already-promoted.parquet"), []byte("first"))
 		store.put(p.stagingObjectKey("bucket_2/remaining.parquet"), []byte("second"))
 		store.put(p.sharedFinishObjectKey(), finishData)
 
 		state, err := p.load2PCState(ctx)
 		require.NoError(t, err)
 		require.Equal(t, expected, state)
-		require.Equal(t, []byte("first"), store.get(p.objectKey(p.basePath+"/bucket_1/already-promoted.parquet")))
-		require.Equal(t, []byte("second"), store.get(p.objectKey(p.basePath+"/bucket_2/remaining.parquet")))
+		require.Equal(t, []byte("first"), store.get(p.store.ObjectKey(p.basePath+"/bucket_1/already-promoted.parquet")))
+		require.Equal(t, []byte("second"), store.get(p.store.ObjectKey(p.basePath+"/bucket_2/remaining.parquet")))
 		require.Empty(t, store.keys(p.stagingRootPrefix()))
 	})
 
@@ -312,7 +312,7 @@ func TestCloseResolvesSharedStagingBeforeUpload(t *testing.T) {
 
 		state := &types.MetadataState{State: `{"lsn":"1/30"}`}
 		require.NoError(t, p.Close(ctx, state))
-		require.Nil(t, store.get(p.objectKey(p.basePath+"/orphan.parquet")))
+		require.Nil(t, store.get(p.store.ObjectKey(p.basePath+"/orphan.parquet")))
 		require.Equal(t, 1, testFinalParquetObjects(p, store))
 		require.Empty(t, store.keys(p.stagingRootPrefix()))
 	})
@@ -500,13 +500,13 @@ func TestDropStreamsRemoves2PCState(t *testing.T) {
 	p.config.S3Endpoint = "storage.googleapis.com"
 	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
 
-	tablePrefix := p.objectKey(p.basePath) + "/"
+	tablePrefix := p.store.ObjectKey(p.basePath) + "/"
 	store.put(tablePrefix+"data.parquet", []byte("table-data"))
 	store.put(p.metadataObjectKey(), []byte(`{"state":"checkpoint"}`))
 	store.put(p.stagingObjectKey("staged.parquet"), []byte("staged-data"))
 	store.put(p.sharedFinishObjectKey(), []byte(`{"state":"checkpoint"}`))
 
-	siblingKey := p.objectKey(p.basePath + "_backup/data.parquet")
+	siblingKey := p.store.ObjectKey(p.basePath + "_backup/data.parquet")
 	store.put(siblingKey, []byte("sibling-data"))
 
 	require.NoError(t, p.DropStreams(context.Background(), []types.StreamInterface{p.stream}))
@@ -550,13 +550,13 @@ func TestAzureDropStreamsRemoves2PCState(t *testing.T) {
 	setStorePrefix(p, "root")
 	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
 
-	tablePrefix := p.objectKey(p.basePath) + "/"
+	tablePrefix := p.store.ObjectKey(p.basePath) + "/"
 	store.put(tablePrefix+"data.parquet", []byte("table-data"))
 	store.put(p.metadataObjectKey(), []byte(`{"state":"checkpoint"}`))
 	store.put(p.stagingObjectKey("staged.parquet"), []byte("staged-data"))
 	store.put(p.sharedFinishObjectKey(), []byte(`{"state":"checkpoint"}`))
 
-	siblingKey := p.objectKey(p.basePath + "_backup/data.parquet")
+	siblingKey := p.store.ObjectKey(p.basePath + "_backup/data.parquet")
 	store.put(siblingKey, []byte("sibling-data"))
 
 	require.NoError(t, p.DropStreams(context.Background(), []types.StreamInterface{p.stream}))
@@ -906,7 +906,7 @@ func testRequirePrefix(t *testing.T, store *memoryS3, prefix string) {
 }
 
 func testFinalParquetObjects(p *Parquet, store *memoryS3) int {
-	prefix := p.objectKey(p.basePath) + "/"
+	prefix := p.store.ObjectKey(p.basePath) + "/"
 	var count int
 	for _, key := range store.keys(prefix) {
 		if strings.Contains(key, "/"+parquet2PCDir+"/") {

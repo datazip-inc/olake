@@ -341,7 +341,7 @@ func (p *Parquet) promoteStaging(ctx context.Context, stagingPrefix string) erro
 			continue
 		}
 
-		finalKey := p.objectKey(path.Join(p.basePath, relativePath))
+		finalKey := p.store.ObjectKey(path.Join(p.basePath, relativePath))
 		if err := p.copyObject(ctx, key, finalKey); err != nil {
 			return err
 		}
@@ -431,7 +431,7 @@ func (p *Parquet) retryRemote(ctx context.Context, fn func(context.Context) erro
 }
 
 func (p *Parquet) stagingRootPrefix() string {
-	return p.objectKey(path.Join(p.basePath, parquet2PCDir)) + "/"
+	return p.store.ObjectKey(path.Join(p.basePath, parquet2PCDir)) + "/"
 }
 
 func (p *Parquet) backfillStagingPrefix(threadID string) string {
@@ -458,24 +458,7 @@ func (p *Parquet) backfillFinishObjectKey(threadID string) string {
 }
 
 func (p *Parquet) metadataObjectKey() string {
-	return p.objectKey(path.Join(p.basePath, parquet2PCMetadataFile))
-}
-
-func (p *Parquet) objectKey(relativePath string) string {
-	if p.store != nil {
-		return p.store.ObjectKey(relativePath)
-	}
-	prefix := ""
-	switch {
-	case p.config.usingAzure():
-		prefix = strings.Trim(p.config.AzurePath, "/")
-	case p.config.usingS3():
-		prefix = strings.Trim(p.config.Prefix, "/")
-	}
-	if prefix == "" {
-		return relativePath
-	}
-	return path.Join(prefix, relativePath)
+	return p.store.ObjectKey(path.Join(p.basePath, parquet2PCMetadataFile))
 }
 
 func hashThreadID(threadID string) string {
