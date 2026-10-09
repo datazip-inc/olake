@@ -7,6 +7,7 @@ import (
 	"github.com/goccy/go-json"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 )
 
 type Flattener interface {
@@ -70,7 +71,12 @@ func (f *FlattenerImpl) flatten(key string, value any, destination types.Record)
 	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string, time.Time, json.Number:
 		destination[outKey] = v
 	case []byte:
-		destination[outKey] = string(v)
+		switch {
+		case !utils.IsBinarySupported():
+			destination[outKey] = string(v)
+		default:
+			destination[outKey] = v
+		}
 	default:
 		// Fallback for other types
 		b, err := json.Marshal(v)

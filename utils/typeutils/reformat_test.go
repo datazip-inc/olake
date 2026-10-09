@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -118,7 +119,20 @@ func TestReformatRecord(t *testing.T) {
 	}
 }
 
-// TestReformatValue tests the ReformatValue function
+func TestFieldsProcessBinary(t *testing.T) {
+	fields := Fields{"digest": NewField(types.FixedBinaryOf(4)), "blob": NewField(types.Binary)}
+
+	changed, typeChanged, mutations := fields.Process(types.Record{"digest": []byte{1, 2, 3, 4}, "blob": []byte{0xff}})
+	assert.False(t, changed)
+	assert.False(t, typeChanged, "a value cannot reveal a width, so it does not widen the column")
+	assert.Empty(t, mutations)
+	assert.Equal(t, types.FixedBinaryOf(4), fields["digest"].getType())
+
+	changed, _, mutations = fields.Process(types.Record{"digest": []byte{1, 2, 3, 4}, "extra": []byte{0x00}})
+	assert.True(t, changed)
+	assert.Equal(t, types.Binary, mutations["extra"].getType(), "a column seen only through values is plain binary")
+}
+
 func TestReformatValue(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -411,6 +425,36 @@ func TestReformatValue(t *testing.T) {
 			expectedErr: nil,
 		},
 
+		// ===== Binary =====
+		{
+			name:        "nil value on a binary column",
+			dataType:    types.Binary,
+			value:       nil,
+			expected:    nil,
+			expectedErr: nil,
+		},
+		{
+			name:        "binary keeps its bytes",
+			dataType:    types.Binary,
+			value:       []byte{0xff, 0x00},
+			expected:    []byte{0xff, 0x00},
+			expectedErr: nil,
+		},
+		{
+			name:        "fixed_binary is handled as binary",
+			dataType:    types.FixedBinaryOf(3),
+			value:       "abc",
+			expected:    []byte("abc"),
+			expectedErr: nil,
+		},
+		{
+			name:        "a string column still turns bytes into text",
+			dataType:    types.String,
+			value:       []byte("abc"),
+			expected:    "abc",
+			expectedErr: nil,
+		},
+
 		// ===== Default =====
 		{
 			name:        "default passthrough",
@@ -545,7 +589,121 @@ func TestParseFilterValue(t *testing.T) {
 	}
 }
 
+// TestParseFilterValueBinary tests that a binary filter value is hex from state version 8 only
+func TestParseFilterValueBinary(t *testing.T) {
+	tests := []struct {
+		name         string
+		stateVersion int
+		dataType     types.DataType
+		value        any
+		expected     any
+		expectedErr  error
+	}{
+		{
+			name:         "hex",
+			stateVersion: 8,
+			dataType:     types.Binary,
+			value:        "00ff10fe",
+			expected:     []byte{0x00, 0xff, 0x10, 0xfe},
+		},
+		{
+			name:         "fixed binary hex",
+			stateVersion: 8,
+			dataType:     types.FixedBinaryOf(2),
+			value:        "FFFE",
+			expected:     []byte{0xff, 0xfe},
+		},
+		{
+			name:         "not hex",
+			stateVersion: 8,
+			dataType:     types.Binary,
+			value:        "update12",
+			expectedErr:  fmt.Errorf("binary filter value[update12] is not hex: %w", hex.InvalidByteError('u')),
+		},
+		{
+			name:         "text before state version 8",
+			stateVersion: 7,
+			dataType:     types.Binary,
+			value:        "update12",
+			expected:     []byte("update12"),
+		},
+	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			result, err := ParseFilterValue(tc.dataType, tc.value)
+			assert.Equal(t, tc.expectedErr, err)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 // TestReformatBool tests the ReformatBool function
+func TestReformatBytes(t *testing.T) {
+	raw := []byte{0xff, 0x00, 0x80, 0x41}
+	ptr := &raw
+	var nilPtr *[]byte
+
+	testCases := []struct {
+		name     string
+		input    any
+		expected []byte
+		wantErr  error
+	}{
+		{
+			name:     "byte slice passes through",
+			input:    raw,
+			expected: raw,
+		},
+		{
+			name:     "pointer to byte slice",
+			input:    ptr,
+			expected: raw,
+		},
+		{
+			name:    "nil pointer is a null value",
+			input:   nilPtr,
+			wantErr: ErrNullValue,
+		},
+		{
+			name:     "string contributes its utf8 bytes",
+			input:    "héllo",
+			expected: []byte("héllo"),
+		},
+		{
+			name:     "empty slice stays empty",
+			input:    []byte{},
+			expected: []byte{},
+		},
+		{
+			name:    "numbers are not bytes",
+			input:   int64(42),
+			wantErr: fmt.Errorf("failed to change int64 to bytes: unsupported type"),
+		},
+		{
+			name:    "maps are not bytes",
+			input:   map[string]any{"a": 1},
+			wantErr: fmt.Errorf("failed to change map[string]interface {} to bytes: unsupported type"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ReformatBytes(tc.input)
+			if tc.wantErr != nil {
+				assert.Equal(t, tc.wantErr, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
 func TestReformatBool(t *testing.T) {
 	tests := []struct {
 		name        string

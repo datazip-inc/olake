@@ -120,6 +120,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 type columnView struct {
 	names      []string
 	types      []string   // mysqlTypeName output, e.g. "UNSIGNED BIGINT"
+	widths     []int      // nil for non-fixed-length types
 	enumValues [][]string // nil for non-ENUM columns
 	setMembers [][]string // nil for non-SET columns
 	collations []uint64   // 0 = no charset decoding
@@ -136,6 +137,7 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 	view := &columnView{
 		names:      tableMap.ColumnNameString(),
 		types:      make([]string, n),
+		widths:     make([]int, n),
 		enumValues: make([][]string, n),
 		setMembers: make([][]string, n),
 		collations: make([]uint64, n),
@@ -181,6 +183,9 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 			isUnsigned = meta.Columns[i].Unsigned
 		}
 		view.types[i] = mysqlTypeName(tableMap.ColumnType[i], isUnsigned)
+		if tableMap.ColumnType[i] == mysql.MYSQL_TYPE_STRING && !tableMap.IsEnumColumn(i) && !tableMap.IsSetColumn(i) {
+			view.widths[i] = fixedWidth(tableMap.ColumnMeta[i])
+		}
 	}
 
 	fillEnumSetAndCollations(view, tableMap, meta)
@@ -238,7 +243,9 @@ func decodeMembers(raw [][]byte, collationID uint64) []string {
 	return out
 }
 
-// convertRowToMap converts a binlog row to a map.
+// convertRowToMap converts a binlog row to a map. A row image drops the trailing 0x00 bytes MySQL
+// pads a BINARY(n) value with, so the value is padded back to its declared width: it then matches
+// what a SELECT returns, and a BINARY(n) key hashes to the same olake id on backfill and CDC.
 func convertRowToMap(row []interface{}, view *columnView, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
 	if len(view.names) != len(row) {
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(view.names), len(row))
@@ -248,6 +255,9 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 	// differ from SELECT output due to SQL-layer formatting/rounding.
 	record := make(map[string]interface{}, len(row))
 	for i, val := range row {
+		// The converter is told the SQL type, which the binary and text branches below
+		// refine from the wire type; view.types is left untouched for the byte accounting.
+		columnType := view.types[i]
 		switch {
 		case view.enumValues[i] != nil:
 			// ENUM arrives as the 1-based member index (int64). Index 0 is MySQL's marker
@@ -286,13 +296,26 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 				raw = v
 			}
 			if raw != nil {
-				if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
-					val = decoded
+				switch {
+				case !utils.IsBinarySupported():
+					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
+						val = decoded
+					}
+				case isBinaryCollation(view.collations[i]):
+					// e.g. TableMapEvent.Dump of (id INT, c_text VARCHAR(16), c_fixed BINARY(8), c_var VARBINARY(16), c_blob BLOB):
+					// CollationMap: map[int]uint64{1:0xff, 2:0x3f, 3:0x3f, 4:0x3f}, where 0x3f is collation 63 "binary"
+					val = padToWidth(raw, view.widths[i])
+					columnType = binaryTypeName(columnType)
+				default:
+					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
+						val = decoded
+						columnType = textTypeName(columnType)
+					}
 				}
 			}
 		}
 
-		convertedVal, err := converter(val, view.types[i])
+		convertedVal, err := converter(val, columnType)
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err
 		}
@@ -479,6 +502,71 @@ func decodeUTF16BE(b []byte) (string, error) {
 func decodeUTF16LE(b []byte) (string, error) {
 	out, err := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder().Bytes(b)
 	return string(out), err
+}
+
+// isBinaryCollation reports whether a binlog collation ID is the binary charset, which is how
+// BINARY, VARBINARY and BLOB columns are told apart from CHAR, VARCHAR and TEXT on the wire.
+func isBinaryCollation(collationID uint64) bool {
+	if collationID > math.MaxInt32 {
+		return false
+	}
+	coll, _ := charset.GetCollationByID(int(collationID)) //nolint:gosec // bounds checked above
+	return coll != nil && coll.CharsetName == charset.CharsetBin
+}
+
+// binaryTypeName maps the wire type name of a binary-charset column to the MySQL binary type
+// with the same storage: CHAR -> BINARY, VARCHAR -> VARBINARY; the BLOB family is already binary.
+func binaryTypeName(wireType string) string {
+	switch wireType {
+	case "CHAR":
+		return "BINARY"
+	case "VARCHAR":
+		return "VARBINARY"
+	default:
+		return wireType
+	}
+}
+
+// fixedWidth returns the declared byte width of a CHAR or BINARY column from its TableMapEvent
+// meta, unpacked the way go-mysql's decodeValue does: the high byte carries the real type and, for a
+// width past 255 bytes, its two spare bits carry the width's high bits.
+func fixedWidth(meta uint16) int {
+	if meta < 256 {
+		return int(meta)
+	}
+	realType, low := byte(meta>>8), meta&0xFF
+	if realType&0x30 != 0x30 {
+		return int(low | uint16((realType&0x30)^0x30)<<4)
+	}
+	return int(low)
+}
+
+// padToWidth zero-pads b to width, restoring the trailing 0x00 bytes a row image drops from a
+// BINARY(n) value. A column without a width, or a value already that long, is returned as is.
+func padToWidth(b []byte, width int) []byte {
+	if len(b) >= width {
+		return b
+	}
+	padded := make([]byte, width)
+	copy(padded, b)
+	return padded
+}
+
+// textTypeName maps the BLOB wire type of a text-charset column to its TEXT counterpart; the
+// CHAR and VARCHAR wire types are text already.
+func textTypeName(wireType string) string {
+	switch wireType {
+	case "TINYBLOB":
+		return "TINYTEXT"
+	case "BLOB":
+		return "TEXT"
+	case "MEDIUMBLOB":
+		return "MEDIUMTEXT"
+	case "LONGBLOB":
+		return "LONGTEXT"
+	default:
+		return wireType
+	}
 }
 
 // decodeBytesToString converts raw binlog bytes to a UTF-8 string using the MySQL collation ID.

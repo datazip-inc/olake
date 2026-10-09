@@ -381,6 +381,46 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
+
+	t.Run("fixed", func(t *testing.T) {
+		records := []types.RawRecord{
+			makeRecord(map[string]any{"hash": []byte("abc")}),
+			makeRecord(map[string]any{"hash": []byte("xyz")}),
+		}
+		filter := types.FilterConfig{
+			LogicalOperator: "AND",
+			Conditions: []types.FilterCondition{
+				{Column: "hash", Operator: "=", Value: "616263"},
+			},
+		}
+		schema := makeIcebergSchema(map[string]string{"hash": "fixed[3]"})
+
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
+		require.NoError(t, err)
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("fixed before state version 8", func(t *testing.T) {
+		old := constants.LoadedStateVersion
+		t.Cleanup(func() { constants.LoadedStateVersion = old })
+		constants.LoadedStateVersion = 7
+
+		records := []types.RawRecord{
+			makeRecord(map[string]any{"hash": []byte("abc")}),
+			makeRecord(map[string]any{"hash": []byte("xyz")}),
+		}
+		filter := types.FilterConfig{
+			LogicalOperator: "AND",
+			Conditions: []types.FilterCondition{
+				{Column: "hash", Operator: "=", Value: "abc"},
+			},
+		}
+		schema := makeIcebergSchema(map[string]string{"hash": "fixed[3]"})
+
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
+		require.NoError(t, err)
+		assert.Len(t, result, 1)
+	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -522,6 +562,46 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
+	})
+
+	t.Run("fixed_binary", func(t *testing.T) {
+		records := []types.RawRecord{
+			makeRecord(map[string]any{"hash": []byte("abc")}),
+			makeRecord(map[string]any{"hash": []byte("xyz")}),
+		}
+		filter := types.FilterConfig{
+			LogicalOperator: "AND",
+			Conditions: []types.FilterCondition{
+				{Column: "hash", Operator: "=", Value: "616263"},
+			},
+		}
+		schema := makeParquetSchema(map[string]types.DataType{"hash": types.FixedBinaryOf(3)})
+
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
+		require.NoError(t, err)
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("fixed_binary before state version 8", func(t *testing.T) {
+		old := constants.LoadedStateVersion
+		t.Cleanup(func() { constants.LoadedStateVersion = old })
+		constants.LoadedStateVersion = 7
+
+		records := []types.RawRecord{
+			makeRecord(map[string]any{"hash": []byte("abc")}),
+			makeRecord(map[string]any{"hash": []byte("xyz")}),
+		}
+		filter := types.FilterConfig{
+			LogicalOperator: "AND",
+			Conditions: []types.FilterCondition{
+				{Column: "hash", Operator: "=", Value: "abc"},
+			},
+		}
+		schema := makeParquetSchema(map[string]types.DataType{"hash": types.FixedBinaryOf(3)})
+
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
+		require.NoError(t, err)
+		assert.Len(t, result, 1)
 	})
 }
 
