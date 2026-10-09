@@ -93,7 +93,10 @@ func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) 
 	available := AvailableUpdateTypes(engines)
 	updateType := PreferredUpdateType(available)
 
-	// Kafka upsert always writes positional deletes
+	// Kafka upsert always writes positional deletes. This is only the advertised default:
+	// append-mode streams (Kafka's default) never use it, because every delete-format
+	// consumer (isUpsertMode, writers.go table index, ValidateUpdateType) short-circuits
+	// on StreamMetadata.AppendMode before consulting the update type.
 	if driver == string(constants.Kafka) && slices.Contains(available, UpdateTypePosition) {
 		updateType = UpdateTypePosition
 	}

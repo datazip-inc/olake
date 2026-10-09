@@ -1776,7 +1776,9 @@ func (cfg *IntegrationTest) RunUpsertIceberg(t *testing.T, suite, seedOp string,
 		if err := resetStateFile(cfg.TestConfig); err != nil {
 			return err
 		}
-		_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
+		if err := dvClearTableIndex(ctx, t, cfg); err != nil {
+			return fmt.Errorf("failed to clear table index: %w", err)
+		}
 
 		for _, tc := range steps {
 			if err := cfg.runSyncAndVerify(ctx, t, testTable, tc.UseState, "iceberg", tc.Operation, tc.OpSymbol, tc.Expected, true); err != nil {
@@ -1815,7 +1817,9 @@ func (cfg *IntegrationTest) RunUpsertIcebergExpectFail(t *testing.T, suite, seed
 		if err := resetStateFile(cfg.TestConfig); err != nil {
 			return err
 		}
-		_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
+		if err := dvClearTableIndex(ctx, t, cfg); err != nil {
+			return fmt.Errorf("failed to clear table index: %w", err)
+		}
 		return cfg.runSyncAndVerify(ctx, t, testTable, false, "iceberg", "", "c", cfg.ExpectedData, true)
 	}); err == nil {
 		t.Fatalf("sync must fail (%s)", wantErr)
@@ -2654,6 +2658,9 @@ func normalizeToTime(v interface{}) (time.Time, bool) {
 }
 
 func setStreamUpsert(cfg *TestConfig, namespace, table string, dedupKeys []string) error {
+	if len(dedupKeys) == 0 {
+		return fmt.Errorf("upsert mode requires at least one dedup key")
+	}
 	keys := make([]interface{}, 0, len(dedupKeys))
 	for _, k := range dedupKeys {
 		keys = append(keys, k)
@@ -2665,9 +2672,10 @@ func setStreamUpsert(cfg *TestConfig, namespace, table string, dedupKeys []strin
 			return fmt.Errorf("namespace %q missing in selected streams", namespace)
 		}
 		matched := false
+		tableName := normalizeStreamName(cfg.Driver, table)
 		for _, raw := range namespaceStreams {
 			s, ok := raw.(map[string]interface{})
-			if !ok || fmt.Sprint(s["stream_name"]) != table {
+			if !ok || fmt.Sprint(s["stream_name"]) != tableName {
 				continue
 			}
 			s["append_mode"] = false

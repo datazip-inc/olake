@@ -298,7 +298,7 @@ func (s *ConfiguredStream) NormalizationEnabled() bool {
 }
 
 func (s *ConfiguredStream) GetUpdateType() UpdateType {
-	if !s.StreamMetadata.AppendMode && len(s.StreamMetadata.DedupKeys) > 0 {
+	if s.ResolveUpsertOp() {
 		return UpdateTypePosition
 	}
 	if s.StreamMetadata.UpdateType == "" {

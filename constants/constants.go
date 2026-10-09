@@ -91,7 +91,8 @@ const (
 // Drivers where filters are applied in memory after full refresh data is read.
 var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
 
-// Kafka tombstones have no filter columns. CDC deletes still go through the filter.
+// Kafka tombstones have no filter columns, so CDC delete records (op "d") bypass
+// condition matching in FilterRecords and pass through unfiltered.
 var CDCKeepDeletesThroughFilterDrivers = []DriverType{Kafka}
 
 // DefaultAppendModeDrivers are drivers whose discovered streams default to append-only sync.
