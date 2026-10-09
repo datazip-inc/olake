@@ -94,6 +94,9 @@ var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
 // Kafka tombstones have no filter columns. CDC deletes still go through the filter.
 var CDCKeepDeletesThroughFilterDrivers = []DriverType{Kafka}
 
+// AppendOnlyDrivers are drivers whose discovered streams default to append-only sync.
+var AppendOnlyDrivers = []DriverType{S3}
+
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
