@@ -66,9 +66,6 @@ func (a *Store) Kind() string {
 }
 
 func (a *Store) ObjectKey(relativePath string) string {
-	if a.prefix == "" {
-		return relativePath
-	}
 	return path.Join(a.prefix, relativePath)
 }
 
