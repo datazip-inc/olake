@@ -1,0 +1,32 @@
+package parquet
+
+import (
+	"context"
+	"os"
+)
+
+// ObjectStore is S3 or Azure Blob. 2PC uses Get/List/Copy/Delete.
+// kind is used to identify the store type.
+// ObjectKey is used to construct the key for the object.
+// Put is used to upload data to the object.
+// UploadFile is used to upload a file to the object.
+// Get is used to get data from the object.
+// List is used to list objects with a prefix.
+// Copy is used to copy an object to another object.
+// Delete is used to delete an object
+// DeletePrefix is used to delete objects with a prefix.
+// IsNotFound is used to check if an object is not found.
+// IsRateLimitError is used to check if an error is a throttle response.
+type ObjectStore interface {
+	Kind() string
+	ObjectKey(relativePath string) string
+	Put(ctx context.Context, key string, data []byte) error
+	UploadFile(ctx context.Context, key string, file *os.File) error
+	Get(ctx context.Context, key string) ([]byte, error)
+	List(ctx context.Context, prefix string) ([]string, error)
+	Copy(ctx context.Context, srcKey, dstKey string) error
+	Delete(ctx context.Context, key string) error
+	DeletePrefix(ctx context.Context, prefix string) error
+	IsNotFound(err error) bool
+	IsRateLimitError(err error) bool
+}

@@ -8,40 +8,12 @@
     "writer": {
       "type": "object",
       "properties": {
-        "s3_access_key": {
+        "storage_type": {
           "type": "string",
-          "title": "AWS Access Key",
-          "description": "The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string",
-          "format": "password"
-        },
-        "s3_bucket": {
-          "type": "string",
-          "title": "S3 Bucket",
-          "description": "The name of an existing Amazon S3 bucket with appropriate access permissions to store output files",
-          "minLength": 1
-        },
-        "s3_path": {
-          "type": "string",
-          "title": "S3 Path",
-          "description": "Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')",
-          "minLength": 1
-        },
-        "s3_region": {
-          "type": "string",
-          "title": "S3 Region",
-          "description": "Specify the AWS region where the S3 bucket is hosted",
-          "minLength": 1
-        },
-        "s3_secret_key": {
-          "type": "string",
-          "title": "AWS Secret Key",
-          "description": "The AWS secret key for S3 authentication—typically 40+ characters long",
-          "format": "password"
-        },
-        "s3_endpoint": {
-          "type": "string",
-          "title": "S3 Endpoint",
-          "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
+          "title": "Storage Type",
+          "description": "The type of storage to use for the output files",
+          "enum": ["S3", "Azure"],
+          "default": "S3"
         },
         "max_file_size_mb": {
           "type": "number",
@@ -51,11 +23,92 @@
           "exclusiveMinimum": 0
         }
       },
-      "required": [
-        "s3_bucket",
-        "s3_region",
-        "s3_path"
-      ]
+      "dependencies": {
+        "storage_type": {
+          "oneOf": [
+            {
+              "properties": {
+                "storage_type": {
+                  "const": "S3"
+                },
+                "s3_access_key": {
+                  "type": "string",
+                  "title": "AWS Access Key",
+                  "description": "The AWS access key for authenticating S3 requests, typically a 20 character alphanumeric string",
+                  "format": "password"
+                },
+                "s3_bucket": {
+                  "type": "string",
+                  "title": "S3 Bucket",
+                  "description": "The name of an existing Amazon S3 bucket with appropriate access permissions to store output files",
+                  "minLength": 1
+                },
+                "s3_path": {
+                  "type": "string",
+                  "title": "S3 Path",
+                  "description": "Specify the S3 bucket path (prefix) where data files will be written, typically starting with a '/' (e.g., '/data')",
+                  "minLength": 1
+                },
+                "s3_region": {
+                  "type": "string",
+                  "title": "S3 Region",
+                  "description": "Specify the AWS region where the S3 bucket is hosted",
+                  "minLength": 1
+                },
+                "s3_secret_key": {
+                  "type": "string",
+                  "title": "AWS Secret Key",
+                  "description": "The AWS secret key for S3 authentication—typically 40+ characters long",
+                  "format": "password"
+                },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "S3 Endpoint",
+                  "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
+                }
+              },
+              "required": [
+                "s3_region",
+                "s3_bucket",
+                "s3_path"
+              ]
+            },
+            {
+              "properties": {
+                "storage_type": {
+                  "const": "Azure"
+                },
+                "azure_storage_account_key": {
+                  "type": "string",
+                  "title": "Azure Storage Account Key",
+                  "description": "The Azure storage account key for authenticating Azure requests, typically a 40+ character string",
+                  "format": "password"
+                },
+                "azure_storage_account_name": {
+                  "type": "string",
+                  "title": "Azure Storage Account Name",
+                  "description": "The name of an existing Azure storage account with appropriate access permissions to store output files"
+                },
+                "azure_container_name": {
+                  "type": "string",
+                  "title": "Azure Storage Container Name",
+                  "description": "The name of an existing Azure storage container with appropriate access permissions to store output files"
+                },
+                "azure_path":{
+                  "type": "string",
+                  "title": "Azure Path",
+                  "description": "Specify the Azure path where data files will be written, typically starting with a '/' (e.g., '/data')"
+                }
+              },
+              "required": [
+                "azure_storage_account_key",
+                "azure_storage_account_name",
+                "azure_container_name"
+              ]
+            }
+          ]
+        }
+      }
     }
   },
   "required": [
