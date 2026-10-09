@@ -167,7 +167,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	} else {
 		logger.Info("Standard Replication is selected")
 	}
-	p.config.RetryCount = utils.Ternary(p.config.RetryCount <= 0, 1, p.config.RetryCount+1).(int)
 	return nil
 }
 
