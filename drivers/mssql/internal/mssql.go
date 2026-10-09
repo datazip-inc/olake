@@ -77,8 +77,6 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to MSSQL: %w", err)
 	}
 
-	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
-
 	m.isReadReplica = m.detectReadReplica(ctx)
 	if m.isReadReplica {
 		logger.Info("Connected to a read-only MSSQL replica; agent catch-up wait will be skipped")

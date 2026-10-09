@@ -176,8 +176,6 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	if err := m.setupCDC(ctx); err != nil {
 		return err
 	}
-	// check for default backoff count
-	m.config.RetryCount = utils.Ternary(m.config.RetryCount == 0, 1, m.config.RetryCount+1).(int)
 	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 

@@ -171,7 +171,6 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		m.CDCSupport = true
 		m.cdcConfig = *cdc
 	}
-	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	return nil
 }
 
