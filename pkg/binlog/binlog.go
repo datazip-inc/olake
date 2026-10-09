@@ -28,7 +28,7 @@ type Connection struct {
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
-func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
+func NewConnection(_ context.Context, config *Config, state Binlog, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
 	syncerConfig := replication.BinlogSyncerConfig{
 		ServerID:        config.ServerID,
 		Flavor:          config.Flavor,
@@ -54,13 +54,15 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		}
 	}
 
-	return &Connection{
+	conn := &Connection{
 		ServerID:        config.ServerID,
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
-		CurrentPos:      pos,
+		CurrentPos:      state.Position,
 		initialWaitTime: config.InitialWaitTime,
 		changeFilter:    NewChangeFilter(config.SchemaClient, typeConverter, streams...),
-	}, nil
+	}
+	conn.changeFilter.schema.seed(state.Schemas, state.Position)
+	return conn, nil
 }
 
 func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestBinlogPos mysql.Position, callback abstract.CDCMsgFn) error {
@@ -141,6 +143,11 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 			}
 		}
 	}
+}
+
+// State is the position to resume from, with the column metadata valid at it
+func (c *Connection) State() Binlog {
+	return Binlog{Position: c.CurrentPos, Schemas: c.changeFilter.schema.snapshot()}
 }
 
 // Cleanup terminates the binlog syncer.

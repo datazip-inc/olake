@@ -32,7 +32,8 @@ type Config struct {
 
 // BinlogState holds the current binlog position.
 type Binlog struct {
-	Position mysql.Position `json:"position"`
+	Position mysql.Position        `json:"position"`
+	Schemas  map[string]*tableMeta `json:"schemas,omitempty"`
 }
 
 // CDCChange represents a change event captured from the binlog.

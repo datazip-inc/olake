@@ -73,7 +73,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
-	view, err := f.resolveColumns(ctx, e)
+	view, err := f.resolveColumns(ctx, e, pos)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ type columnView struct {
 // information_schema otherwise. Field by field, not all-or-nothing: MINIMAL logs signedness
 // and charsets while omitting names and ENUM/SET members. Type bytes and ENUM/SET detection
 // are mandatory TableMapEvent fields, so they always come from the binlog.
-func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEvent) (*columnView, error) {
+func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEvent, pos mysql.Position) (*columnView, error) {
 	tableMap := e.Table
 	n := len(tableMap.ColumnType)
 
@@ -154,7 +154,7 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 	var meta *tableMeta
 	if namesMissing || signednessMissing {
 		var err error
-		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table))
+		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table), pos)
 		if err != nil {
 			return nil, err
 		}

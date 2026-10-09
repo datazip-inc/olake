@@ -3,11 +3,14 @@ package binlog
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/datazip-inc/olake/pkg/jdbc"
+	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/pingcap/tidb/pkg/parser/charset"
 )
@@ -23,7 +26,8 @@ type columnMeta struct {
 }
 
 type tableMeta struct {
-	Columns []columnMeta
+	Columns    []columnMeta
+	AnchoredAt mysql.Position
 }
 
 // schemaCache supplies the column metadata the binlog omits. Safe for concurrent use:
@@ -48,7 +52,7 @@ func newSchemaCache(client *sqlx.DB) *schemaCache {
 	return &schemaCache{client: client, tables: map[string]*tableMeta{}}
 }
 
-func (c *schemaCache) get(ctx context.Context, schema, table string) (*tableMeta, error) {
+func (c *schemaCache) get(ctx context.Context, schema, table string, readerPos mysql.Position) (*tableMeta, error) {
 	key := schema + "." + table
 
 	c.mu.RLock()
@@ -68,6 +72,17 @@ func (c *schemaCache) get(ctx context.Context, schema, table string) (*tableMeta
 		return nil, err
 	}
 
+	// Read the position after load, never before: a DDL in between then lands before the
+	// anchor, so a later run rejects this entry instead of reusing a schema from the future.
+	meta.AnchoredAt, err = GetCurrentBinlogPosition(ctx, c.client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to anchor column metadata for %s.%s: %w", schema, table, err)
+	}
+	if meta.AnchoredAt.Compare(readerPos) > 0 {
+		logger.Warnf("column metadata for %s.%s read at server position %v, ahead of reader position %v; "+
+			"rows before a DDL in between may decode with the newer schema", schema, table, meta.AnchoredAt, readerPos)
+	}
+
 	c.mu.Lock()
 	c.tables[key] = meta
 	c.mu.Unlock()
@@ -81,6 +96,26 @@ func (c *schemaCache) invalidate() {
 	c.mu.Lock()
 	c.tables = map[string]*tableMeta{}
 	c.mu.Unlock()
+}
+
+// snapshot returns a copy of the cached schemas, for saving alongside the binlog position.
+func (c *schemaCache) snapshot() map[string]*tableMeta {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return maps.Clone(c.tables)
+}
+
+// seed fills the cache from the previous run's saved schemas, keeping only those valid at or
+// before resumePos. A later anchor may already include DDL the reader has not reached, so that
+// table is reloaded instead. An empty anchor would compare as earliest, so it is skipped.
+func (c *schemaCache) seed(saved map[string]*tableMeta, resumePos mysql.Position) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, meta := range saved {
+		if meta != nil && meta.AnchoredAt.Name != "" && meta.AnchoredAt.Compare(resumePos) <= 0 {
+			c.tables[key] = meta
+		}
+	}
 }
 
 func (c *schemaCache) load(ctx context.Context, schema, table string) (*tableMeta, error) {
