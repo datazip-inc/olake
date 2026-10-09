@@ -51,15 +51,19 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 			logger.Warnf("prerequisite %s not met (required=%t): current=%s recommended=%s",
 				c.Name, c.Required, current, c.Recommended)
 		}
-		results = append(results, types.PrerequisiteResult{
+		result := types.PrerequisiteResult{
 			Name:             c.Name,
 			Required:         c.Required,
 			Passed:           ok,
 			CurrentValue:     current,
 			RecommendedValue: c.Recommended,
-			Err:              err,
 			Description:      c.Description,
-		})
+			Err:              err,
+		}
+		if err != nil {
+			result.Error = err.Error()
+		}
+		results = append(results, result)
 	}
 
 	rank := func(c types.PrerequisiteResult) int {

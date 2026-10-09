@@ -56,7 +56,9 @@ func TestRunPrerequisites(t *testing.T) {
 	assert.Equal(t, "unavailable", unreadable.CurrentValue)
 	assert.Equal(t, "recommended", unreadable.RecommendedValue)
 	assert.EqualError(t, unreadable.Err, "permission denied")
+	assert.Equal(t, "permission denied", unreadable.Error)
 	assert.NoError(t, results[0].Err)
+	assert.Empty(t, results[0].Error)
 }
 
 // each check gets its own deadline: a hung check is reported unavailable and the rest still run

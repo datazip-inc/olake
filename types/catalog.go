@@ -49,7 +49,10 @@ type PrerequisiteResult struct {
 	CurrentValue     string `json:"current_value"`
 	RecommendedValue string `json:"recommended_value"`
 	Description      string `json:"description"`
-	// Err is why the check could not be evaluated; nil when it ran, whether or not it passed.
+	// Error is why the check could not be evaluated, for display; empty when it ran, whether or
+	// not it passed.
+	Error string `json:"error,omitempty"`
+	// Err is the same cause kept as an error, so a failure can be classified by it.
 	Err error `json:"-"`
 }
 
