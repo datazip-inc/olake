@@ -68,7 +68,7 @@ func (p *Parquet) Spec() any {
 	return Config{}
 }
 
-// initStore initializes the remote object store(S3 or Azure Blob Storage).
+// initStore initializes the ObjectStore(S3 or Azure Blob Storage).
 func (p *Parquet) initStore() error {
 	if p.store != nil {
 		return nil
@@ -106,7 +106,7 @@ func newObjectStore(cfg *Config) (ObjectStore, error) {
 			S3Endpoint: cfg.S3Endpoint,
 		})
 	default:
-		return nil, fmt.Errorf("no remote object store configured")
+		return nil, fmt.Errorf("no object store configured")
 	}
 }
 
@@ -174,7 +174,7 @@ func (p *Parquet) getOrCreatePartitionFile(basePath string) (*FileMetadata, erro
 	return files[len(files)-1], nil
 }
 
-// Setup configures the parquet writer, including local paths, file names, and optional remote store.
+// Setup configures the parquet writer, including local paths, file names, and optional ObjectStore.
 func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, *types.MetadataState, error) {
 	p.options = options
 	p.stream = stream
@@ -192,7 +192,7 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schem
 		p.checkIntervalForRoll = defaultRollCheckInterval
 	}
 
-	// remote writers may omit local_path
+	// ObjectStore writers may omit local_path
 	if p.config.Path == "" {
 		p.config.Path = os.TempDir()
 	}
@@ -293,7 +293,7 @@ func (p *Parquet) checkForRoll(index, total int) bool {
 //
 // Sealed files are intentionally NOT uploaded here — every file is uploaded in Close, after the
 // whole partition has rolled successfully, so a mid-sync failure never leaves partial objects in
-// remote object store (files exist only on local disk until then).
+// the ObjectStore (files exist only on local disk until then).
 func (p *Parquet) rollPartitionFile(pf *FileMetadata) error {
 	if pf.writer.Size() < p.maxFileBytes {
 		return nil
@@ -312,7 +312,7 @@ func (p *Parquet) rollPartitionFile(pf *FileMetadata) error {
 	return nil
 }
 
-// Check validates local paths and remote object store if applicable.
+// Check validates local paths and ObjectStore if applicable.
 func (p *Parquet) Check(ctx context.Context) error {
 	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	threadID := fmt.Sprintf("test_parquet_destination_%s", uniqueSuffix)
@@ -356,7 +356,7 @@ func (p *Parquet) Check(ctx context.Context) error {
 	return nil
 }
 
-// pendingDataFiles returns files awaiting close and remote object store for this writer.
+// pendingDataFiles returns files awaiting close and ObjectStore upload for this writer
 func (p *Parquet) pendingDataFiles() []*FileMetadata {
 	var dataFiles []*FileMetadata
 	for _, parquetFiles := range p.partitionedFiles {
@@ -678,7 +678,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 }
 
 func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.StreamInterface) error {
-	// check for remote object store writer configuration
+	// check for ObjectStore writer configuration
 	if err := p.initStore(); err != nil {
 		return err
 	}
@@ -730,7 +730,7 @@ func (p *Parquet) clearLocalFiles(paths []string) error {
 	return nil
 }
 
-// isRateLimitError checks if the error is a rate-limit/throttle response from remote object store.
+// isRateLimitError checks if the error is a rate-limit/throttle response from the ObjectStore
 // AWS S3 returns HTTP 503 for throttling (SlowDown / ServiceUnavailable).
 // GCP Cloud Storage returns HTTP 429 (Too Many Requests).
 // Azure Blob Storage returns HTTP 429 (Too Many Requests).
