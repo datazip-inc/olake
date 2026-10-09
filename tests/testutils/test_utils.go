@@ -442,6 +442,9 @@ func driverOrCommonConfig(fixturesPath, testsDir, file string) string {
 		return p
 	}
 	if _, err := os.Stat(p); os.IsNotExist(err) {
+		if file == "parquet_destination.json" || file == "parquet_azure_destination.json" {
+			return filepath.Join(testsDir, "..", "testdata", "parquet", file)
+		}
 		return filepath.Join(testsDir, "..", "testdata", file)
 	}
 	return p
@@ -476,14 +479,9 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 	fixturePath := func(file string) string { return filepath.Join(fixturesPath, file) }
 	hostPath := func(file string) string { return filepath.Join(workDir, file) }
 	containerPath := func(file string) string { return path.Join(containerTestDataDir, file) }
-	for _, file := range []string{"source.json", "iceberg_destination.json", "parquet_destination.json"} {
+	for _, file := range []string{"source.json", "iceberg_destination.json", "parquet_destination.json", "parquet_azure_destination.json"} {
 		require.NoError(t, copyFile(driverOrCommonConfig(fixturesPath, pwd, file), hostPath(file)), "failed to seed the test working directory")
 	}
-	// Seed the azure parquet destination.
-	require.NoError(t, copyFile(
-		filepath.Join(pwd, "..", "testdata", "parquet", "parquet_azure_destination.json"),
-		hostPath("parquet_azure_destination.json"),
-	), "failed to seed azure parquet destination")
 
 	// The arrow writer variant is derived, never committed: the base config stays the single
 	// source of truth, and writer variants become a pure file choice (see testIcebergWriter).
