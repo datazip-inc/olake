@@ -3,7 +3,6 @@ package driver
 import (
 	"fmt"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -73,12 +72,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	return errs.Precondition(errs.ConfigInvalid, codeConfigValidationFailed, utils.Validate(c))
