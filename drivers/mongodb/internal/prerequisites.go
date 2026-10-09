@@ -59,8 +59,9 @@ func (m *Mongo) checkChangeStreams(ctx context.Context) (string, bool, error) {
 }
 
 // checkOplogRetention measures the oplog window as newest minus oldest entry, the same
-// arithmetic as the shell's rs.printReplicationInfo(). Needs read on local; on mongos the
-// read errors and the check reports unavailable.
+// arithmetic as the shell's rs.printReplicationInfo(). Needs read on local. An empty read
+// means no oplog is visible on this connection (standalone server, or mongos where the
+// shards' oplogs are not reachable), so it is reported without guessing the topology.
 func (m *Mongo) checkOplogRetention(ctx context.Context) (string, bool, error) {
 	oplog := m.client.Database("local").Collection("oplog.rs")
 	edge := func(direction int) (primitive.Timestamp, error) {
@@ -74,7 +75,7 @@ func (m *Mongo) checkOplogRetention(ctx context.Context) (string, bool, error) {
 
 	first, err := edge(1)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		return "no oplog (standalone)", false, nil
+		return "oplog not readable via this connection", false, nil
 	}
 	if err != nil {
 		return "", false, err

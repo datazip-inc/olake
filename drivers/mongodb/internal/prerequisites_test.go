@@ -137,16 +137,17 @@ func TestMongoCheckOplogRetention(t *testing.T) {
 		})
 	}
 
-	mockMongo(t, "no oplog on a standalone server", func(mt *mtest.T, m *Mongo) {
+	// a standalone server or a mongos: an empty read does not tell which
+	mockMongo(t, "no oplog visible on this connection", func(mt *mtest.T, m *Mongo) {
 		mt.AddMockResponses(mtest.CreateCursorResponse(0, oplogNS, mtest.FirstBatch))
 
 		current, ok, err := m.checkOplogRetention(context.Background())
 		require.NoError(mt, err)
-		assert.Equal(mt, "no oplog (standalone)", current)
+		assert.Equal(mt, "oplog not readable via this connection", current)
 		assert.False(mt, ok)
 	})
 
-	// e.g. no read role on local, or a mongos: reported as unavailable by the runner
+	// e.g. no read role on local: reported as unavailable by the runner
 	mockMongo(t, "unreadable oplog is returned as an error", func(mt *mtest.T, m *Mongo) {
 		mt.AddMockResponses(mtest.CreateCommandErrorResponse(mtest.CommandError{
 			Code: errCodeUnauthorized, Name: "Unauthorized", Message: "not authorized on local",
