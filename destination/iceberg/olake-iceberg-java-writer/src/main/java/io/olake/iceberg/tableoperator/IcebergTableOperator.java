@@ -167,12 +167,8 @@ public class IcebergTableOperator {
     completeWriter();
   
     if (filesToCommit.isEmpty()) {
-      LOGGER.info("No files to commit for thread: {}", threadId);
       rewrittenDeleteFiles.clear();
-      if (table.currentSnapshot() != null) {
-        return 0L;
-      }
-      return 0;
+      return commitStateOnly(threadId, payload, table);
     }
   
     // Refresh once before committing
@@ -198,10 +194,9 @@ public class IcebergTableOperator {
     }
   
     if (totalDataFiles == 0 && totalDeleteFiles == 0) {
-      LOGGER.info("No files to commit for thread: {}", threadId);
       filesToCommit.clear();
       rewrittenDeleteFiles.clear();
-      return 0L;
+      return commitStateOnly(threadId, payload, table);
     }
   
     try {
@@ -327,6 +322,35 @@ public class IcebergTableOperator {
       return  staged.snapshotId();
     } catch (Exception e) {
       String msg = String.format("Failed to commit for thread %s: %s", threadId, e.getMessage());
+      LOGGER.error(msg, e);
+      throw new RuntimeException(msg, e);
+    }
+  }
+
+  /**
+   * Commits only the 2PC state for a thread that produced no files. CDC and incremental
+   * positions (LSN, resume token, offsets) can move without new records, so the state is
+   * persisted on every sync to stay in step with the source. Backfill threads carry no
+   * payload and keep the existing skip.
+   *
+   * @return 0, as a property update creates no snapshot for the indexer to checkpoint
+   */
+  private long commitStateOnly(String threadId, String payload, Table table) {
+    if (payload == null || payload.isEmpty()) {
+      LOGGER.info("No files to commit for thread: {}", threadId);
+      return 0L;
+    }
+
+    try {
+      table.refresh();
+      UpdateProperties updateProperties = table.updateProperties();
+      updateJsonState(table, updateProperties, threadId, payload);
+      updateProperties.commit();
+
+      LOGGER.info("No files to commit for thread: {}, committed {} state only", threadId, STATE_KEY_2PC);
+      return 0L;
+    } catch (Exception e) {
+      String msg = String.format("Failed to commit %s state for thread %s: %s", STATE_KEY_2PC, threadId, e.getMessage());
       LOGGER.error(msg, e);
       throw new RuntimeException(msg, e);
     }
