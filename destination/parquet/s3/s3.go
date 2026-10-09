@@ -109,13 +109,17 @@ func (s *Store) DeletePrefix(ctx context.Context, prefix string) error {
 	if s.gcs {
 		return s.deletePrefixIndividually(ctx, prefix)
 	}
-	keys, err := s.List(ctx, prefix)
+	err := utils.RetryWithSkip(ctx, 3, time.Minute, s.IsRateLimitError, func(ctx context.Context) error {
+		iter := s3manager.NewDeleteListIterator(s.client, &awss3.ListObjectsInput{
+			Bucket: aws.String(s.bucket),
+			Prefix: aws.String(prefix),
+		})
+		return s3manager.NewBatchDeleteWithClient(s.client).Delete(ctx, iter)
+	})
 	if err != nil {
-		return err
-	}
-	for _, key := range keys {
-		if err := s.Delete(ctx, key); err != nil {
-			return err
+		logger.Warnf("batch delete failed for prefix %s, falling back to individual deletes: %v", prefix, err)
+		if fallbackErr := s.deletePrefixIndividually(ctx, prefix); fallbackErr != nil {
+			return fmt.Errorf("batch delete failed: %v, fallback individual delete also failed: %w", err, fallbackErr)
 		}
 	}
 	return nil

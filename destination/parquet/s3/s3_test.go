@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/client/metadata"
 	"github.com/aws/aws-sdk-go/aws/request"
 	awss3 "github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -228,6 +230,47 @@ func (m *memoryS3) DeleteObjectWithContext(_ aws.Context, input *awss3.DeleteObj
 	defer m.mu.Unlock()
 	delete(m.objects, key)
 	return &awss3.DeleteObjectOutput{}, nil
+}
+
+func (m *memoryS3) listOutput(prefix string) *awss3.ListObjectsOutput {
+	keys := m.keys(prefix)
+	objects := make([]*awss3.Object, 0, len(keys))
+	for _, key := range keys {
+		objects = append(objects, &awss3.Object{Key: aws.String(key)})
+	}
+	return &awss3.ListObjectsOutput{Contents: objects, IsTruncated: aws.Bool(false)}
+}
+
+func (m *memoryS3) ListObjectsWithContext(_ aws.Context, input *awss3.ListObjectsInput, _ ...request.Option) (*awss3.ListObjectsOutput, error) {
+	return m.listOutput(aws.StringValue(input.Prefix)), nil
+}
+
+func (m *memoryS3) ListObjectsRequest(input *awss3.ListObjectsInput) (*request.Request, *awss3.ListObjectsOutput) {
+	out := m.listOutput(aws.StringValue(input.Prefix))
+	op := &request.Operation{Name: "ListObjects", HTTPMethod: "GET", HTTPPath: "/"}
+	req := request.New(aws.Config{}, metadata.ClientInfo{}, request.Handlers{}, nil, op, input, out)
+	req.Handlers.Send.Clear()
+	req.Handlers.Unmarshal.Clear()
+	req.Handlers.UnmarshalMeta.Clear()
+	req.Handlers.Validate.Clear()
+	req.Handlers.Send.PushBack(func(r *request.Request) {
+		listed := m.listOutput(aws.StringValue(input.Prefix))
+		*out = *listed
+		r.HTTPResponse = &http.Response{StatusCode: 200, Body: http.NoBody}
+	})
+	return req, out
+}
+
+func (m *memoryS3) DeleteObjectsWithContext(_ aws.Context, input *awss3.DeleteObjectsInput, _ ...request.Option) (*awss3.DeleteObjectsOutput, error) {
+	if input.Delete == nil {
+		return &awss3.DeleteObjectsOutput{}, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, obj := range input.Delete.Objects {
+		delete(m.objects, aws.StringValue(obj.Key))
+	}
+	return &awss3.DeleteObjectsOutput{}, nil
 }
 
 const (
