@@ -13,7 +13,7 @@ jobs:
   action:
     runs-on: ubuntu-latest
     steps:
-      - uses: dessant/issue-states@v2
+      - uses: dessant/issue-states@v3
         with:
           github-token: ${{ github.token }}
           open-issue-columns: 'To do, In progress, In Beta'
