@@ -79,6 +79,7 @@ jobs:
         env:
           DRIVERS: ${{ steps.drivers.outputs.drivers }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REQUIRED_DRIVERS: '["db2","kafka","mongodb","mssql","mysql","oracle","postgres","s3"]'
         run: |
           set -euo pipefail
           drivers=$(for d in $(jq -r '.[]' <<<"$DRIVERS"); do
@@ -88,6 +89,12 @@ jobs:
           done | jq -Rsc 'split("\n") | map(select(length > 0))')
           echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
           echo "Compatibility drivers: $drivers"
+          missing=$(jq -r --argjson affected "$DRIVERS" --argjson found "$drivers" \
+            'map(select(IN($affected[]))) - $found | .[]' <<<"$REQUIRED_DRIVERS")
+          for d in $missing; do
+            echo "::error::$d is in REQUIRED_DRIVERS but missing from the compatibility matrix: tests/$d has no test for backwards compatibility"
+          done
+          [ -z "$missing" ]
 
       - name: Detect go-check input changes
         id: go-checks
