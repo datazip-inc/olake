@@ -330,7 +330,7 @@ func (p *Parquet) Check(ctx context.Context) error {
 	case p.store != nil:
 		testKey := p.store.ObjectKey(path.Join("olake_writer_test", utils.TimestampedFileName(".txt")))
 		if err := p.store.Put(ctx, testKey, []byte("write test")); err != nil {
-			return fmt.Errorf("failed to write test file to %s: %w", p.store.Kind(), err)
+			return fmt.Errorf("failed to write test file to S3: %w", err)
 		}
 		p.config.Path = os.TempDir()
 		logger.Infof("Thread[%s]: %s writer configuration found", p.options.ThreadID, p.store.Kind())
