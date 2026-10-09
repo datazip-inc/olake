@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/datazip-inc/olake/utils/errs"
@@ -42,6 +43,9 @@ const (
 	codeSSLMissing         = "config.ssl_missing"
 	codeSSLModeMissing     = "config.ssl_mode_missing"
 	codeSSLServerCAMissing = "config.ssl_server_ca_missing"
+
+	// Certificate file could not be read from disk.
+	codeSSLFileUnreadable = "config.ssl_file_unreadable"
 
 	// The PEM material the user supplied is unusable; nothing was sent to a server yet.
 	codeSSLMaterialMissing        = "config.ssl_material_missing"
@@ -172,14 +176,17 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 }
 
 func readPEMData(value string, field SSLField, parseAsCert bool) ([]byte, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
+	if strings.TrimSpace(value) == "" {
 		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLMaterialMissing,
 			fmt.Errorf("'%s' is required", string(field)))
 	}
 
 	// PEM files may contain multiple blocks (e.g., certificate chains).
-	remaining := []byte(trimmed)
+	pemData, err := ReadPEMOrFile(value)
+	if err != nil {
+		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable, err)
+	}
+	remaining := pemData
 	foundBlock := false
 
 	for {
@@ -211,5 +218,20 @@ func readPEMData(value string, field SSLField, parseAsCert bool) ([]byte, error)
 			fmt.Errorf("'%s' must contain only PEM blocks", string(field)))
 	}
 
-	return []byte(trimmed), nil
+	return pemData, nil
+}
+
+// ReadPEMOrFile returns PEM bytes from value. If value is valid PEM it is returned
+// as-is (inline PEM content). Anything else is treated as a file path and read from disk;
+// returns an error if the file cannot be read.
+func ReadPEMOrFile(value string) ([]byte, error) {
+	trimmed := strings.TrimSpace(value)
+	if block, _ := pem.Decode([]byte(trimmed)); block != nil {
+		return []byte(trimmed), nil
+	}
+	data, err := os.ReadFile(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read certificate file %q: %w", trimmed, err)
+	}
+	return []byte(strings.TrimSpace(string(data))), nil
 }
