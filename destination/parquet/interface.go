@@ -2,12 +2,7 @@ package parquet
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"strings"
-
-	"github.com/datazip-inc/olake/destination/parquet/azure"
-	"github.com/datazip-inc/olake/destination/parquet/s3"
 )
 
 // ObjectStore is S3 or Azure Blob. 2PC uses Get/List/Copy/Delete.
@@ -32,31 +27,4 @@ type ObjectStore interface {
 	Delete(ctx context.Context, key string) error
 	DeletePrefix(ctx context.Context, prefix string) error
 	IsNotFound(err error) bool
-}
-
-// newObjectStore creates a new ObjectStore based on the configuration Azure or S3.
-func newObjectStore(cfg *Config) (ObjectStore, error) {
-	switch {
-	case cfg.usingAzure():
-		cfg.AzurePath = strings.Trim(cfg.AzurePath, "/")
-		return azure.New(azure.Config{
-			AccountName:   cfg.AzureStorageAccountName,
-			AccountKey:    cfg.AzureStorageAccountKey,
-			ContainerName: cfg.AzureContainerName,
-			Path:          cfg.AzurePath,
-			Endpoint:      cfg.AzureEndpoint,
-		})
-	case cfg.Bucket != "" && cfg.Region != "":
-		cfg.Prefix = strings.Trim(cfg.Prefix, "/")
-		return s3.New(s3.Config{
-			Bucket:     cfg.Bucket,
-			Region:     cfg.Region,
-			AccessKey:  cfg.AccessKey,
-			SecretKey:  cfg.SecretKey,
-			Prefix:     cfg.Prefix,
-			S3Endpoint: cfg.S3Endpoint,
-		})
-	default:
-		return nil, fmt.Errorf("no remote object store configured")
-	}
 }

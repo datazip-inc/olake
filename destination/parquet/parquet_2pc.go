@@ -465,9 +465,12 @@ func (p *Parquet) objectKey(relativePath string) string {
 	if p.store != nil {
 		return p.store.ObjectKey(relativePath)
 	}
-	prefix := strings.Trim(p.config.Prefix, "/")
-	if p.config.usingAzure() {
+	prefix := ""
+	switch {
+	case p.config.usingAzure():
 		prefix = strings.Trim(p.config.AzurePath, "/")
+	case p.config.usingS3():
+		prefix = strings.Trim(p.config.Prefix, "/")
 	}
 	if prefix == "" {
 		return relativePath

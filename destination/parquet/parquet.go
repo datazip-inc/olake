@@ -19,6 +19,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/destination/parquet/azure"
+	"github.com/datazip-inc/olake/destination/parquet/s3"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -71,7 +73,7 @@ func (p *Parquet) initStore() error {
 	if p.store != nil {
 		return nil
 	}
-	if !p.config.usingAzure() && p.config.Bucket == "" && p.config.Region == "" {
+	if !p.config.usingAzure() && !p.config.usingS3() {
 		return nil
 	}
 	store, err := newObjectStore(p.config)
@@ -80,6 +82,32 @@ func (p *Parquet) initStore() error {
 	}
 	p.store = store
 	return nil
+}
+
+func newObjectStore(cfg *Config) (ObjectStore, error) {
+	switch cfg.storageKind() {
+	case storageTypeAzure:
+		cfg.AzurePath = strings.Trim(cfg.AzurePath, "/")
+		return azure.New(azure.Config{
+			AccountName:   cfg.AzureStorageAccountName,
+			AccountKey:    cfg.AzureStorageAccountKey,
+			ContainerName: cfg.AzureContainerName,
+			Path:          cfg.AzurePath,
+			Endpoint:      cfg.AzureEndpoint,
+		})
+	case storageTypeS3:
+		cfg.Prefix = strings.Trim(cfg.Prefix, "/")
+		return s3.New(s3.Config{
+			Bucket:     cfg.Bucket,
+			Region:     cfg.Region,
+			AccessKey:  cfg.AccessKey,
+			SecretKey:  cfg.SecretKey,
+			Prefix:     cfg.Prefix,
+			S3Endpoint: cfg.S3Endpoint,
+		})
+	default:
+		return nil, fmt.Errorf("no remote object store configured")
+	}
 }
 
 func (p *Parquet) createNewPartitionFile(basePath string) error {
