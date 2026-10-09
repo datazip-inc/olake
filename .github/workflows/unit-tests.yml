@@ -3,10 +3,6 @@ name: Unit Tests
 on:
   pull_request:
 
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
   unit-tests:
     name: Run Unit Tests
@@ -24,56 +20,7 @@ jobs:
           save: "true"
 
       - name: Run All Unit Tests
-        id: go_tests
         run: make test.unit
-
-      - name: Coverage summary
-        if: always()
-        run: |
-          if [ -s /tmp/cover-rows.md ]; then
-            { echo "### Unit Test Coverage"; echo; cat /tmp/cover-rows.md; } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Post coverage comment
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let rows = '';
-            try { rows = fs.readFileSync('/tmp/cover-rows.md', 'utf8').trim(); } catch (e) {}
-
-            const table = rows
-              ? rows
-              : 'Coverage unavailable (tests failed before producing a profile).';
-            const body = `### Unit Test Coverage\n\n${table}\n\n<!-- unit-test-bot -->`;
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existing = comments.find(c =>
-              c.user.login === 'github-actions[bot]' &&
-              c.body.includes('<!-- unit-test-bot -->')
-            );
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner:      context.repo.owner,
-                repo:       context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner:        context.repo.owner,
-                repo:         context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
 
   java-unit-tests:
     name: Run Java Unit Tests
