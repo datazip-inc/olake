@@ -45,15 +45,15 @@ type Store struct {
 
 // New creates a new AWS S3 client with shared key credential and returns a new Store.
 func New(cfg Config) (*Store, error) {
-	awsCfg := aws.Config{Region: aws.String(cfg.Region)}
+	clientCfg := aws.Config{Region: aws.String(cfg.Region)}
 	if cfg.S3Endpoint != "" {
-		awsCfg.Endpoint = aws.String(cfg.S3Endpoint)
-		awsCfg.S3ForcePathStyle = aws.Bool(true)
+		clientCfg.Endpoint = aws.String(cfg.S3Endpoint)
+		clientCfg.S3ForcePathStyle = aws.Bool(true)
 	}
 	if cfg.AccessKey != "" && cfg.SecretKey != "" {
-		awsCfg.Credentials = credentials.NewStaticCredentials(cfg.AccessKey, cfg.SecretKey, "")
+		clientCfg.Credentials = credentials.NewStaticCredentials(cfg.AccessKey, cfg.SecretKey, "")
 	}
-	sess, err := session.NewSession(&awsCfg)
+	sess, err := session.NewSession(&clientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS session: %w", err)
 	}
