@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -114,95 +115,6 @@ func TestReformatRecord(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tc.expected, tc.record)
-		})
-	}
-}
-
-// TestReformatValue tests the ReformatValue function
-func TestValueFitsColumn(t *testing.T) {
-	testCases := []struct {
-		name   string
-		value  any
-		column types.DataType
-		fits   bool
-	}{
-		{
-			name:   "bytes of the exact width",
-			value:  []byte{1, 2, 3, 4},
-			column: types.FixedBinaryOf(4),
-			fits:   true,
-		},
-		{
-			name:   "a short value fits, the writer pads it",
-			value:  []byte{1, 2},
-			column: types.FixedBinaryOf(4),
-			fits:   true,
-		},
-		{
-			name:   "an empty value fits",
-			value:  []byte{},
-			column: types.FixedBinaryOf(4),
-			fits:   true,
-		},
-		{
-			name:   "a value wider than the column does not fit",
-			value:  []byte{1, 2, 3, 4, 5},
-			column: types.FixedBinaryOf(4),
-			fits:   false,
-		},
-		{
-			name:   "null fits a fixed width column",
-			value:  nil,
-			column: types.FixedBinaryOf(4),
-			fits:   true,
-		},
-		{
-			name:   "text does not fit a fixed width column",
-			value:  "abc",
-			column: types.FixedBinaryOf(4),
-			fits:   false,
-		},
-		{
-			name:   "bytes fit a binary column",
-			value:  []byte{1, 2},
-			column: types.Binary,
-			fits:   true,
-		},
-		{
-			name:   "text does not fit a binary column",
-			value:  "abc",
-			column: types.Binary,
-			fits:   false,
-		},
-		{
-			name:   "text fits a string column",
-			value:  "abc",
-			column: types.String,
-			fits:   true,
-		},
-		{
-			name:   "null fits a string column",
-			value:  nil,
-			column: types.String,
-			fits:   true,
-		},
-		{
-			name:   "an int fits a long column",
-			value:  int64(5),
-			column: types.Int64,
-			fits:   true,
-		},
-		{
-			name:   "text does not fit a long column",
-			value:  "abc",
-			column: types.Int64,
-			fits:   false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.fits, ValueFitsColumn(tc.value, TypeFromValue(tc.value), tc.column))
 		})
 	}
 }
@@ -529,25 +441,11 @@ func TestReformatValue(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name:        "fixed binary of the exact width",
-			dataType:    types.FixedBinaryOf(2),
-			value:       []byte{0xff, 0x00},
-			expected:    []byte{0xff, 0x00},
-			expectedErr: nil,
-		},
-		{
-			name:        "short fixed binary is padded like the source stores it",
+			name:        "fixed_binary is handled as binary",
 			dataType:    types.FixedBinaryOf(3),
-			value:       []byte{0xff, 0x00},
-			expected:    []byte{0xff, 0x00, 0x00},
+			value:       "abc",
+			expected:    []byte("abc"),
 			expectedErr: nil,
-		},
-		{
-			name:        "fixed binary rejects an over-long value",
-			dataType:    types.FixedBinaryOf(1),
-			value:       []byte{0xff, 0x00},
-			expected:    []byte(nil),
-			expectedErr: fmt.Errorf("fixed_binary(1) holds at most 1 bytes, got 2"),
 		},
 		{
 			name:        "a string column still turns bytes into text",
@@ -691,6 +589,59 @@ func TestParseFilterValue(t *testing.T) {
 	}
 }
 
+// TestParseFilterValueBinary tests that a binary filter value is hex from state version 8 only
+func TestParseFilterValueBinary(t *testing.T) {
+	tests := []struct {
+		name         string
+		stateVersion int
+		dataType     types.DataType
+		value        any
+		expected     any
+		expectedErr  error
+	}{
+		{
+			name:         "hex",
+			stateVersion: 8,
+			dataType:     types.Binary,
+			value:        "00ff10fe",
+			expected:     []byte{0x00, 0xff, 0x10, 0xfe},
+		},
+		{
+			name:         "fixed binary hex",
+			stateVersion: 8,
+			dataType:     types.FixedBinaryOf(2),
+			value:        "FFFE",
+			expected:     []byte{0xff, 0xfe},
+		},
+		{
+			name:         "not hex",
+			stateVersion: 8,
+			dataType:     types.Binary,
+			value:        "update12",
+			expectedErr:  fmt.Errorf("binary filter value[update12] is not hex: %w", hex.InvalidByteError('u')),
+		},
+		{
+			name:         "text before state version 8",
+			stateVersion: 7,
+			dataType:     types.Binary,
+			value:        "update12",
+			expected:     []byte("update12"),
+		},
+	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			result, err := ParseFilterValue(tc.dataType, tc.value)
+			assert.Equal(t, tc.expectedErr, err)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 // TestReformatBool tests the ReformatBool function
 func TestReformatBytes(t *testing.T) {
 	raw := []byte{0xff, 0x00, 0x80, 0x41}
@@ -699,7 +650,6 @@ func TestReformatBytes(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		width    int
 		input    any
 		expected []byte
 		wantErr  error
@@ -730,30 +680,6 @@ func TestReformatBytes(t *testing.T) {
 			expected: []byte{},
 		},
 		{
-			name:     "fixed length matches",
-			width:    4,
-			input:    raw,
-			expected: raw,
-		},
-		{
-			name:     "short fixed value is zero padded",
-			width:    6,
-			input:    raw,
-			expected: []byte{0xff, 0x00, 0x80, 0x41, 0x00, 0x00},
-		},
-		{
-			name:     "empty fixed value is all zero",
-			width:    2,
-			input:    []byte{},
-			expected: []byte{0x00, 0x00},
-		},
-		{
-			name:    "fixed length too long",
-			width:   2,
-			input:   raw,
-			wantErr: fmt.Errorf("fixed_binary(2) holds at most 2 bytes, got 4"),
-		},
-		{
 			name:    "numbers are not bytes",
 			input:   int64(42),
 			wantErr: fmt.Errorf("failed to change int64 to bytes: unsupported type"),
@@ -767,7 +693,7 @@ func TestReformatBytes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ReformatBytes(tc.input, tc.width)
+			got, err := ReformatBytes(tc.input)
 			if tc.wantErr != nil {
 				assert.Equal(t, tc.wantErr, err)
 				return

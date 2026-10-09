@@ -50,6 +50,7 @@ import (
 //     * A byte value detects as Binary and survives flattening instead of being cast to a string.
 //     * The binlog keeps a binary-collation column's raw bytes and reports its BINARY type name.
 //     * A binary primary key hex encodes into the olake id instead of rendering as a Go value.
+//     * A filter value on a binary column is hex, since JSON cannot carry bytes.
 //     * Older state keeps every one of those as text so existing destination columns do not change type.
 
 var (

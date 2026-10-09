@@ -177,7 +177,7 @@ func ReformatCursorValue(cursorField string, cursorValue any, stream types.Strea
 // back to its bytes here; every other cursor is kept in state as its value.
 func DecodeCursorValue(cursorField string, cursorType types.DataType, stateValue any) (any, error) {
 	encoded, isString := stateValue.(string)
-	if isBytes, _ := types.IsBytes(cursorType); !isString || !isBytes {
+	if !isString || cursorType != types.Binary {
 		return stateValue, nil
 	}
 	decoded, err := hex.DecodeString(encoded)
@@ -229,7 +229,7 @@ func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 		return v.Hex()
 	case []byte:
 		switch {
-		case constants.LoadedStateVersion < 8:
+		case !utils.IsBinarySupported():
 			return cursorValue
 		default:
 			return hex.EncodeToString(v)

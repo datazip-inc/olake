@@ -241,9 +241,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, false,
 			map[string]string{"id": "6", "id_cursor": "6", "id_cursor_binary": binaryCursor(6), "excludedColumn": "101"}))
 		require.NoError(t, err, "Failed to execute %s operation", operation)
-		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
+		// insert a filtered doc; its id_cursor_binary tops every other row's, so a binary-cursor incremental
+		// sync reads it and only the filter decides whether it reaches the destination
 		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, true,
-			map[string]string{"id": "999", "id_cursor_binary": "X'01'", "excludedColumn": "200"}))
+			map[string]string{"id": "999", "id_cursor_binary": "X'FFFF'", "excludedColumn": "200"}))
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
@@ -471,6 +472,54 @@ var ExpectedMySQLData = map[string]interface{}{
 	"data_fixed_binary_utf8":        []byte("olake123"),
 	"data_varbinary":                []byte{0x00, 0xff, 0x10, 0xfe},
 	"data_blob":                     []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a},
+}
+
+// ExpectedFilteredData is the filtered seed rows (998 and 999) as synced. The price and created_date
+// columns are left out: 998 overrides them, so the two rows disagree there.
+var ExpectedFilteredData = map[string]interface{}{
+	"id_bigint":                     int64(111111111111111),
+	"id_int":                        int32(0),
+	"id_int_unsigned":               int64(0),
+	"id_integer":                    int32(0),
+	"id_integer_unsigned":           int64(0),
+	"id_mediumint":                  int32(0),
+	"id_mediumint_unsigned":         int32(0),
+	"id_smallint":                   int32(0),
+	"id_smallint_unsigned":          int32(0),
+	"id_tinyint":                    int32(0),
+	"id_tinyint_unsigned":           int32(0),
+	"id_tinyint_unsigned_max":       int32(0),
+	"id_smallint_unsigned_max":      int32(0),
+	"id_mediumint_unsigned_max":     int32(0),
+	"id_mediumint_unsigned_signbit": int32(0),
+	"id_int_unsigned_max":           int64(0),
+	"id_bigint_unsigned":            int64(0),
+	"id_bigint_unsigned_signbit":    int64(0),
+	"id_bigint_unsigned_max":        int64(0),
+	"name_char":                     "x",
+	"name_varchar":                  "filtered_val",
+	"name_text":                     "filtered text",
+	"name_tinytext":                 "filtered tiny",
+	"name_mediumtext":               "filtered medium",
+	"name_longtext":                 "filtered long",
+	"created_timestamp":             arrow.Timestamp(time.Date(2021, 6, 15, 10, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"is_active":                     int32(0),
+	"long_varchar":                  "filtered long varchar",
+	"name_bool":                     int32(0),
+	"status":                        "inactive",
+	"priority":                      "low",
+	"name_latin1":                   "filtered latin1",
+	"name_ucs2":                     "filtered ucs2",
+	"name_utf16le":                  "filtered utf16le",
+	"name_latin1_cp1252":            latin1Cp1252Value,
+	"text_latin1_cp1252":            latin1Cp1252Value,
+	"grade":                         "naïve",
+	"tags":                          "music",
+	"permissions":                   "execute",
+	"data_fixed_binary":             make([]byte, 16), // X'00', which MySQL pads to BINARY(16)
+	"data_fixed_binary_utf8":        []byte("filt1234"),
+	"data_varbinary":                []byte{0x01},
+	"data_blob":                     []byte{0x00},
 }
 
 // TODO: olake has no uint64 data type, so the id_bigint_unsigned_* values past MaxInt64 pin what

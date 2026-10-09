@@ -3,15 +3,15 @@ package driver
 import (
 	"database/sql"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 )
 
 // mysqlTypeToDataTypes returns the mapping of MySQL data types to internal data types for the state
 // version this sync is pinned at
 func mysqlTypeToDataTypes() map[string]types.DataType {
 	binaryTypeMapping := types.Binary
-	if constants.LoadedStateVersion < 8 {
+	if !utils.IsBinarySupported() {
 		binaryTypeMapping = types.String
 	}
 	return map[string]types.DataType{

@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/paulmach/orb/encoding/wkb"
 	"github.com/paulmach/orb/encoding/wkt"
@@ -60,7 +62,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	if v == nil {
 		return v, nil
 	}
-	switch dataType {
+	switch dataType.ValueType() {
 	case types.Null:
 		return nil, ErrNullValue
 	case types.Bool:
@@ -98,10 +100,9 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		}
 		// make it an array
 		return []any{v}, nil
+	case types.Binary:
+		return ReformatBytes(v)
 	default:
-		if isBytes, width := types.IsBytes(dataType); isBytes {
-			return ReformatBytes(v, width)
-		}
 		return v, nil
 	}
 }
@@ -109,42 +110,38 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 // ParseFilterValue parses v into dataType strictly and returns the typed value.
 // For timestamp types, an unparseable string always returns an error
 // ReformatValue which silently falls back to epoch when isTimestampInDB=true).
+// A binary value is hex from state version 8, as JSON cannot carry bytes.
 func ParseFilterValue(dataType types.DataType, v any) (any, error) {
 	switch dataType {
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		return ReformatDate(v, false)
 	default:
-		return ReformatValue(dataType, v)
+		value, err := ReformatValue(dataType, v)
+		hexValue, isString := v.(string)
+		if _, isBinary := value.([]byte); isBinary && isString && utils.IsBinarySupported() {
+			if value, err = hex.DecodeString(hexValue); err != nil {
+				return nil, fmt.Errorf("binary filter value[%s] is not hex: %w", hexValue, err)
+			}
+		}
+		return value, err
 	}
 }
 
-// ReformatBytes converts v to bytes, zero-padded to width when width > 0; a value longer than width is an error.
-func ReformatBytes(v any, width int) ([]byte, error) {
-	var b []byte
+// ReformatBytes converts v to bytes.
+func ReformatBytes(v any) ([]byte, error) {
 	switch val := v.(type) {
 	case []byte:
-		b = val
+		return val, nil
 	case *[]byte:
 		if val == nil {
 			return nil, ErrNullValue
 		}
-		b = *val
+		return *val, nil
 	case string:
-		b = []byte(val)
+		return []byte(val), nil
 	default:
 		return nil, fmt.Errorf("failed to change %T to bytes: unsupported type", v)
 	}
-	if width > 0 {
-		if len(b) > width {
-			return nil, fmt.Errorf("%s holds at most %d bytes, got %d", types.FixedBinaryOf(width), width, len(b))
-		}
-		if len(b) < width {
-			padded := make([]byte, width)
-			copy(padded, b)
-			b = padded
-		}
-	}
-	return b, nil
 }
 
 func ReformatBool(v interface{}) (bool, error) {

@@ -521,12 +521,12 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 
 // isValidTypeForColumn reports whether a column of iceberg type columnType can take a value of
 // iceberg type valueType, as it is or through an iceberg promotion. A value cannot reveal a fixed
-// width, so a fixed[n] column takes any binary value and the writer pads or rejects it against n.
+// width, so a fixed[n] column takes any binary value; one of the wrong length fails on write.
 func isValidTypeForColumn(columnType, valueType string) bool {
 	if columnType == valueType || validTypeTransitions[columnType][valueType] {
 		return true
 	}
-	if width, _ := types.IcebergBytesWidth(columnType); width > 0 {
+	if _, isFixed := types.IsIcebergBytes(columnType); isFixed {
 		return valueType == "binary"
 	}
 	return getCommonAncestorType(columnType, valueType) == columnType

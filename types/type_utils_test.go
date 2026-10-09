@@ -81,11 +81,9 @@ func TestFixedBinaryGrammar(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(string(tc.dataType), func(t *testing.T) {
-			family, params := instanceOf(tc.dataType)
-			require.Equal(t, tc.ok, family != nil && params != nil)
-			if tc.ok {
-				require.Equal(t, tc.length, params[0])
-			}
+			width, ok := FixedBinaryWidth(tc.dataType)
+			require.Equal(t, tc.ok, ok)
+			require.Equal(t, tc.length, width)
 		})
 	}
 }
@@ -123,94 +121,97 @@ func TestDataTypeOf(t *testing.T) {
 	}
 }
 
-func TestIsBytes(t *testing.T) {
+func TestValueType(t *testing.T) {
 	testCases := []struct {
-		dataType DataType
-		width    int
-		isBytes  bool
+		dataType  DataType
+		valueType DataType
 	}{
 		{
-			dataType: FixedBinaryOf(16),
-			width:    16,
-			isBytes:  true,
+			dataType:  FixedBinaryOf(16),
+			valueType: Binary,
 		},
 		{
-			dataType: FixedBinary,
-			width:    0,
-			isBytes:  false,
+			dataType:  FixedBinary,
+			valueType: Binary,
 		},
 		{
-			dataType: Binary,
-			width:    0,
-			isBytes:  true,
+			dataType:  Binary,
+			valueType: Binary,
 		},
 		{
-			dataType: String,
-			width:    0,
-			isBytes:  false,
+			dataType:  String,
+			valueType: String,
 		},
 		{
-			dataType: DataType("fixed_binary(0)"),
-			width:    0,
-			isBytes:  false,
+			dataType:  DataType("fixed_binary(0)"),
+			valueType: Binary,
 		},
 		{
-			dataType: DataType("undeclared(1)"),
-			width:    0,
-			isBytes:  false,
+			dataType:  DataType("undeclared(1)"),
+			valueType: DataType("undeclared(1)"),
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(string(tc.dataType), func(t *testing.T) {
-			isBytes, width := IsBytes(tc.dataType)
-			require.Equal(t, tc.isBytes, isBytes)
-			require.Equal(t, tc.width, width)
+			require.Equal(t, tc.valueType, tc.dataType.ValueType())
 		})
 	}
+}
 
+func TestIsIcebergBytes(t *testing.T) {
 	icebergCases := []struct {
 		icebergType string
-		width       int
 		isBytes     bool
+		isFixed     bool
+		width       int
 	}{
 		{
 			icebergType: "fixed[16]",
-			width:       16,
 			isBytes:     true,
+			isFixed:     true,
+			width:       16,
 		},
 		{
 			icebergType: "binary",
-			width:       0,
 			isBytes:     true,
+			isFixed:     false,
+			width:       0,
 		},
 		{
 			icebergType: "string",
-			width:       0,
 			isBytes:     false,
+			isFixed:     false,
+			width:       0,
 		},
 		{
 			icebergType: "fixed[0]",
+			isBytes:     true,
+			isFixed:     true,
 			width:       0,
-			isBytes:     false,
 		},
 		{
 			icebergType: "fixed[-4]",
+			isBytes:     true,
+			isFixed:     true,
 			width:       0,
-			isBytes:     false,
 		},
 		{
 			icebergType: "fixed[16",
+			isBytes:     true,
+			isFixed:     true,
 			width:       0,
-			isBytes:     false,
 		},
 	}
 
 	for _, tc := range icebergCases {
 		t.Run("iceberg "+tc.icebergType, func(t *testing.T) {
-			width, isBytes := IcebergBytesWidth(tc.icebergType)
+			isBytes, isFixed := IsIcebergBytes(tc.icebergType)
 			require.Equal(t, tc.isBytes, isBytes)
+			require.Equal(t, tc.isFixed, isFixed)
+			width, ok := IcebergFixedWidth(tc.icebergType)
 			require.Equal(t, tc.width, width)
+			require.Equal(t, tc.width > 0, ok)
 		})
 	}
 }
@@ -233,8 +234,8 @@ func TestTypeFamilyTwoParameters(t *testing.T) {
 		},
 		{
 			input:  "decimal(9, 2)",
-			params: []int{9, 2},
-			ok:     true,
+			params: nil,
+			ok:     false,
 		},
 		{
 			input:  "decimal(38,0)",

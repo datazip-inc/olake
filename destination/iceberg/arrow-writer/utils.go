@@ -159,8 +159,8 @@ func (fw *parquetWriter) RowGroupTotalBytesWritten() int64 {
 	return 0
 }
 
-// toArrowType maps an iceberg column type to its arrow type. Bytes columns are read with
-// IcebergBytesWidth, as the legacy writer does, since fixed[n] carries a width.
+// toArrowType maps an iceberg column type to its arrow type; a fixed[n] column takes its width
+// from the type.
 func toArrowType(icebergType string) arrow.DataType {
 	switch icebergType {
 	case "boolean":
@@ -175,13 +175,11 @@ func toArrowType(icebergType string) arrow.DataType {
 		return arrow.PrimitiveTypes.Float64
 	case "timestamptz":
 		return arrow.FixedWidthTypes.Timestamp_us
+	case "binary":
+		return arrow.BinaryTypes.Binary
 	default:
-		width, isBytes := types.IcebergBytesWidth(icebergType)
-		switch {
-		case width > 0:
+		if width, isFixed := types.IcebergFixedWidth(icebergType); isFixed {
 			return &arrow.FixedSizeBinaryType{ByteWidth: width}
-		case isBytes:
-			return arrow.BinaryTypes.Binary
 		}
 		return arrow.BinaryTypes.String
 	}
@@ -347,16 +345,18 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 			return err
 		}
 	case *array.BinaryBuilder:
-		b, err := typeutils.ReformatBytes(val, 0)
+		b, err := typeutils.ReformatBytes(val)
 		if err != nil {
 			return err
 		}
 		builder.Append(b)
 	case *array.FixedSizeBinaryBuilder:
-		width := builder.Type().(*arrow.FixedSizeBinaryType).ByteWidth
-		b, err := typeutils.ReformatBytes(val, width)
+		b, err := typeutils.ReformatBytes(val)
 		if err != nil {
 			return err
+		}
+		if width := builder.Type().(*arrow.FixedSizeBinaryType).ByteWidth; len(b) != width {
+			return fmt.Errorf("fixed[%d] holds exactly %d bytes, got %d", width, width, len(b))
 		}
 		builder.Append(b)
 	case *array.StringBuilder:

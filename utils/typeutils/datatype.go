@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
@@ -38,7 +37,7 @@ func TypeFromValue(v interface{}) types.DataType {
 		return types.String
 	case []byte:
 		switch {
-		case constants.LoadedStateVersion < 8:
+		case !utils.IsBinarySupported():
 			return types.String
 		default:
 			return types.Binary

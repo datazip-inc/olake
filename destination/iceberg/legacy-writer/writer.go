@@ -302,11 +302,23 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: t.UnixMicro()},
 		}, nil
 
+	case "binary":
+		b, err := typeutils.ReformatBytes(val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reformat rawValue of type[%T] as binary value: %s", val, err)
+		}
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_BytesValue{BytesValue: b},
+		}, nil
+
 	default:
-		if width, isBytes := types.IcebergBytesWidth(iceType); isBytes {
-			b, err := typeutils.ReformatBytes(val, width)
+		if width, isFixed := types.IcebergFixedWidth(iceType); isFixed {
+			b, err := typeutils.ReformatBytes(val)
 			if err != nil {
 				return nil, fmt.Errorf("failed to reformat rawValue of type[%T] as %s value: %s", val, iceType, err)
+			}
+			if len(b) != width {
+				return nil, fmt.Errorf("%s holds exactly %d bytes, got %d", iceType, width, len(b))
 			}
 			return &proto.IcebergPayload_IceRecord_FieldValue{
 				Value: &proto.IcebergPayload_IceRecord_FieldValue_BytesValue{BytesValue: b},

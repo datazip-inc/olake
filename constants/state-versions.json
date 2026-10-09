@@ -53,7 +53,7 @@
       "state_version": 8,
       "release_tag": "v0.12.1",
       "drivers": "mysql",
-      "note": "mysql binary columns keep their bytes: BINARY/VARBINARY/BLOB map to Binary and BINARY(n) to fixed_binary(n) instead of String, byte values detect as Binary and survive flattening, the binlog keeps a binary-collation column's bytes under its BINARY type name, and a binary primary key hex encodes into the olake id; older state keeps all of it as text so an existing destination column does not change type on upgrade"
+      "note": "mysql BINARY/VARBINARY/BLOB map to Binary (BINARY(n) to fixed_binary(n)) instead of String, with hex in the olake id and filter values; older state keeps them as text"
     }
   ]
 }

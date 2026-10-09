@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils"
 )
 
 // return 0 for equal, -1 if a < b else 1 if a>b
@@ -72,7 +72,7 @@ func Compare(a, b any) int {
 	case []byte:
 		bBytes, bIsBytes := b.([]byte)
 		switch {
-		case constants.LoadedStateVersion < 8 || !bIsBytes:
+		case !utils.IsBinarySupported() || !bIsBytes:
 			return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
 		default:
 			return bytes.Compare(aVal, bBytes)

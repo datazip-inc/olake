@@ -78,10 +78,10 @@ func TestToProtoFieldValue(t *testing.T) {
 			want:    &proto.IcebergPayload_IceRecord_FieldValue_BytesValue{BytesValue: raw},
 		},
 		{
-			name:    "a short value is zero padded to the fixed width",
+			name:    "a value narrower than the column is rejected",
 			iceType: "fixed[6]",
 			value:   raw,
-			want:    &proto.IcebergPayload_IceRecord_FieldValue_BytesValue{BytesValue: []byte{0xff, 0x00, 0x80, 0x41, 0x00, 0x00}},
+			wantErr: true,
 		},
 		{
 			name:    "a value wider than the column is rejected",

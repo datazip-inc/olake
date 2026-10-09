@@ -1348,7 +1348,16 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		}
 
 		// New JSON filter path: use the real Go type coming from JSON decoding.
-		switch v := cond.Value.(type) {
+		value := cond.Value
+		if columnType, err := stream.Schema().GetType(cond.Column); err == nil && columnType == types.Binary {
+			if value, err = typeutils.ParseFilterValue(columnType, cond.Value); err != nil {
+				return "", err
+			}
+		}
+		switch v := value.(type) {
+		case []byte:
+			// MySQL's hex literal; only MySQL maps a column to binary
+			valueSQL = fmt.Sprintf("X'%x'", v)
 		case string:
 			// TODO: Audit Unicode handling of string filters with special characters (Ω, ⚡, emoji, etc.) for all JDBC drivers (MSSQL, Postgres, MySQL, Oracle, DB2).
 			// default: treat as escaped string
@@ -1492,7 +1501,7 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 	bytesConverter := func(cursorType types.DataType, value any) any {
 		switch v := value.(type) {
 		case []byte:
-			if isBytes, _ := types.IsBytes(cursorType); isBytes {
+			if cursorType == types.Binary {
 				return v
 			}
 			return string(v)

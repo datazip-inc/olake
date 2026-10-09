@@ -29,6 +29,16 @@ const (
 	FixedBinary    DataType = "fixed_binary(%d)"
 )
 
+// ValueType is the type d's inherent value type ignoring the parameters
+func (d DataType) ValueType() DataType {
+	switch BaseOf(d) {
+	case FixedBinary:
+		return Binary
+	default:
+		return d
+	}
+}
+
 var RawSchema = map[string]DataType{
 	constants.StringifiedData: String,
 	constants.CdcTimestamp:    Timestamp,

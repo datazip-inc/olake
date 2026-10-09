@@ -150,12 +150,12 @@ func TestAppendValueToBuilder(t *testing.T) {
 			want:  raw,
 		},
 		{
-			name: "a short value is zero padded to the width",
+			name: "a value narrower than the column is rejected",
 			builder: func(mem memory.Allocator) array.Builder {
 				return array.NewFixedSizeBinaryBuilder(mem, &arrow.FixedSizeBinaryType{ByteWidth: 4})
 			},
-			value: []byte{1, 2},
-			want:  []byte{1, 2, 0, 0},
+			value:   []byte{1, 2},
+			wantErr: true,
 		},
 		{
 			name: "a value wider than the column is rejected",

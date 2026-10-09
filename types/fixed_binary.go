@@ -1,16 +1,22 @@
 package types
 
 import (
-	"strconv"
 	"strings"
 
+	"github.com/datazip-inc/olake/utils"
 	"github.com/parquet-go/parquet-go"
 )
 
 // fixedBinaryFamily registers fixed_binary(%d): one width, and it must be positive. A fixed width
 // is a promise about every value, so two different widths cannot meet in a third; instances that
 // disagree fall to the family's parent in the typecast tree.
-var fixedBinaryFamily = newTypeFamily(FixedBinary, func(p []int) bool { return len(p) == 1 && p[0] > 0 })
+var fixedBinaryFamily = newTypeFamily(FixedBinary, validFixedBinary)
+
+// validFixedBinary is fixedBinaryFamily's parameter check, named so FixedBinaryWidth can call it
+// without its array escaping through the family's func field.
+func validFixedBinary(p []int) bool {
+	return len(p) == 1 && p[0] > 0
+}
 
 func fixedBinaryNode(params ...any) parquet.Node {
 	return parquet.Leaf(parquet.FixedLenByteArrayType(params[0].(int)))
@@ -21,32 +27,36 @@ func FixedBinaryOf(length int) DataType {
 	return FixedBinary.Of(length)
 }
 
-// IcebergBytesWidth reports whether an iceberg type carries bytes, along with the width of a fixed one.
-func IcebergBytesWidth(icebergType string) (int, bool) {
-	return bytesWidth(icebergType, "fixed[", "]")
+// IsIcebergBytes reports whether an iceberg type carries bytes, binary or fixed[n], and whether
+// it is a fixed one.
+func IsIcebergBytes(icebergType string) (isBytes, isFixed bool) {
+	if icebergType == "binary" {
+		return true, false
+	}
+	isFixed = strings.HasPrefix(icebergType, "fixed[")
+	return isFixed, isFixed
 }
 
-// IsBytes reports whether a column of type d carries bytes, along with the width of a fixed one:
-// the DataType twin of IcebergBytesWidth.
-func IsBytes(d DataType) (bool, int) {
-	width, isBytes := bytesWidth(string(d), "fixed_binary(", ")")
-	return isBytes, width
+// FixedBinaryWidth returns the width of a fixed_binary(n) DataType. It allocates nothing, so the
+// parquet writer can check every value against its column.
+func FixedBinaryWidth(d DataType) (int, bool) {
+	var width [1]int
+	if !utils.ScanType(d, FixedBinary, width[:]) || !validFixedBinary(width[:]) {
+		return 0, false
+	}
+	return width[0], true
 }
 
-// bytesWidth reports whether typeName carries bytes, along with the width of a fixed one. Both type
-// systems spell variable-length bytes "binary"; a fixed width sits between prefix and suffix.
-func bytesWidth(typeName, prefix, suffix string) (int, bool) {
-	if typeName == "binary" {
-		return 0, true
-	}
-	digits, isFixed := strings.CutPrefix(typeName, prefix)
-	digits, closed := strings.CutSuffix(digits, suffix)
-	if !isFixed || !closed {
+// icebergFixedBinary is fixedBinaryFamily's iceberg pattern, fixed[%d], read once for
+// IcebergFixedWidth.
+var icebergFixedBinary = fixedBinaryFamily.icebergPattern()
+
+// IcebergFixedWidth returns the width of an iceberg fixed[n] type. Like FixedBinaryWidth it
+// allocates nothing, so a writer can check every value against its column.
+func IcebergFixedWidth(icebergType string) (int, bool) {
+	var width [1]int
+	if !utils.ScanType(icebergType, icebergFixedBinary, width[:]) || !validFixedBinary(width[:]) {
 		return 0, false
 	}
-	width, err := strconv.Atoi(digits)
-	if err != nil || width <= 0 {
-		return 0, false
-	}
-	return width, true
+	return width[0], true
 }

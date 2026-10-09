@@ -61,15 +61,80 @@ func TestMySQLSync(t *testing.T) {
 	cfg.TestSync(t)
 }
 
-func TestMySQLPartitionSync(t *testing.T) {
+// TestMySQLBinarySync keys, partitions and filters on binary columns. The filter cases use the binary cursor so
+// incremental reads the filtered insert row too; their filter values are hex.
+func TestMySQLBinarySync(t *testing.T) {
 	t.Parallel()
-	cfg := mysqlBaseConfig(t)
-	cfg.PrimaryKey = "id_cursor_binary"
-	cfg.PartitionRegex = "/{data_fixed_binary,identity}"
-	cfg.ExpectedUpdatedData = ExpectedUpdatedData()
-	cfg.ExpectedUpdatedData["_olake_id"] = binaryCursorOlakeID(1)
-	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
-	cfg.TestCommonSync(t)
+	testCases := []struct {
+		name      string
+		configure func(cfg *integration.TestHandler)
+	}{
+		{
+			// a binary primary key and partition column
+			name: "partition",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.PrimaryKey = "id_cursor_binary"
+				cfg.PartitionRegex = "/{data_fixed_binary,identity}"
+				cfg.ExpectedUpdatedData["_olake_id"] = binaryCursorOlakeID(1)
+			},
+		},
+		{
+			// keeps only the filtered rows (X'00' padded to BINARY(16)) and the updated row the update phase
+			// asserts, whose X'FFFE' is not valid UTF-8
+			name: "filter_inclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "id_cursor_binary:id_smallint"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "data_fixed_binary",
+                            "operator": "=",
+                            "value": "00000000000000000000000000000000"
+                        },
+                        {
+                            "column": "data_fixed_binary",
+                            "operator": "=",
+                            "value": "fffe0000000000000000000000000000"
+                        }
+                    ]
+                }`
+				cfg.ExpectedData = ExpectedFilteredData
+			},
+		},
+		{
+			// drops the filtered rows; they come through if "!=" breaks or the unpadded X'00' matches
+			name: "filter_exclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "id_cursor_binary:id_smallint"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "data_varbinary",
+                            "operator": "!=",
+                            "value": "01"
+                        },
+                        {
+                            "column": "data_fixed_binary",
+                            "operator": "=",
+                            "value": "00"
+                        }
+                    ]
+                }`
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := mysqlBaseConfig(t)
+			cfg.ExpectedUpdatedData = ExpectedUpdatedData()
+			cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
+			tc.configure(cfg)
+			cfg.TestCommonSync(t)
+		})
+	}
 }
 
 func TestMySQL2PC(t *testing.T) {

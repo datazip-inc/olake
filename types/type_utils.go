@@ -2,9 +2,9 @@ package types
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
+	"github.com/datazip-inc/olake/utils"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -58,33 +58,8 @@ func (f *typeFamily) parse(s string) ([]int, bool) {
 
 // scan reads the family's parameters out of s against pattern
 func (f *typeFamily) scan(pattern, s string) ([]int, bool) {
-	prefix, _, parameterised := strings.Cut(pattern, "%d")
-	if !parameterised {
-		return nil, false
-	}
-
-	// remove suffix and spaces
-	s = strings.ReplaceAll(s[:len(s)-1], " ", "")
-
-	commaSeperatedParams, found := strings.CutPrefix(s, prefix)
-	if !found {
-		return nil, false
-	}
-
-	paramsStrs := strings.Split(commaSeperatedParams, ",")
-	if len(paramsStrs) != f.parity {
-		return nil, false
-	}
-	params := make([]int, f.parity)
-	for i, field := range paramsStrs {
-		value, err := strconv.Atoi(field)
-		if err != nil {
-			return nil, false
-		}
-		params[i] = value
-	}
-
-	if f.valid != nil && !f.valid(params) {
+	isInstance, params := utils.IsType(s, pattern, f.parity)
+	if !isInstance || (f.valid != nil && !f.valid(params)) {
 		return nil, false
 	}
 	return params, true

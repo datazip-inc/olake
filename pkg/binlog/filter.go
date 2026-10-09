@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
-
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -299,17 +297,14 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 			}
 			if raw != nil {
 				switch {
-				case constants.LoadedStateVersion < 8:
+				case !utils.IsBinarySupported():
 					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
 						val = decoded
 					}
 				case isBinaryCollation(view.collations[i]):
-					// e.g. collation 63 "binary", carried by BINARY, VARBINARY and BLOB columns
-					padded, padErr := typeutils.ReformatBytes(raw, view.widths[i])
-					if padErr != nil {
-						return nil, padErr
-					}
-					val = padded
+					// e.g. TableMapEvent.Dump of (id INT, c_text VARCHAR(16), c_fixed BINARY(8), c_var VARBINARY(16), c_blob BLOB):
+					// CollationMap: map[int]uint64{1:0xff, 2:0x3f, 3:0x3f, 4:0x3f}, where 0x3f is collation 63 "binary"
+					val = padToWidth(raw, view.widths[i])
 					columnType = binaryTypeName(columnType)
 				default:
 					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
@@ -544,6 +539,17 @@ func fixedWidth(meta uint16) int {
 		return int(low | uint16((realType&0x30)^0x30)<<4)
 	}
 	return int(low)
+}
+
+// padToWidth zero-pads b to width, restoring the trailing 0x00 bytes a row image drops from a
+// BINARY(n) value. A column without a width, or a value already that long, is returned as is.
+func padToWidth(b []byte, width int) []byte {
+	if len(b) >= width {
+		return b
+	}
+	padded := make([]byte, width)
+	copy(padded, b)
+	return padded
 }
 
 // textTypeName maps the BLOB wire type of a text-charset column to its TEXT counterpart; the

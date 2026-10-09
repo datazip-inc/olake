@@ -102,13 +102,15 @@ func (t *TypeSchema) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// GetType returns the type a column's values are handled as, so a fixed_binary(n) column reads
+// as binary.
 func (t *TypeSchema) GetType(column string) (DataType, error) {
 	column = utils.Ternary(t.HasDestinationColumnName(), column, utils.Reformat(column)).(string)
 	p, found := t.Properties.Load(column)
 	if !found {
 		return "", fmt.Errorf("column [%s] missing from type schema", column)
 	}
-	return p.(*Property).DataType(), nil
+	return p.(*Property).DataType().ValueType(), nil
 }
 
 func (t *TypeSchema) AddTypes(column string, isOlakeColumn bool, types ...DataType) {
@@ -240,10 +242,10 @@ func (p *Property) DataType() DataType {
 // applyStateVersionChecks rewrites the property's types for the state version this sync is pinned at.
 func (p *Property) applyStateVersionChecks() {
 	switch {
-	case constants.LoadedStateVersion < 8:
+	case !utils.IsBinarySupported():
 		types := p.Type.Array()
 		for i, d := range types {
-			if isBytes, _ := IsBytes(d); isBytes {
+			if d.ValueType() == Binary {
 				types[i] = String
 			}
 		}

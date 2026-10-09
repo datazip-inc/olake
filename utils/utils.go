@@ -269,7 +269,7 @@ func IsJSON(str string) bool {
 // keyString renders one primary key value for the olake id. Byte values (binary keys) are hex encoded
 func keyString(v any) string {
 	switch {
-	case constants.LoadedStateVersion < 8:
+	case !IsBinarySupported():
 		return fmt.Sprint(v)
 	default:
 		if b, ok := v.([]byte); ok {
@@ -457,6 +457,56 @@ func SplitAndTrim(s string) []string {
 		}
 	}
 	return result
+}
+
+// maxTypeParamDigits bounds a type parameter to 18 digits, which always fits an int64.
+const maxTypeParamDigits = 18
+
+// IsType reports whether dataType is an instance of pattern, a type whose non-negative integer
+// parameters are written %d (fixed_binary(%d), fixed[%d]), with exactly numParams of them, and
+// returns the parameters in order. dataType must be spelled exactly as the pattern renders.
+func IsType[T ~string](dataType, pattern T, numParams int) (bool, []int) {
+	var scratch [4]int
+	params := scratch[:0]
+	if numParams > len(scratch) {
+		params = make([]int, 0, numParams)
+	}
+	params = params[:numParams]
+	if !ScanType(dataType, pattern, params) {
+		return false, nil
+	}
+	return true, append([]int(nil), params...)
+}
+
+// ScanType is IsType writing the parameters into params, whose length is the number expected, so
+// a per-value caller can scan into an array on its stack without allocating.
+func ScanType[T ~string](dataType, pattern T, params []int) bool {
+	s, p := string(dataType), string(pattern)
+	found := 0
+	for {
+		literal, rest, hasParam := strings.Cut(p, "%d")
+		var matched bool
+		if s, matched = strings.CutPrefix(s, literal); !matched {
+			return false
+		}
+		if !hasParam {
+			return s == "" && found == len(params)
+		}
+		if found == len(params) {
+			return false
+		}
+		param, digits := 0, 0
+		for digits < len(s) && s[digits] >= '0' && s[digits] <= '9' {
+			param = param*10 + int(s[digits]-'0')
+			digits++
+		}
+		if digits == 0 || digits > maxTypeParamDigits {
+			return false
+		}
+		params[found] = param
+		found++
+		s, p = s[digits:], rest
+	}
 }
 
 // RetryWithSkip calls f once and retries up to maxRetries more times on error,

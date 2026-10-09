@@ -117,8 +117,8 @@ func identityTransform(val any, colType string) (pathStr string, typedVal any, e
 		typedVal = t.UnixMicro()
 		return pathStr, typedVal, nil
 	default:
-		if width, isBytes := types.IcebergBytesWidth(colType); isBytes {
-			b, err := typeutils.ReformatBytes(val, width)
+		if isBytes, _ := types.IsIcebergBytes(colType); isBytes {
+			b, err := typeutils.ReformatBytes(val)
 			if err != nil {
 				return "", nil, fmt.Errorf("failed to read bytes for identity transform (colType %q, valType %T): %s", colType, val, err)
 			}
@@ -197,11 +197,10 @@ func bucketTransform(val any, num int, colType string) (pathStr string, typedVal
 		}
 		h = hashString(str)
 	default:
-		width, isBytes := types.IcebergBytesWidth(colType)
-		if !isBytes {
+		if isBytes, _ := types.IsIcebergBytes(colType); !isBytes {
 			return "", nil, fmt.Errorf("unsupported colType %q for bucket transform", colType)
 		}
-		b, err := typeutils.ReformatBytes(val, width)
+		b, err := typeutils.ReformatBytes(val)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to read bytes for bucket transform (colType %q, valType %T): %s", colType, val, err)
 		}
@@ -251,11 +250,10 @@ func truncateTransform(val any, n int, colType string) (pathStr string, typedVal
 		truncated := string(runes[:n])
 		return truncated, truncated, nil
 	default:
-		width, isBytes := types.IcebergBytesWidth(colType)
-		if !isBytes || width > 0 {
+		if isBytes, isFixed := types.IsIcebergBytes(colType); !isBytes || isFixed {
 			return "", nil, fmt.Errorf("unsupported colType %q for truncate transform", colType)
 		}
-		b, err := typeutils.ReformatBytes(val, 0)
+		b, err := typeutils.ReformatBytes(val)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to read bytes for truncate transform (colType %q, valType %T): %s", colType, val, err)
 		}

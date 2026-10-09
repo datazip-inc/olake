@@ -376,6 +376,11 @@ func TestTypeSchemaGetType(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Int64, dataType)
 
+	schema.AddTypes("Digest", false, FixedBinaryOf(16))
+	dataType, err = schema.GetType("Digest")
+	require.NoError(t, err)
+	require.Equal(t, Binary, dataType, "a fixed_binary(n) column's values are plain binary")
+
 	_, err = schema.GetType("missing")
 	require.Error(t, err)
 }
