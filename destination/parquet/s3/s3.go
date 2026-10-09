@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type Config struct {
@@ -137,6 +138,7 @@ func (s *Store) deletePrefixIndividually(ctx context.Context, prefix string) err
 			if len(pageKeys) == 0 {
 				return true
 			}
+			logger.Debugf("individual delete: found %d objects under %s, deleting", len(pageKeys), prefix)
 			concurrency := min(runtime.GOMAXPROCS(0)*4, len(pageKeys))
 			if pageErr = utils.Concurrent(ctx, pageKeys, concurrency, func(_ context.Context, key string, _ int) error {
 				return utils.RetryWithSkip(ctx, 3, time.Minute, s.IsRateLimitError, func(_ context.Context) error {
