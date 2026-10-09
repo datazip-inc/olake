@@ -454,7 +454,9 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	}()
 
 	dataFiles := p.pendingDataFiles()
-	if !p.options.Backfill && len(dataFiles) == 0 {
+	// CDC/incremental positions can move without new records, so the metadata is committed
+	// on every sync; only a close without data and without metadata state is a no-op.
+	if !p.options.Backfill && len(dataFiles) == 0 && !hasStreamFinishState(finalMetadataState) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

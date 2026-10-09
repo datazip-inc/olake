@@ -173,6 +173,17 @@ func streamFinishState(finalMetadataState any) ([]byte, types.MetadataState, err
 	return data, *state, nil
 }
 
+// hasStreamFinishState reports whether the abstract-provided state carries a checkpoint to
+// commit. Unserializable state reports true so streamFinishState surfaces the error.
+func hasStreamFinishState(finalMetadataState any) bool {
+	data, err := json.Marshal(finalMetadataState)
+	if err != nil {
+		return true
+	}
+	state, err := parseFinishState(data)
+	return err != nil || state != nil
+}
+
 func parseFinishState(data []byte) (*types.MetadataState, error) {
 	trimmedData := bytes.TrimSpace(data)
 	if len(trimmedData) == 0 || bytes.Equal(trimmedData, []byte("{}")) || bytes.Equal(trimmedData, []byte("null")) {
