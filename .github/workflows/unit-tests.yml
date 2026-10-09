@@ -27,10 +27,9 @@ jobs:
         id: go_tests
         run: make test.unit
 
-      - name: Coverage Table
+      - name: Coverage summary
         if: always()
         run: |
-          make coverage.table
           if [ -s /tmp/cover-rows.md ]; then
             { echo "### Unit Test Coverage"; echo; cat /tmp/cover-rows.md; } >> "$GITHUB_STEP_SUMMARY"
           fi
