@@ -18,8 +18,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const olakeUnavailableValue = "__olake_unavailable_value__"
-
 // pgoutputReplicator implements Replicator for pgoutput
 type pgoutputReplicator struct {
 	socket               *Socket
@@ -27,6 +25,7 @@ type pgoutputReplicator struct {
 	txnCommitTime        time.Time                             // transaction commit time
 	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
 	transactionCompleted bool                                  // if both begin and commit message received, then transaction is completed
+	postRead             bool                                  // mark columns Postgres left out of an UPDATE so the destination can recover them
 }
 
 func (p *pgoutputReplicator) Socket() *Socket {
@@ -41,6 +40,9 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 
 	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
+	if p.postRead {
+		logger.Info("post_read enabled: column values postgres omits from an update are recovered from the destination, for iceberg streams using positional deletes or deletion vectors")
+	}
 
 	cdcStartTime := time.Now()
 	messageReceived := false
@@ -142,16 +144,17 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, int64, error) {
-	data := make(map[string]any)
+// tupleValuesToMap converts one row's tuple into column values. unchangedToastColumns
+// lists this row's out-of-line values the UPDATE left unchanged, which Postgres did not
+// send. Nil unless postRead is on.
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (data map[string]any, rowBytes int64, unchangedToastColumns []string, err error) {
+	data = make(map[string]any)
 	if tuple == nil {
-		return data, 0, nil
+		return data, 0, nil, nil
 	}
 
 	// rowBytes is summed inline below (attached to CDCChange.Bytes by the caller),
 	// so the tuple is walked only once.
-	var rowBytes int64
-
 	for idx, col := range tuple.Columns {
 		if idx >= len(rel.Columns) {
 			continue
@@ -175,7 +178,10 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		}
 		if col.Data == nil {
 			// If the column is a TOAST column, set the value to __olake_unavailable_value__ otherwise set it to nil
-			data[colName] = utils.Ternary(isUnchangedToast, olakeUnavailableValue, nil)
+			data[colName] = utils.Ternary(isUnchangedToast, constants.UnavailableValue, nil)
+			if isUnchangedToast && p.postRead {
+				unchangedToastColumns = append(unchangedToastColumns, colName)
+			}
 			continue
 		}
 
@@ -183,11 +189,11 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		typeName := oidToString(colType)
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		data[colName] = val
 	}
-	return data, rowBytes, nil
+	return data, rowBytes, unchangedToastColumns, nil
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
@@ -201,7 +207,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.Tuple, nil)
+	values, rowBytes, _, err := p.tupleValuesToMap(rel, m.Tuple, nil)
 	if err != nil {
 		return err
 	}
@@ -221,13 +227,16 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
+	values, rowBytes, unchangedToastColumns, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
 	if err != nil {
 		return err
 	}
 
-	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+	change := abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes)
+	change.UnavailableColumns = unchangedToastColumns
+
+	return insertFn(ctx, change)
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -241,7 +250,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+	values, rowBytes, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 	if err != nil {
 		return err
 	}

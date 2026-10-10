@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/spf13/viper"
+
+	"github.com/datazip-inc/olake/constants"
 )
 
 // QueryEngine is a downstream engine that reads the Iceberg tables OLake writes.
@@ -95,8 +99,12 @@ func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 // AvailableUpdateTypes returns the writable delete formats every engine can read, cheapest
 // first. No engines means the choice is unconstrained.
 func AvailableUpdateTypes(engines []QueryEngine) []UpdateType {
+	indexRequired := viper.GetBool(constants.TableIndexRequired)
 	available := make([]UpdateType, 0, len(writableUpdateTypes))
 	for _, updateType := range writableUpdateTypes {
+		if indexRequired && !updateType.NeedsTableIndex(Iceberg) {
+			continue
+		}
 		if readableByAll(engines, updateType) {
 			available = append(available, updateType)
 		}

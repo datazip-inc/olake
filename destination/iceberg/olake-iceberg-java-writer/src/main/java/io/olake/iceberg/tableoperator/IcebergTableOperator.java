@@ -332,6 +332,16 @@ public class IcebergTableOperator {
     }
   }
 
+  /**
+   * Closes, without committing, the data files among paths that this thread's writer still
+   * has open, so rows written to them can be read. The writer itself stays open.
+   */
+  public void closeOpenDataFiles(Set<String> paths) throws IOException {
+    if (writer instanceof PositionalDeltaWriter delta && delta.closeOpen(paths)) {
+      LOGGER.info("closed open data files, without committing, to read rows written to them");
+    }
+  }
+
   public void completeWriter() {
     try {
       if (writer == null) {

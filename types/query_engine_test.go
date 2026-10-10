@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/datazip-inc/olake/constants"
 )
 
 func TestParseQueryEngines(t *testing.T) {
@@ -55,9 +58,10 @@ func TestQueryEngineCatalogRoundTripsThroughParse(t *testing.T) {
 
 func TestAvailableUpdateTypes(t *testing.T) {
 	testCases := []struct {
-		name     string
-		engines  []QueryEngine
-		expected []UpdateType
+		name          string
+		engines       []QueryEngine
+		indexRequired bool // the source reads rows back through the table index (Postgres post_read)
+		expected      []UpdateType
 	}{
 		{
 			// No engines means unconstrained: everything OLake can write stays on the table.
@@ -100,10 +104,32 @@ func TestAvailableUpdateTypes(t *testing.T) {
 			engines:  []QueryEngine{QueryEngineDatabricks, QueryEngineAthena},
 			expected: []UpdateType{},
 		},
+		{
+			// Equality deletes keep no table index, so they are never offered.
+			name:          "index required without engines drops equality",
+			indexRequired: true,
+			expected:      []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector},
+		},
+		{
+			// Athena reads equality, which is cheaper, but it keeps no index; it cannot read dv.
+			name:          "index required with an engine reading eq and pos",
+			engines:       []QueryEngine{QueryEngineSpark, QueryEngineAthena},
+			indexRequired: true,
+			expected:      []UpdateType{UpdateTypePosition},
+		},
+		{
+			name:          "index required with a deletion vector only engine",
+			engines:       []QueryEngine{QueryEngineDatabricks},
+			indexRequired: true,
+			expected:      []UpdateType{UpdateTypeDeletionVector},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			viper.Set(constants.TableIndexRequired, tc.indexRequired)
+			t.Cleanup(func() { viper.Set(constants.TableIndexRequired, false) })
+
 			assert.Equal(t, tc.expected, AvailableUpdateTypes(tc.engines))
 		})
 	}

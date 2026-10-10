@@ -24,15 +24,22 @@ type LegacyWriter struct {
 	upsertMode  bool
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) *LegacyWriter {
+func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, indexThread *types.StreamIndexThread) *LegacyWriter {
 	return &LegacyWriter{
 		options:     options,
 		schema:      schema,
 		stream:      stream,
 		server:      server,
 		upsertMode:  upsertMode,
-		indexThread: types.NewStreamIndexThread(options.TableIndex),
+		indexThread: indexThread,
 	}
+}
+
+// EnsureReadable has nothing to do: Java writes the data files and knows which are still
+// open, so ReadRows closes those itself. Tracking them here would go stale whenever Java
+// rolls a file on its own.
+func (w *LegacyWriter) EnsureReadable(context.Context, []string) error {
+	return nil
 }
 
 func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) error {

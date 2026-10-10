@@ -178,6 +178,12 @@
                             "type": "string",
                             "title": "Publication",
                             "description": "Publication defines which tables need to be consumed"
+                        },
+                        "post_read": {
+                            "type": "boolean",
+                            "title": "Recover Unavailable Values",
+                            "description": "Refill large column values Postgres omits from an update when the table's replica identity is not FULL, by reading them from the destination. Iceberg destinations using positional deletes or deletion vectors only.",
+                            "default": false
                         }
                     },
                     "required": [

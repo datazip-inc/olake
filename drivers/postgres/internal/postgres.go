@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"github.com/spf13/viper"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -164,6 +165,8 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
+		// post_read reads rows back through the destination's table index
+		viper.Set(constants.TableIndexRequired, cdc.PostRead)
 	} else {
 		logger.Info("Standard Replication is selected")
 	}

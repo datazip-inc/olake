@@ -3,8 +3,10 @@ package io.olake.iceberg.tableoperator;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionKey;
@@ -183,6 +185,27 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
   @Override
   public long currentRows(Record record) {
     return dataWriter(record).currentRows();
+  }
+
+  /**
+   * Closes each data file this writer still has open whose path is in paths, so the rows
+   * written to it can be read (an open file has no footer). Only those partitions' files are
+   * closed and the writer stays open: a closed file joins this writer's result like any file
+   * it rolled, and the partition starts a new file on its next row. Returns whether any file
+   * was closed.
+   */
+  boolean closeOpen(Set<String> paths) throws IOException {
+    boolean closed = false;
+    Iterator<RollingFileWriter> writers = dataWriters.values().iterator();
+    while (writers.hasNext()) {
+      RollingFileWriter writer = writers.next();
+      if (paths.contains(writer.currentPath().toString())) {
+        writer.close();
+        writers.remove();
+        closed = true;
+      }
+    }
+    return closed;
   }
 
   private void supersedePrevious(Object identifier) throws IOException {

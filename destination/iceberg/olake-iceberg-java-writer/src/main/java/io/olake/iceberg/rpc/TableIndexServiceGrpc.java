@@ -82,6 +82,37 @@ public final class TableIndexServiceGrpc {
     return getMigrateEqualityDeletesMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest,
+      io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch> getReadRowsMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "ReadRows",
+      requestType = io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.class,
+      responseType = io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
+  public static io.grpc.MethodDescriptor<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest,
+      io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch> getReadRowsMethod() {
+    io.grpc.MethodDescriptor<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch> getReadRowsMethod;
+    if ((getReadRowsMethod = TableIndexServiceGrpc.getReadRowsMethod) == null) {
+      synchronized (TableIndexServiceGrpc.class) {
+        if ((getReadRowsMethod = TableIndexServiceGrpc.getReadRowsMethod) == null) {
+          TableIndexServiceGrpc.getReadRowsMethod = getReadRowsMethod =
+              io.grpc.MethodDescriptor.<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest, io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "ReadRows"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch.getDefaultInstance()))
+              .setSchemaDescriptor(new TableIndexServiceMethodDescriptorSupplier("ReadRows"))
+              .build();
+        }
+      }
+    }
+    return getReadRowsMethod;
+  }
+
   /**
    * Creates a new async stub that supports all call types for the service
    */
@@ -156,6 +187,19 @@ public final class TableIndexServiceGrpc {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getMigrateEqualityDeletesMethod(), responseObserver);
     }
 
+    /**
+     * <pre>
+     * ReadRows streams the requested columns of rows addressed by data file and position,
+     * the locations the index holds. Used to refill values a CDC change could not carry
+     * (Postgres unchanged TOAST). A data file the thread's writer still holds open is
+     * closed first, without committing, so rows written earlier in the sync are readable.
+     * </pre>
+     */
+    public void readRows(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest request,
+        io.grpc.stub.StreamObserver<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getReadRowsMethod(), responseObserver);
+    }
+
     @java.lang.Override public final io.grpc.ServerServiceDefinition bindService() {
       return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
           .addMethod(
@@ -172,6 +216,13 @@ public final class TableIndexServiceGrpc {
                 io.olake.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest,
                 io.olake.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse>(
                   this, METHODID_MIGRATE_EQUALITY_DELETES)))
+          .addMethod(
+            getReadRowsMethod(),
+            io.grpc.stub.ServerCalls.asyncServerStreamingCall(
+              new MethodHandlers<
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest,
+                io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch>(
+                  this, METHODID_READ_ROWS)))
           .build();
     }
   }
@@ -217,6 +268,20 @@ public final class TableIndexServiceGrpc {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getMigrateEqualityDeletesMethod(), getCallOptions()), request, responseObserver);
     }
+
+    /**
+     * <pre>
+     * ReadRows streams the requested columns of rows addressed by data file and position,
+     * the locations the index holds. Used to refill values a CDC change could not carry
+     * (Postgres unchanged TOAST). A data file the thread's writer still holds open is
+     * closed first, without committing, so rows written earlier in the sync are readable.
+     * </pre>
+     */
+    public void readRows(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest request,
+        io.grpc.stub.StreamObserver<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncServerStreamingCall(
+          getChannel().newCall(getReadRowsMethod(), getCallOptions()), request, responseObserver);
+    }
   }
 
   /**
@@ -259,6 +324,20 @@ public final class TableIndexServiceGrpc {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getMigrateEqualityDeletesMethod(), getCallOptions(), request);
     }
+
+    /**
+     * <pre>
+     * ReadRows streams the requested columns of rows addressed by data file and position,
+     * the locations the index holds. Used to refill values a CDC change could not carry
+     * (Postgres unchanged TOAST). A data file the thread's writer still holds open is
+     * closed first, without committing, so rows written earlier in the sync are readable.
+     * </pre>
+     */
+    public java.util.Iterator<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch> readRows(
+        io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest request) {
+      return io.grpc.stub.ClientCalls.blockingServerStreamingCall(
+          getChannel(), getReadRowsMethod(), getCallOptions(), request);
+    }
   }
 
   /**
@@ -295,6 +374,7 @@ public final class TableIndexServiceGrpc {
 
   private static final int METHODID_SCAN_TABLE_FOR_INDEXING = 0;
   private static final int METHODID_MIGRATE_EQUALITY_DELETES = 1;
+  private static final int METHODID_READ_ROWS = 2;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -320,6 +400,10 @@ public final class TableIndexServiceGrpc {
         case METHODID_MIGRATE_EQUALITY_DELETES:
           serviceImpl.migrateEqualityDeletes((io.olake.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest) request,
               (io.grpc.stub.StreamObserver<io.olake.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse>) responseObserver);
+          break;
+        case METHODID_READ_ROWS:
+          serviceImpl.readRows((io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest) request,
+              (io.grpc.stub.StreamObserver<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch>) responseObserver);
           break;
         default:
           throw new AssertionError();
@@ -384,6 +468,7 @@ public final class TableIndexServiceGrpc {
               .setSchemaDescriptor(new TableIndexServiceFileDescriptorSupplier())
               .addMethod(getScanTableForIndexingMethod())
               .addMethod(getMigrateEqualityDeletesMethod())
+              .addMethod(getReadRowsMethod())
               .build();
         }
       }
