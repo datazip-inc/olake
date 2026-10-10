@@ -25,6 +25,9 @@ import (
 // from the destination at the location the row index (pos or dv) gives.
 type toastResolver struct {
 	writer Writer
+	// index locates a row's newest version: this thread's uncommitted writes first, then
+	// the committed index.
+	index *types.StreamIndexThread
 	// reader reads stored values out of data files (Java side).
 	reader   proto.TableIndexServiceClient
 	threadID string
@@ -76,9 +79,10 @@ type pendingRead struct {
 	columns []string
 }
 
-func newToastResolver(threadID string, stream types.StreamInterface, writer Writer, reader proto.TableIndexServiceClient) *toastResolver {
+func newToastResolver(threadID string, stream types.StreamInterface, writer Writer, index *types.StreamIndexThread, reader proto.TableIndexServiceClient) *toastResolver {
 	return &toastResolver{
 		writer:   writer,
+		index:    index,
 		reader:   reader,
 		threadID: threadID,
 		stream:   stream,
@@ -173,7 +177,7 @@ func (r *toastResolver) readMissing(ctx context.Context, records []types.RawReco
 			continue
 		}
 
-		location, found, err := r.writer.Lookup(olakeID)
+		location, found, err := r.index.Lookup(olakeID)
 		if err != nil {
 			return fmt.Errorf("failed to look up row[%s] in index: %w", olakeID, err)
 		}

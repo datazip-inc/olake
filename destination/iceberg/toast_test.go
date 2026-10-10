@@ -22,8 +22,8 @@ import (
 // placeholder is what the source writes for a column it could not send.
 const placeholder = constants.UnavailableValue
 
-// testWriter stands in for the Iceberg writers: it answers where a row lives, records the
-// files the resolver asks to make readable, and fails on demand.
+// testWriter stands in for the Iceberg writer and its stream index: it answers where a row
+// lives, records the files the resolver asks to make readable, and fails on demand.
 type testWriter struct {
 	locations map[string]types.RowLocation
 	lookupErr error
@@ -49,6 +49,17 @@ func (w *testWriter) Lookup(olakeID string) (types.RowLocation, bool, error) {
 func (w *testWriter) EnsureReadable(_ context.Context, paths []string) error {
 	w.flushes = append(w.flushes, paths)
 	return w.ensureErr
+}
+
+// testIndex is the committed stream index, answered by the testWriter. The embedded
+// interface supplies the index calls the resolver never makes.
+type testIndex struct {
+	types.StreamIndex
+	writer *testWriter
+}
+
+func (i testIndex) Lookup(key string) (types.RowLocation, bool, error) {
+	return i.writer.Lookup(key)
 }
 
 // testCell addresses one column of one stored row.
@@ -143,6 +154,7 @@ func testResolver(t *testing.T, normalized bool, writer *testWriter, reader *tes
 
 	resolver := &toastResolver{
 		writer:   writer,
+		index:    types.NewStreamIndexThread(testIndex{writer: writer}),
 		reader:   reader,
 		threadID: "test-thread",
 		stream:   testConfiguredStream(normalized),

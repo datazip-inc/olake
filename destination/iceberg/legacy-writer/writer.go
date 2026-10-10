@@ -24,25 +24,15 @@ type LegacyWriter struct {
 	upsertMode  bool
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) *LegacyWriter {
+func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, indexThread *types.StreamIndexThread) *LegacyWriter {
 	return &LegacyWriter{
 		options:     options,
 		schema:      schema,
 		stream:      stream,
 		server:      server,
 		upsertMode:  upsertMode,
-		indexThread: types.NewStreamIndexThread(options.TableIndex),
+		indexThread: indexThread,
 	}
-}
-
-// Lookup returns where a row's newest version is: this thread's uncommitted writes
-// first, then the committed index.
-func (w *LegacyWriter) Lookup(olakeID string) (types.RowLocation, bool, error) {
-	if w.indexThread == nil {
-		return types.RowLocation{}, false, nil
-	}
-
-	return w.indexThread.Lookup(olakeID)
 }
 
 // EnsureReadable has nothing to do: Java writes the data files and knows which are still

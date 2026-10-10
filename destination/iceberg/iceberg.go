@@ -144,19 +144,22 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		return schema, nil, err
 	}
 
+	// nil in equality mode; shared by the writer, which buffers this thread's row locations
+	// in it, and the toast resolver, which looks rows up in it
+	indexThread := types.NewStreamIndexThread(options.TableIndex)
 	if i.config.UseArrowWrites {
-		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode)
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode, indexThread)
 		if err != nil {
 			return nil, nil, destination.WriteFailure(fmt.Errorf("failed to create arrow writer: %w", err))
 		}
 	} else {
-		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode)
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode, indexThread)
 	}
 
 	// Recovery needs the row's previous location, which only an upsert thread with a
 	// stream index has. Backfill and equality mode keep the placeholder.
-	if options.TableIndex != nil && upsertMode {
-		i.toast = newToastResolver(options.ThreadID, i.stream, i.writer, i.server.tableIndexClient)
+	if indexThread != nil && upsertMode {
+		i.toast = newToastResolver(options.ThreadID, i.stream, i.writer, indexThread, i.server.tableIndexClient)
 	}
 
 	return schema, &metadataState, nil

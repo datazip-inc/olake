@@ -79,7 +79,7 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, options *destination.Options, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+func New(ctx context.Context, options *destination.Options, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, indexThread *types.StreamIndexThread) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
 		options:       options,
 		partitionInfo: partitionInfo,
@@ -90,7 +90,7 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
-		indexThread:   types.NewStreamIndexThread(options.TableIndex),
+		indexThread:   indexThread,
 		deleteMode:    stream.GetUpdateType(),
 
 		pendingVectors: make(map[string]*pendingVector),
@@ -360,16 +360,6 @@ func (w *ArrowWriter) roll(ctx context.Context, rw *RollingWriter, partitionKey 
 	newWriter.filePath = newFilePath
 
 	return newWriter, nil
-}
-
-// Lookup returns where a row's newest version is: this thread's uncommitted writes
-// first, then the committed index.
-func (w *ArrowWriter) Lookup(olakeID string) (types.RowLocation, bool, error) {
-	if w.indexThread == nil {
-		return types.RowLocation{}, false, nil
-	}
-
-	return w.indexThread.Lookup(olakeID)
 }
 
 // EnsureReadable uploads any file in paths that is still being written, so its rows
