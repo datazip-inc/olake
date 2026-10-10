@@ -80,7 +80,8 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		}
 
 		// check if we need to write pos for the current record
-		if w.indexThread != nil && (opType != "r" && opType != "c") {
+		hasIdentityKey := w.stream.GetStream().SourceDefinedPrimaryKey.Len() > 0
+		if w.indexThread != nil && (opType != "r" && (opType != "c" || hasIdentityKey)) {
 			olakeID := record.OlakeColumns[constants.OlakeID].(string)
 			previous, found, err := w.indexThread.Lookup(olakeID)
 			if err != nil {
