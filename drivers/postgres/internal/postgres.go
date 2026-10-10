@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -14,7 +13,6 @@ import (
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pgx/v5"
@@ -80,6 +78,9 @@ type Postgres struct {
 	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
 	streams    []types.StreamInterface
+	// prerequisites holds the CDC setup checks evaluated in Setup; when the config selects CDC,
+	// unmet required checks fail Setup via abstract.RequireCDCPrerequisites.
+	prerequisites types.PrerequisiteResults
 }
 
 func (p *Postgres) CDCSupported() bool {
@@ -148,20 +149,12 @@ func (p *Postgres) Setup(ctx context.Context) error {
 			cdc.InitialWaitTime = defaultCDCInitialWaitTime
 		}
 
-		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication, p.config.Database)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return errs.Precondition(errs.CDCPreconditionFailed, codeReplicationSlotMissing,
-					fmt.Errorf("failed to validate cdc configuration for slot %s: no record found", cdc.ReplicationSlot))
-			}
-			return fmt.Errorf("failed to validate cdc configuration for slot %s: %w", cdc.ReplicationSlot, err)
+		// The config selects CDC, so an unmet requirement fails the connection test rather than
+		// leaving a source that cannot sync.
+		p.prerequisites = abstract.RunPrerequisites(ctx, p.prerequisiteChecks(cdc))
+		if err := abstract.RequireCDCPrerequisites(p.Type(), p.prerequisites); err != nil {
+			return err
 		}
-
-		if !exists {
-			return errs.Precondition(errs.CDCPreconditionFailed, codeReplicationSlotMissing,
-				fmt.Errorf("replication slot '%s' does not exist in the current database '%s'", cdc.ReplicationSlot, p.config.Database))
-		}
-		// no use of it if check not being called while sync run
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
 	} else {

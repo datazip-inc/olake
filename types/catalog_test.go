@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -1140,6 +1141,37 @@ func validateBasicSchemas(t *testing.T, expected, actual *TypeSchema, testName s
 			t.Errorf("%s: Property %s type count mismatch - expected: %d, actual: %d",
 				testName, key, expectedProp.Type.Len(), actualProp.Type.Len())
 		}
+	}
+}
+
+func TestPrerequisiteResultJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   PrerequisiteResult
+		wantJSON string
+	}{
+		{
+			// the check ran, so there is no error to show
+			name:     "evaluated check omits error",
+			result:   PrerequisiteResult{Name: "log_bin", Required: true, Passed: false, CurrentValue: "OFF", RecommendedValue: "ON"},
+			wantJSON: `{"name":"log_bin","required":true,"passed":false,"current_value":"OFF","recommended_value":"ON","description":""}`,
+		},
+		{
+			// Err never reaches the output; Error carries its text for the UI
+			name: "unevaluated check shows error",
+			result: PrerequisiteResult{
+				Name: "log_bin", Required: true, CurrentValue: "unavailable", RecommendedValue: "ON",
+				Error: "connection reset", Err: errors.New("connection reset"),
+			},
+			wantJSON: `{"name":"log_bin","required":true,"passed":false,"current_value":"unavailable","recommended_value":"ON","description":"","error":"connection reset"}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := json.Marshal(tc.result)
+			assert.NoError(t, err)
+			assert.JSONEq(t, tc.wantJSON, string(got))
+		})
 	}
 }
 

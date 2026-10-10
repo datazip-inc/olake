@@ -9,9 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +74,26 @@ func Ternary(cond bool, a, b any) any {
 		return a
 	}
 	return b
+}
+
+// HumanDuration renders a duration for display in the largest unit it reaches, rounded to one
+// decimal: "45 seconds", "12.5 minutes", "1 hour", "7.5 days". Days is the largest unit.
+func HumanDuration(d time.Duration) string {
+	unit, n := "second", d.Seconds()
+	switch {
+	case d >= 24*time.Hour:
+		unit, n = "day", d.Hours()/24
+	case d >= time.Hour:
+		unit, n = "hour", d.Hours()
+	case d >= time.Minute:
+		unit, n = "minute", d.Minutes()
+	}
+	n = math.Round(n*10) / 10
+	s := strconv.FormatFloat(n, 'f', -1, 64) + " " + unit
+	if n != 1 {
+		s += "s"
+	}
+	return s
 }
 
 // return the average of the given values.
@@ -195,6 +217,22 @@ func UnmarshalFile(file string, dest any, credsFile bool) error {
 			fmt.Errorf("failed to unmarshal file[%s]: %w", file, err))
 	}
 	return nil
+}
+
+// UpdateMethodType returns the "type" of an update_method config object, so a driver can tell
+// CDC from standard replication. It returns "" when the field is absent, which is how configs
+// saved before the driver had an update_method read: the driver decides what to do with that.
+func UpdateMethodType(updateMethod any) string {
+	if updateMethod == nil {
+		return ""
+	}
+	var method struct {
+		Type string `json:"type"`
+	}
+	if err := Unmarshal(updateMethod, &method); err != nil {
+		return ""
+	}
+	return method.Type
 }
 
 func IsOfType(object any, decidingKey string) (bool, error) {

@@ -36,9 +36,27 @@ type Log struct {
 }
 
 type StatusRow struct {
-	Status  ConnectionStatus `json:"status,omitempty"`
-	Message string           `json:"message,omitempty"`
+	Status        ConnectionStatus    `json:"status,omitempty"`
+	Message       string              `json:"message,omitempty"`
+	Prerequisites PrerequisiteResults `json:"prerequisites,omitempty"`
 }
+
+// PrerequisiteResult is the outcome of one CDC prerequisite check evaluated during setup.
+type PrerequisiteResult struct {
+	Name             string `json:"name"`
+	Required         bool   `json:"required"`
+	Passed           bool   `json:"passed"`
+	CurrentValue     string `json:"current_value"`
+	RecommendedValue string `json:"recommended_value"`
+	Description      string `json:"description"`
+	// Error is why the check could not be evaluated, for display; empty when it ran, whether or
+	// not it passed.
+	Error string `json:"error,omitempty"`
+	// Err is the same cause kept as an error, so a failure can be classified by it.
+	Err error `json:"-"`
+}
+
+type PrerequisiteResults []PrerequisiteResult
 
 // SelectedColumns represents column selection configuration for a stream.
 // - columns: explicit list of columns (empty means "all")
