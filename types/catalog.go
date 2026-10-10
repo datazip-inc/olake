@@ -62,6 +62,8 @@ type StreamMetadata struct {
 	//new filter input
 	FilterConfig    *FilterConfig    `json:"filter_config,omitempty"`
 	SelectedColumns *SelectedColumns `json:"selected_columns"`
+
+	DedupKeys []string `json:"dedup_keys,omitempty"`
 }
 
 type Catalog struct {
@@ -90,6 +92,14 @@ func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) 
 	// The default delete format is the cheapest one every target engine can read.
 	available := AvailableUpdateTypes(engines)
 	updateType := PreferredUpdateType(available)
+
+	// Kafka upsert always writes positional deletes. This is only the advertised default:
+	// append-mode streams (Kafka's default) never use it, because every delete-format
+	// consumer (isUpsertMode, writers.go table index, ValidateUpdateType) short-circuits
+	// on StreamMetadata.AppendMode before consulting the update type.
+	if driver == string(constants.Kafka) && slices.Contains(available, UpdateTypePosition) {
+		updateType = UpdateTypePosition
+	}
 
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
@@ -379,6 +389,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||
 					!reflect.DeepEqual(oldMetadata.FilterConfig, newMetadata.FilterConfig) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
+					!reflect.DeepEqual(oldMetadata.DedupKeys, newMetadata.DedupKeys) ||
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
 					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||
@@ -418,7 +429,7 @@ func IsDriverRelational(driver string) bool {
 }
 
 func IsDriverAppendOnly(driver string) bool {
-	_, isAppendOnly := utils.ArrayContains(constants.AppendOnlyDrivers, func(src constants.DriverType) bool {
+	_, isAppendOnly := utils.ArrayContains(constants.DefaultAppendModeDrivers, func(src constants.DriverType) bool {
 		return src == constants.DriverType(driver)
 	})
 	return isAppendOnly

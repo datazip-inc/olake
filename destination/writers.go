@@ -18,9 +18,10 @@ type (
 	initWriter func(config any) (Writer, func(ctx context.Context), error)
 
 	Options struct {
-		Backfill    bool
-		ThreadID    string
-		ApplyFilter bool
+		Backfill                 bool
+		ThreadID                 string
+		ApplyFilter              bool
+		KeepDeletesThroughFilter bool
 		// TableIndex maps _olake_id to the row's location in the destination table.
 		TableIndex types.StreamIndex
 	}
@@ -85,6 +86,12 @@ func WithThreadID(threadID string) ThreadOptions {
 func WithApplyFilter(applyFilter bool) ThreadOptions {
 	return func(opt *Options) {
 		opt.ApplyFilter = applyFilter
+	}
+}
+
+func WithKeepDeletesThroughFilter(keep bool) ThreadOptions {
+	return func(opt *Options) {
+		opt.KeepDeletesThroughFilter = keep
 	}
 }
 

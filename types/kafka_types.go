@@ -30,8 +30,9 @@ type PartitionKey struct {
 
 // KafkaRecord represents a record (data + message) from a Kafka partition
 type KafkaRecord struct {
-	Data    map[string]interface{}
-	Message *kgo.Record
+	Data      map[string]interface{}
+	KeyFields map[string]interface{}
+	Message   *kgo.Record
 }
 
 // RegisteredSchema holds the schema information

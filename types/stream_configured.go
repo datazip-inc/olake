@@ -298,6 +298,9 @@ func (s *ConfiguredStream) NormalizationEnabled() bool {
 }
 
 func (s *ConfiguredStream) GetUpdateType() UpdateType {
+	if s.ResolveUpsertOp() {
+		return UpdateTypePosition
+	}
 	if s.StreamMetadata.UpdateType == "" {
 		return UpdateTypeEquality
 	}
@@ -320,4 +323,10 @@ func (s *ConfiguredStream) ValidateUpdateType() error {
 	}
 
 	return s.GetUpdateType().ValidateAgainst(available)
+}
+
+// ResolveUpsertOp is true when the source cannot differentiate create from update.
+// Kafka upsert (!append && dedup_keys set).
+func (s *ConfiguredStream) ResolveUpsertOp() bool {
+	return !s.StreamMetadata.AppendMode && len(s.StreamMetadata.DedupKeys) > 0
 }
