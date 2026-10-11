@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"math"
 	"slices"
 	"testing"
 
@@ -215,27 +216,41 @@ func TestGetCommonAncestorTypeInvariants(t *testing.T) {
 
 func TestTypecastTreeShape(t *testing.T) {
 	require.Equal(t, Binary, typecastTree.t)
-	var underBinary []DataType
-	for _, child := range typecastTree.children {
-		underBinary = append(underBinary, child.t)
+	require.Equal(t, String, typecastTree.left.t)
+	require.Equal(t, FixedBinary, typecastTree.right.t)
+}
+
+// TestTypecastTreeOrder pins the order lowestCommonAncestor's walk relies on: every node outweighs
+// the types on its left and is outweighed by the types on its right.
+func TestTypecastTreeOrder(t *testing.T) {
+	var check func(node *typeNode, low, high int)
+	check = func(node *typeNode, low, high int) {
+		if node == nil {
+			return
+		}
+		weight, weighted := TypeWeights[node.t]
+		require.True(t, weighted, "%s is in typecastTree without a weight", node.t)
+		require.Truef(t, low < weight && weight < high, "%s weighs %d, outside (%d, %d)", node.t, weight, low, high)
+		check(node.left, low, weight)
+		check(node.right, weight, high)
 	}
-	require.ElementsMatch(t, []DataType{String, FixedBinary}, underBinary)
+	check(typecastTree, math.MinInt, math.MaxInt)
 }
 
 func TestTypecastTreeHasAllDeclaredTypes(t *testing.T) {
 	seen := make(map[DataType]int)
-	var walk func(node *typeNode)
-	walk = func(node *typeNode) {
-		seen[node.t]++
-		for _, child := range node.children {
-			walk(child)
-		}
+	for _, dataType := range treeDataTypes(t) {
+		seen[dataType]++
 	}
-	walk(typecastTree)
 
 	for _, dataType := range declaredDataTypes(t) {
+		if _, weighted := typeWeight(dataType); !weighted {
+			t.Errorf("data type %s has no weight; every declared type must take part in promotion", dataType)
+		}
+	}
+	for dataType := range TypeWeights {
 		if seen[dataType] != 1 {
-			t.Errorf("data type %s appears %d times in typecastTree; every declared type must appear exactly once", dataType, seen[dataType])
+			t.Errorf("data type %s appears %d times in typecastTree; every weighted type must appear exactly once", dataType, seen[dataType])
 		}
 	}
 	for dataType := range seen {
@@ -568,10 +583,12 @@ func treeDataTypes(t *testing.T) []DataType {
 	var all []DataType
 	var walk func(node *typeNode)
 	walk = func(node *typeNode) {
-		all = append(all, node.t)
-		for _, child := range node.children {
-			walk(child)
+		if node == nil {
+			return
 		}
+		all = append(all, node.t)
+		walk(node.left)
+		walk(node.right)
 	}
 	walk(typecastTree)
 	return all
@@ -584,15 +601,17 @@ func treeAncestors(t *testing.T) map[DataType]map[DataType]bool {
 	ancestors := make(map[DataType]map[DataType]bool)
 	var walk func(node *typeNode, path []DataType)
 	walk = func(node *typeNode, path []DataType) {
+		if node == nil {
+			return
+		}
 		path = append(path, node.t)
 		set := make(map[DataType]bool, len(path))
 		for _, ancestor := range path {
 			set[ancestor] = true
 		}
 		ancestors[node.t] = set
-		for _, child := range node.children {
-			walk(child, path)
-		}
+		walk(node.left, path)
+		walk(node.right, path)
 	}
 	walk(typecastTree, nil)
 	return ancestors

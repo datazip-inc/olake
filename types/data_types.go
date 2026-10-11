@@ -29,6 +29,36 @@ const (
 	FixedBinary    DataType = "fixed_binary(%d)"
 )
 
+// Tree Representation of TypeWeights
+//
+//                                        10 (Binary)
+//                                       /           \
+//                              5 (String)            \ 11 (FixedBinary)
+//                            /            \
+//             3 (Float64)   /              \ 9 (TimestampNano)
+//                         /  \             /
+//             2 (Int64)  /    \4(Float32) / 8 (TimestampMicro)
+//                       /                /
+//            1 (Int32) /                / 7 (TimestampMilli)
+//                     /                /
+//           0 (Bool) /                / 6 (Timestamp)
+//
+
+var TypeWeights = map[DataType]int{
+	Bool:           0,
+	Int32:          1,
+	Int64:          2,
+	Float64:        3,
+	Float32:        4,
+	String:         5,
+	TimestampNano:  9,
+	TimestampMicro: 8,
+	TimestampMilli: 7,
+	Timestamp:      6,
+	Binary:         10,
+	FixedBinary:    11,
+}
+
 // ValueType is the type d's inherent value type ignoring the parameters
 func (d DataType) ValueType() DataType {
 	switch BaseOf(d) {

@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"slices"
 	"sync"
 
 	"github.com/datazip-inc/olake/constants"
@@ -264,144 +263,105 @@ func (p *Property) Nullable() bool {
 // Tree that is being used for typecasting
 
 type typeNode struct {
-	t        DataType
-	children []*typeNode
+	t     DataType
+	left  *typeNode
+	right *typeNode
 }
 
-// typecastTree is the promotion hierarchy and the only place the widening order is declared:
-// the lowest common ancestor of two types is the narrowest type both can be cast to. A parent is
-// wider than its children, which is an order a single number cannot carry, since Binary branches.
-// Object and Array hang directly off String so that any mix with them promotes to String. Binary
-// sits above String because every value can be carried as raw bytes, and
-// FixedBinary is its own child: a fixed-length column can only widen to variable-length
-// bytes, never to text. Null and Unknown are fallback types rather than real column types,
-// so they are not part of the tree; typeParent attaches them under String explicitly.
-//
-//	Binary
-//	├── FixedBinary    - fixed_binary(%d); variable widths resolve to Binary
-//	└── String
-//	    ├── Float64
-//	    │   ├── Int64 ── Int32 ── Bool
-//	    │   └── Float32
-//	    ├── TimestampNano ── TimestampMicro ── TimestampMilli ── Timestamp
-//	    ├── Object
-//	    ├── Array
-//	    ├── (Null)     - via typeParent only
-//	    └── (Unknown)  - via typeParent only
-
-// Tree Representation
-//
-//								   	(Binary)
-//								  /          \
-//	                             /            \
-//	                            /              \
-//	                        (String)        (FixedBinary)
-//	 	                  /         \
-//	                	 / 			 \
-//					    /			  \
-//	            (Float64)             (TimestampNano)
-//		        /	    \            		/
-//			   / 	     \				   /
-//	       (Int64)      (Float32)    (TimestampMicro)
-//			 /          		        /
-//			/           		       /
-//		(Int32)         		 (TimestampMilli)
-//		  /             		     /
-//		 /              		    /
-//	  (Bool)           			(Timestamp)
+// Binary sits above String as every value can be carried as raw bytes; FixedBinary widens only to
+// Binary, never to text.
 var typecastTree = &typeNode{
 	t: Binary,
-	children: []*typeNode{{
+	left: &typeNode{
 		t: String,
-		children: []*typeNode{
-			{
-				t: Float64,
-				children: []*typeNode{
-					{t: Int64, children: []*typeNode{{t: Int32, children: []*typeNode{{t: Bool}}}}},
-					{t: Float32},
+		left: &typeNode{
+			t: Float64,
+			left: &typeNode{
+				t: Int64,
+				left: &typeNode{
+					t: Int32,
+					left: &typeNode{
+						t: Bool,
+					},
 				},
 			},
-			{
-				t:        TimestampNano,
-				children: []*typeNode{{t: TimestampMicro, children: []*typeNode{{t: TimestampMilli, children: []*typeNode{{t: Timestamp}}}}}},
+			right: &typeNode{
+				t: Float32,
 			},
-			{t: Object},
-			{t: Array},
 		},
-	}, {
+		right: &typeNode{
+			t: TimestampNano,
+			left: &typeNode{
+				t: TimestampMicro,
+				left: &typeNode{
+					t: TimestampMilli,
+					left: &typeNode{
+						t: Timestamp,
+					},
+				},
+			},
+		},
+	},
+	right: &typeNode{
 		t: FixedBinary,
-	}},
+	},
 }
-
-// typeParent maps every promotable DataType to its parent; the root maps to "". It is built
-// from typecastTree, then the unweighted fallback types are attached as direct children of
-// String so they promote to String against anything but themselves.
-var typeParent = func() map[DataType]DataType {
-	parents := make(map[DataType]DataType)
-	var walk func(node *typeNode, parent DataType)
-	walk = func(node *typeNode, parent DataType) {
-		parents[node.t] = parent
-		for _, child := range node.children {
-			walk(child, node.t)
-		}
-	}
-	walk(typecastTree, "")
-	parents[Null] = String
-	parents[Unknown] = String
-	return parents
-}()
-
-// typeAncestors maps every promotable DataType to its path up typecastTree: the type itself, its
-// parent and so on to the root. The tree never changes, so the paths are built once and
-// lowestCommonAncestor walks them without allocating.
-var typeAncestors = func() map[DataType][]DataType {
-	ancestors := make(map[DataType][]DataType, len(typeParent))
-	for t := range typeParent {
-		for ancestor := t; ancestor != ""; ancestor = typeParent[ancestor] {
-			ancestors[t] = append(ancestors[t], ancestor)
-		}
-	}
-	return ancestors
-}()
 
 // GetCommonAncestorType returns lowest common ancestor type
 func GetCommonAncestorType(t1, t2 DataType) DataType {
-	return lowestCommonAncestor(t1, t2)
+	return lowestCommonAncestor(typecastTree, t1, t2)
 }
 
-// lowestCommonAncestor walks typecastTree upwards from t1 and t2 and returns the first type
-// on both paths. A type that is not part of the tree cannot be promoted, so it resolves to
-// String, the widest textual representation. Parameterised types take part through their base:
-// two instances that carry the same parameters are already the same type, and two that differ
-// meet at the base's parent, since neither instance's promise holds for the other.
-func lowestCommonAncestor(t1, t2 DataType) DataType {
+// lowestCommonAncestor walks down from root to the node where t1 and t2 split. Two instances of one
+// family that differ in their parameters meet at the family's parent, as neither promise holds.
+func lowestCommonAncestor(
+	root *typeNode,
+	t1, t2 DataType,
+) DataType {
 	if t1 == t2 {
 		return t1
 	}
 
-	base1, base2 := BaseOf(t1), BaseOf(t2)
-
+	wt1, t1Exist := typeWeight(t1)
+	wt2, t2Exist := typeWeight(t2)
 	// String is the default fallback as not all the drivers support binary
-	if _, ok := typeParent[base1]; !ok {
+	if !t1Exist || !t2Exist {
 		return String
 	}
-	// String is the default fallback as not all the drivers support binary
-	if _, ok := typeParent[base2]; !ok {
-		return String
-	}
-	if base1 == base2 {
-		// two instances of one family, differing in their parameters: neither promise holds
-		if parent := typeParent[base1]; parent != "" {
-			return parent
-		}
-		return base1
-	}
 
-	ancestors1 := typeAncestors[base1]
-	for _, t := range typeAncestors[base2] {
-		if slices.Contains(ancestors1, t) {
-			return t
+	var parent *typeNode
+	node := root
+	for node != nil {
+		rootW, rootExist := TypeWeights[node.t]
+		if !rootExist {
+			return Unknown
+		}
+
+		if wt1 > rootW && wt2 > rootW {
+			// If both t1 and t2 have greater weights than parent
+			parent, node = node, node.right
+		} else if wt1 < rootW && wt2 < rootW {
+			// If both t1 and t2 have lesser weights than parent
+			parent, node = node, node.left
+		} else {
+			// We have found the split point, i.e. the LCA node.
+			if parent != nil && BaseOf(t1) == node.t && BaseOf(t2) == node.t {
+				return parent.t
+			}
+			return node.t
 		}
 	}
-	return String
+	return Unknown
+}
+
+// typeWeight is t's weight in typecastTree, a parameterised type weighing as its family. Null,
+// Unknown, Object and Array are not in the tree; they weigh as String, the type they promote to.
+func typeWeight(t DataType) (int, bool) {
+	switch base := BaseOf(t); base {
+	case Null, Unknown, Object, Array:
+		return TypeWeights[String], true
+	default:
+		weight, found := TypeWeights[base]
+		return weight, found
+	}
 }
