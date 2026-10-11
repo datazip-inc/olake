@@ -26,17 +26,7 @@ func (th *TestHandler) TestSync(t *testing.T) {
 
 	// 2. Give the catalog this suite's own destination namespace, then enable normalization,
 	// partition regex, filter and column exclusion in streams.json
-	if err := th.IsolateDestinationDB(); err != nil {
-		t.Fatalf("failed to isolate the destination database in streams.json: %s", err)
-	}
-	if len(th.DedupKeys) > 0 {
-		if err := setStreamUpsert(th.TestConfig, th.Namespace, testTable, th.DedupKeys); err != nil {
-			t.Fatalf("failed to set stream upsert: %s", err)
-		}
-	}
-	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}); err != nil {
-		t.Fatalf("failed to enable normalization and partition regex in streams.json: %s", err)
-	}
+	th.resetCatalog(t)
 	t.Logf("Enabled normalization and added partition regex in %s", th.GetFilePath("streams.json"))
 
 	writerTypes := []struct {

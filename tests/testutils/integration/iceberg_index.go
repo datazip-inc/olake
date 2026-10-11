@@ -120,20 +120,8 @@ func (th *TestHandler) runIcebergSync(ctx context.Context, t *testing.T, step st
 }
 
 // prepareTableIndexSync resets source data and configures the catalog for CDC with the given table.
-// Restores streams.json and clears the table index when the test ends, so later scenarios never inherit pos mode.
 func (th *TestHandler) prepareTableIndexSync(ctx context.Context, t *testing.T, testTable string) error {
 	t.Helper()
-
-	catalogPath := th.GetFilePath("streams.json")
-	catalog, err := os.ReadFile(catalogPath)
-	if err != nil {
-		return fmt.Errorf("failed to snapshot streams.json: %w", err)
-	}
-	t.Cleanup(func() {
-		require.NoError(t, testutils.WriteHostFile(catalogPath, catalog), "failed to restore streams.json")
-		require.NoError(t, os.RemoveAll(th.tableIndexHostDir()), "failed to clear table index")
-	})
-
 	th.resetTable(ctx, t)
 
 	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}); err != nil {
