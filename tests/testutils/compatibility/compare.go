@@ -59,7 +59,7 @@ func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicie
 		t.Fatalf("unknown destination %q", group.destination)
 	}
 
-	compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly, group.rules, baselineRelease)
+	compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly, baselineRelease)
 }
 
 // icebergTable refreshes and returns the fully-qualified name of an Iceberg table: the shared
@@ -85,7 +85,7 @@ func parquetView(ctx context.Context, t *testing.T, spark sql.SparkSession, db, 
 
 // compareDestinationOutputs is the assertion. Order matters: a schema mismatch has to be reported before a
 // row query that would fail confusingly because of it.
-func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnostics, spark sql.SparkSession, referenceOutput, upgradedOutput string, typeOnly []string, modeRules []compatibilityTypeRule, baselineRelease string) {
+func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnostics, spark sql.SparkSession, referenceOutput, upgradedOutput string, typeOnly []string, baselineRelease string) {
 	// 1. Non-vacuity FIRST. Two empty tables satisfy every diff below, and an empty reference is a
 	//    plausible outcome, not a far-fetched one: a stream the baseline binary could not validate
 	//    is skipped with a Warn and the sync still exits 0 (protocol/sync.go, D3 in the doc). Without
@@ -125,9 +125,9 @@ func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnost
 
 	// 4. Values, both directions. This is the assertion that catches a changed record: every
 	//    column not in typeOnly must hold the same value on both sides.
-	//    A writer mode's rules name destination column types, so they resolve against this schema.
+	//    "*"'s data_types rules name destination column types, so they resolve against this schema.
 	typeOnly = slices.Clone(typeOnly)
-	for _, rule := range modeRules {
+	for _, rule := range compatibilityRules[allDrivers].Rules {
 		if !semver.IsValid(baselineRelease) || semver.Compare(baselineRelease, rule.AssertValueFrom) >= 0 {
 			continue
 		}

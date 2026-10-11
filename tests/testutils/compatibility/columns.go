@@ -56,15 +56,17 @@ type assertionPolicies struct {
 	notes        []string
 }
 
-// resolveAssertionPolicies folds the driver's and data format's rules -- type-keyed and column-keyed,
-// dated and unconditional -- with the always type-only columns into one policy set for this baseline.
-func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules compatibilityDriverRules, dataFormat string) (*assertionPolicies, error) {
-	// The destinations' shared rules first (olake's own columns), then the driver's -- destination
-	// columns and source columns are separate lists in the json -- then the data format's.
-	typeRules := slices.Clone(compatibilityRules.Destinations.Rules)
-	typeRules = append(typeRules, driverRules.DestinationRules...)
+// resolveAssertionPolicies folds "*"'s and the driver's rules -- type-keyed and column-keyed, dated
+// and unconditional -- with the always type-only columns into one policy set for this baseline.
+func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules compatibilityGate) (*assertionPolicies, error) {
+	// "*"'s data_types name destination types, so compareDestinationOutputs resolves those instead.
+	var typeRules []compatibilityTypeRule
+	for _, rule := range compatibilityRules[allDrivers].Rules {
+		if len(rule.Columns) > 0 {
+			typeRules = append(typeRules, rule)
+		}
+	}
 	typeRules = append(typeRules, driverRules.Rules...)
-	typeRules = append(typeRules, driverRules.Formats[dataFormat].Rules...)
 
 	// The columns a data_types rule can select: the driver's declared schema and the fixture's own
 	// tags.
@@ -144,9 +146,11 @@ func resolveTypeRules(rules []compatibilityTypeRule, columnTypes map[string][]st
 
 	for _, r := range rules {
 		switch {
-		case r.Column != "":
-			if err := apply(r.Column, r.compatibilityPolicy); err != nil {
-				return nil, nil, err
+		case len(r.Columns) > 0:
+			for _, column := range r.Columns {
+				if err := apply(column, r.compatibilityPolicy); err != nil {
+					return nil, nil, err
+				}
 			}
 		case len(r.DataTypes) > 0:
 			found := false
