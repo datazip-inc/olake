@@ -2,9 +2,11 @@ package integration
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
 const (
@@ -25,13 +27,20 @@ type TestHandler struct {
 	UpdatedDestinationDataTypeSchema map[string]string
 	DefaultCDCColumnsSchema          map[string]string
 	TypeMapping                      map[string]string
+	DedupKeys                        []string
+	UpsertAddOp                      string
+	UpsertUpdateOp                   string
+	SkipTombstone                    bool
 }
 
 // reset table and add back data to the table
 func (th *TestHandler) resetTable(ctx context.Context, t *testing.T) {
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "add")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, testutils.Ternary(len(th.DedupKeys) > 0, testutils.Ternary(th.UpsertAddOp != "", th.UpsertAddOp, "upsert_add"), "add").(string))
+	if len(th.DedupKeys) > 0 {
+		require.NoError(t, os.RemoveAll(th.tableIndexHostDir()), "failed to clear table index")
+	}
 }
 
 // runSyncAndVerify executes a sync command and verifies the results in Iceberg
@@ -60,7 +69,7 @@ func (th *TestHandler) runSyncAndVerify(
 
 	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
-	evolvedSchema := operation == "update"
+	evolvedSchema := operation == "update" || operation == "upsert_update" || operation == "upsert_column_update" || operation == "upsert_update_repartition" || operation == "upsert_update_partition_1"
 
 	// Verification reads the destination back through Spark Connect (with retries), a real slice of
 	// sync wall-clock; time it as its own phase.

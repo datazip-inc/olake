@@ -45,8 +45,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
 	)
-	// In kafka, _op_type is always 'c' and col_included appears only in new rows.
-	// To check new record, col_included is used.
+	// Kafka append keeps _op_type 'c'. Upsert writes c (first insert, Iceberg rewrite), u, or d.
+	// col_included appears only on evolved/update rows.
 	if driver == string(constants.Kafka) {
 		if _, ok := schema["col_included"]; ok {
 			selectQuery += " AND col_included IS NOT NULL"
@@ -282,8 +282,8 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		"SELECT * FROM %s WHERE `_op_type` = '%s'",
 		viewName, opSymbol,
 	)
-	// In kafka, _op_type is always 'c' and col_included appears only in new rows.
-	// To check new record, col_included is used.
+	// Kafka append keeps _op_type 'c'. Upsert writes c (first insert, Iceberg rewrite), u, or d.
+	// col_included appears only on evolved/update rows.
 	if driver == string(constants.Kafka) {
 		if _, ok := schema["col_included"]; ok {
 			selectQuery += " AND `col_included` IS NOT NULL"

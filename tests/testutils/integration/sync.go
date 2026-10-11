@@ -69,12 +69,17 @@ func (th *TestHandler) TestCommonSync(t *testing.T) {
 	th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	th.ExecuteQuery(ctx, t, th.TestConfig, "create")
 	th.ExecuteQuery(ctx, t, th.TestConfig, "clean")
-	th.ExecuteQuery(ctx, t, th.TestConfig, "add")
+	th.ExecuteQuery(ctx, t, th.TestConfig, testutils.Ternary(len(th.DedupKeys) > 0, testutils.Ternary(th.UpsertAddOp != "", th.UpsertAddOp, "upsert_add"), "add").(string))
 
 	// 2. Give the catalog this suite's own destination namespace, then enable normalization,
 	// partition regex, filter and column exclusion in streams.json
 	if err := th.IsolateDestinationDB(); err != nil {
 		t.Fatalf("failed to isolate the destination database in streams.json: %s", err)
+	}
+	if len(th.DedupKeys) > 0 {
+		if err := setStreamUpsert(th.TestConfig, th.Namespace, testTable, th.DedupKeys); err != nil {
+			t.Fatalf("failed to set stream upsert: %s", err)
+		}
 	}
 	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}); err != nil {
 		t.Fatalf("failed to enable normalization and partition regex in streams.json: %s", err)
@@ -189,6 +194,37 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 	}
 
 	testCases := testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
+	if len(th.DedupKeys) > 0 {
+		updateOp := "upsert_update"
+		if th.UpsertUpdateOp != "" {
+			updateOp = th.UpsertUpdateOp
+		}
+		testCases = []syncTestCase{
+			{
+				name:      "CDC - strict - insert",
+				operation: "",
+				useState:  false,
+				opSymbol:  "c",
+				expected:  th.ExpectedData,
+			},
+			{
+				name:      "CDC - strict - update",
+				operation: updateOp,
+				useState:  true,
+				opSymbol:  "u",
+				expected:  th.ExpectedUpdatedData,
+			},
+		}
+		if !th.SkipTombstone {
+			testCases = append(testCases, syncTestCase{
+				name:      "CDC - strict - delete",
+				operation: "upsert_tombstone",
+				useState:  true,
+				opSymbol:  "d",
+				expected:  nil,
+			})
+		}
+	}
 
 	// Run each test case. t.Fatalf below ends only its own subtest, so stop the loop explicitly:
 	// every case after the first failure is a stateful sync built on state the failed one never
@@ -296,6 +332,37 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 	}
 
 	testCases := testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
+	if len(th.DedupKeys) > 0 {
+		updateOp := "upsert_update"
+		if th.UpsertUpdateOp != "" {
+			updateOp = th.UpsertUpdateOp
+		}
+		testCases = []syncTestCase{
+			{
+				name:      "CDC - strict - insert",
+				operation: "",
+				useState:  false,
+				opSymbol:  "u",
+				expected:  th.ExpectedData,
+			},
+			{
+				name:      "CDC - strict - update",
+				operation: updateOp,
+				useState:  true,
+				opSymbol:  "u",
+				expected:  th.ExpectedUpdatedData,
+			},
+		}
+		if !th.SkipTombstone {
+			testCases = append(testCases, syncTestCase{
+				name:      "CDC - strict - delete",
+				operation: "upsert_tombstone",
+				useState:  true,
+				opSymbol:  "d",
+				expected:  nil,
+			})
+		}
+	}
 
 	// Run each test case, stopping at the first failure -- see the same loop in
 	// IcebergFullLoadAndCDC for why continuing only burns syncs.

@@ -33,7 +33,8 @@
                         "_empty"
                     ],
                     "sync_new_columns": true
-                }
+                },
+                "append_mode": true
             }
         ]
     },
@@ -206,7 +207,7 @@
                 "destination_table": "test_table_olake_${suite}",
                 "default_stream_properties": {
                     "normalization": false,
-                    "append_mode": false,
+                    "append_mode": true,
                     "update_type": "eq"
                 }
             }

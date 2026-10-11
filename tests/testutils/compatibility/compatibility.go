@@ -23,9 +23,7 @@ package compatibility
 
 import (
 	"fmt"
-	"maps"
 	"os"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -88,7 +86,7 @@ func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
 
 // baselineSkipReason is why this driver does not run against this baseline at all, or "" when it
 // does: a baseline that is the candidate itself, the global floor from state-versions.json, then the
-// driver's own gate and its data format's in compatibility_rules.json. None needs the baseline's image,
+// "*" gate and the driver's own in compatibility_rules.json. None needs the baseline's image,
 // which is what lets the caller skip a baseline before paying for it.
 func baselineSkipReason(conf *testutils.TestConfig, baseline, spec string) (string, error) {
 	if baseline == conf.DriverVersion {
@@ -102,13 +100,10 @@ func baselineSkipReason(conf *testutils.TestConfig, baseline, spec string) (stri
 		return fmt.Sprintf("baseline %s predates %s, the oldest state-version baseline; the compatibility suite does not run below it",
 			spec, floorTag), nil
 	}
-	gate := compatibilityRules.Drivers[conf.Driver].compatibilityGate
-	if reason := gate.skipReason(spec); reason != "" {
-		return fmt.Sprintf("%s cannot run baseline %s: %s (compatibility_rules.json: %s)", conf.Driver, spec, reason, gate.Note), nil
-	}
-	formatGate := compatibilityRules.Drivers[conf.Driver].Formats[conf.DataFormat].compatibilityGate
-	if reason := formatGate.skipReason(spec); reason != "" {
-		return fmt.Sprintf("%s/%s cannot run baseline %s: %s (compatibility_rules.json: %s)", conf.Driver, conf.DataFormat, baseline, reason, formatGate.Note), nil
+	for _, gate := range []compatibilityGate{compatibilityRules[allDrivers], compatibilityRules[conf.Driver]} {
+		if reason := gate.skipReason(spec); reason != "" {
+			return fmt.Sprintf("%s cannot run baseline %s: %s (compatibility_rules.json: %s)", conf.Driver, spec, reason, gate.Note), nil
+		}
 	}
 
 	return "", nil
@@ -118,41 +113,17 @@ func baselineSkipReason(conf *testutils.TestConfig, baseline, spec string) (stri
 // side on baseline's image throughout, the upgrade side handing its stateful syncs to upgrade's.
 // ruleSpec is the release the gates and rules read this baseline as (see RunBackwardCompatibility).
 func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baselineVersion string, conf *testutils.TestConfig, ruleSpec string) {
-	upgradedVersion, driver, dataFormat := conf.DriverVersion, conf.Driver, conf.DataFormat
+	upgradedVersion, driver := conf.DriverVersion, conf.Driver
 
-	driverRules := compatibilityRules.Drivers[driver]
-
-	// Column policies: the baseline's era decides what each column can be asserted on. Applied to
-	// both sides, so a diff is always the binary and never the fixture.
-	if declared := driverRules.Formats; len(declared) > 0 {
-		formats := slices.Sorted(maps.Keys(declared))
-		if !slices.Contains(formats, dataFormat) {
-			t.Logf("NOTE: %s runs data format %q, which compatibility_rules.json does not declare (declared: %v); no format rule or gate applies to this run.",
-				driver, dataFormat, formats)
-		} else {
-			t.Logf("compatibility: %s declares data formats %v; this run is %q", driver, formats, dataFormat)
-		}
-	}
-
-	// Every rule -- type-keyed, column-keyed, dated, unconditional -- resolves here into the one
-	// policy set the run applies: seeding, catalog and comparison all read it, nothing re-derives.
-	policies, err := resolveAssertionPolicies(th, ruleSpec, driverRules, dataFormat)
+	// Every rule resolves here, against the baseline's era, into the one policy set both sides
+	// apply: seeding, catalog and comparison all read it, so a diff is the binary, never the fixture.
+	policies, err := resolveAssertionPolicies(th, ruleSpec, compatibilityRules[driver])
 	require.NoError(t, err)
 	for _, note := range policies.notes {
 		t.Logf("compatibility: %s", note)
 	}
 
-	// Writer-level gates: a group whose writer has a known bounded regression against this
-	// baseline is left out, and says so -- the other writers keep their coverage instead of the
-	// whole baseline being dropped.
-	var groups []compatibilityGroup
-	for _, group := range compatibilitySyncModeGroups(driver) {
-		if reason := group.gate.skipReason(ruleSpec); reason != "" {
-			t.Logf("compatibility: writer group %s not run against this baseline: %s", group.name, reason)
-			continue
-		}
-		groups = append(groups, group)
-	}
+	groups := compatibilitySyncModeGroups(driver)
 	require.NotEmpty(t, groups, "no compatibility scenarios for driver %s against this baseline", driver)
 	// Whichever side fails first stops every group at its next sync mode boundary: the comparison
 	// is skipped either way, so the remaining syncs would be minutes of output nothing reads.

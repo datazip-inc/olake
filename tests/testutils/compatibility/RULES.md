@@ -16,14 +16,16 @@ For how the tests themselves work, see the [README](README.md).
 - A **gate** answers "should this old release be tested here at all?"
 - A **rule** answers "how should this column be compared?"
 
+Both sit under a key: `"*"` for every driver, or a driver's name for that
+driver alone.
+
 ## Gates
 
-A gate skips old releases. It has three fields:
+A gate skips old releases. It has two fields:
 
 | Field | Meaning |
 | --- | --- |
 | `min_baseline` | skip every release older than this one |
-| `skip_baselines` | skip exactly these releases |
 | `note` | why; printed when a release is skipped |
 
 ### Example: a driver that did not exist yet
@@ -37,16 +39,16 @@ mssql shipped in v0.3.15, so older releases have no mssql image to test:
 }
 ```
 
-### Example: a writer broken in one release
+### Example: writers broken in old releases
 
-v0.3.16's parquet writer added a `data` column to every table, fixed in
-v0.3.17. So v0.3.16 is skipped for parquet, while the iceberg writers are
-still tested against it:
+Before v0.3.17 the arrow writer picked different integer widths, and
+v0.3.16's parquet writer added a `data` column to every table. A gate cannot
+name a writer, so those releases are skipped for every driver:
 
 ```json
-"parquet": {
-  "skip_baselines": ["v0.3.16"],
-  "note": "P2: v0.3.16 adds the `data` column unconditionally"
+"*": {
+  "min_baseline": "v0.3.17",
+  "note": "P1: v0.3.6 through v0.3.16 arrow integer widths disagree with today's; P2: v0.3.16's parquet writer adds the `data` column unconditionally"
 }
 ```
 
@@ -54,14 +56,10 @@ still tested against it:
 
 | Put it in | Matching releases are skipped for |
 | --- | --- |
-| `drivers.<driver>` | that driver |
-| `drivers.<driver>.formats.<format>` | one data format, e.g. s3's xml |
-| `destinations.parquet` | the parquet writer, for every driver |
-| `destinations.iceberg.modes.<mode>` | the iceberg `arrow` or `legacy` writer |
-| `drivers.<driver>.destinations.parquet` | the parquet writer, for one driver |
+| `"*"` | every driver |
+| `<driver>` | that driver |
 
-A driver's own destination gate can only narrow the shared one: the later
-`min_baseline` wins, and the skip lists add up.
+A release runs only if it passes both, so the later `min_baseline` wins.
 
 Nothing older than the oldest release in `constants/state-versions.json`
 (v0.3.11) is ever tested, so a gate below it changes nothing.
@@ -74,12 +72,14 @@ A rule changes how some columns are compared. It is written in two steps.
 
 | Field | Picks |
 | --- | --- |
-| `column` | one column, by name |
+| `columns` | these columns, by name |
 | `data_types` | every column of these types |
 
-`data_types` match the types the driver's test gives its columns. For mysql,
-that is a column's base type (`set`), its unsigned form (`unsigned bigint`)
-and its charset (`latin1`).
+Under a driver, `data_types` match the types the driver's test gives its
+columns. For mysql, that is a column's base type (`set`), its unsigned form
+(`unsigned bigint`) and its charset (`latin1`). Under `"*"`, they match the
+column types the destination reports, such as `timestamp`, and only
+`assert_value_from` applies.
 
 **2. Say how to compare them**, with at least one of:
 
@@ -98,7 +98,7 @@ type is compared, against every release:
 
 ```json
 {
-  "column": "_olake_timestamp",
+  "columns": ["_olake_timestamp"],
   "type_only": true,
   "note": "olake's write stamp: wall-clock, never value-comparable"
 }
@@ -142,17 +142,15 @@ Prefer `assert_value_from` when the old release only writes a wrong value:
 
 | Put it in | It covers |
 | --- | --- |
-| `destinations.rules` | columns every writer adds, for every driver |
-| `drivers.<driver>.rules` | the driver's own source columns |
-| `drivers.<driver>.destination_rules` | columns the driver adds (`_cdc_*`) |
-| `drivers.<driver>.formats.<format>.rules` | one data format's columns |
-| `destinations.iceberg.modes.<mode>.rules` | one iceberg writer, see below |
+| `"*".rules` | olake's own columns and each driver's CDC columns, grouped by driver |
+| `<driver>.rules` | that driver's columns |
 
-Under an iceberg writer mode, `data_types` are the column types iceberg
-reports, such as `timestamp`, and only `assert_value_from` applies:
+Only the destinations are ever compared, so a driver's rules cover the
+columns it adds (`_olake_id`) and the ones its test seeds alike. A `"*"` rule
+on `data_types` applies to every writer:
 
 ```json
-"legacy": {
+"*": {
   "rules": [
     {
       "data_types": ["timestamp"],
@@ -167,12 +165,10 @@ reports, such as `timestamp`, and only `assert_value_from` applies:
 
 | Entry | Effect |
 | --- | --- |
-| no mysql gate; v0.4.1 is newer than v0.3.11 | the release is tested |
-| arrow `min_baseline: v0.3.17` | arrow runs: v0.4.1 is newer |
-| parquet `skip_baselines: [v0.3.16]` | parquet runs: v0.4.1 is not listed |
+| `"*"` `min_baseline: v0.3.17`; no mysql gate | the release is tested, on every writer |
 | ucs2, utf16le, latin1, unsigned bigint | left out of the test data |
 | set, unsigned mediumint | compared by type only |
-| `timestamp` columns, legacy writer | compared by type only |
+| `timestamp` columns | compared by type only |
 | `_cdc_*` columns and `_olake_timestamp` | compared by type only |
 
 Every other column is compared by type and by value.
@@ -189,14 +185,14 @@ never apply to it, while `type_only` still does.
 Every driver's test binary loads the file when it starts, and stops on:
 
 - a misspelled key, e.g. `json: unknown field "min_baselin"`
-- an unknown driver, destination or iceberg mode
+- an unknown driver: any key other than `"*"` and the driver names
 - a version that is not a release tag like `v0.7.2`
 - a rule that picks no columns, picks by both name and type, or does not say
   how to compare
 
 The compatibility tests also stop when they start, on:
 
-- a `data_types` rule that matches no column in the driver's test
+- a driver's `data_types` rule that matches no column in its test
 - a version at or below the oldest tested release (v0.3.11), since such a
   rule can never take effect: drop it, and keep the story in a `note` the
   way mysql's note about M2 and M3 does
@@ -205,8 +201,7 @@ The compatibility tests also stop when they start, on:
 ## Adding an entry
 
 1. Find the release that fixed the problem: that is the version to use.
-2. Pick the narrowest place: one data format before a whole driver, one
-   driver before every driver.
+2. Pick the narrowest place: one driver before `"*"`.
 3. Prefer a rule to a gate: a rule keeps the rest of that release tested.
 4. Write a `note`: what broke, and where it was fixed.
 5. Expect a review: the file belongs to `@datazip-inc/state-version-owners`,

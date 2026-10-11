@@ -30,21 +30,17 @@ type compatibilitySyncMode struct {
 	emptyFinalState bool
 }
 
-// compatibilityGroup is one destination writer's scenarios. Groups are the parallelism unit, and
-// the unit of the writer-level version gates from compatibility_rules.json.
+// compatibilityGroup is one destination writer's scenarios. Groups are the parallelism unit.
 type compatibilityGroup struct {
 	compatibilityGroupSpec
-	gate      compatibilityGate
-	rules     []compatibilityTypeRule
 	syncModes []compatibilitySyncMode
 }
 
 type compatibilityGroupSpec struct {
 	name string
-	// destination and mode locate this group's gates in compatibility_rules.json; destinationFile
-	// is the destination config its syncs run against.
+	// destination is the writer this group's syncs target; destinationFile is the destination
+	// config they run against.
 	destination     string
-	mode            string
 	destinationFile string
 }
 
@@ -64,24 +60,13 @@ type syncCase struct {
 }
 
 // compatibilityGroupSpecs is the writer-group fan-out: one group per destination writer, each
-// naming the destination config its syncs run against and where its gates live in
-// compatibility_rules.json (mode is empty for a destination that has none).
+// naming the destination config its syncs run against.
 func compatibilityGroupSpecs() []compatibilityGroupSpec {
 	return []compatibilityGroupSpec{
-		{name: "legacy", destination: "iceberg", mode: "legacy", destinationFile: "iceberg_destination.json"},
-		{name: "arrow", destination: "iceberg", mode: "arrow", destinationFile: "iceberg_destination_arrow.json"},
+		{name: "legacy", destination: "iceberg", destinationFile: "iceberg_destination.json"},
+		{name: "arrow", destination: "iceberg", destinationFile: "iceberg_destination_arrow.json"},
 		{name: "pq", destination: "parquet", destinationFile: "parquet_destination.json"},
 	}
-}
-
-// gateFrom picks this group's gate out of a destinations block: the destination's own gate, and
-// its mode's gate when the group names one.
-func (s compatibilityGroupSpec) gateFrom(destinations map[string]compatibilityDestination) compatibilityGate {
-	dest := destinations[s.destination]
-	if s.mode == "" {
-		return dest.compatibilityGate
-	}
-	return mergedGate(dest.compatibilityGate, dest.Modes[s.mode])
 }
 
 func compatibilitySyncModeGroups(driver string) []compatibilityGroup {
@@ -89,7 +74,6 @@ func compatibilitySyncModeGroups(driver string) []compatibilityGroup {
 	cdc := !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(driver))
 	inc := driver != string(constants.Kafka)
 
-	driverDestinations := compatibilityRules.Drivers[driver].Destinations
 	var groups []compatibilityGroup
 	for _, spec := range compatibilityGroupSpecs() {
 		var syncModes []compatibilitySyncMode
@@ -104,9 +88,7 @@ func compatibilitySyncModeGroups(driver string) []compatibilityGroup {
 		if len(syncModes) == 0 {
 			continue
 		}
-		gate := mergedGate(spec.gateFrom(compatibilityRules.Destinations.gates()), spec.gateFrom(driverDestinations))
-		rules := compatibilityRules.Destinations.gates()[spec.destination].Modes[spec.mode].Rules
-		groups = append(groups, compatibilityGroup{compatibilityGroupSpec: spec, gate: gate, rules: rules, syncModes: syncModes})
+		groups = append(groups, compatibilityGroup{compatibilityGroupSpec: spec, syncModes: syncModes})
 	}
 	return groups
 }

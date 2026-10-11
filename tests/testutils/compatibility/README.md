@@ -55,11 +55,11 @@ skipping the ones whose `drivers` does not include the driver under test. Each
 entry becomes one full reference-vs-upgrade comparison against that release's
 image.
 
-So with the manifest at state version 7, mysql is verified against v0.3.11,
-v0.3.12, v0.3.16, v0.3.17, v0.4.1 and v0.7.0 — every older release whose state
-version update touched it, not just the most recent one. v0.9.1, which
-introduced version 7 itself, is not run: its state files carry the version the
-candidate writes.
+So with the manifest at state version 7, mysql is verified against v0.3.17,
+v0.4.1 and v0.7.0 — every older release whose state version update touched
+it from the `"*"` floor in `compatibility_rules.json` up, not just the most
+recent one. v0.9.1, which introduced version 7 itself, is not run: its state
+files carry the version the candidate writes.
 
 Passing `COMPATIBILITY_BASELINE=<tag|sha|image>` runs that single baseline
 instead. CI uses the PR's base commit for the per-PR check, and runs all the
@@ -98,8 +98,8 @@ harness about each case, the exceptions are declared as data:
 }
 ```
 
-Rules can raise a driver's minimum baseline, exclude a column from the seed
-below a version, compare a column by type only, or skip a destination. Each
+Rules can raise the minimum baseline for every driver or for one, exclude a
+column from the seed below a version, or compare a column by type only. Each
 carries a `note` explaining why.
 
 The point is that adding a driver or an exception is a JSON edit, not a harness
@@ -151,7 +151,7 @@ destination database prefix each side hands its discover, their own
 destination namespace, then the two destinations are compared: row counts,
 per-column values, and the destination schema. Columns that cannot match by
 construction — `_olake_timestamp`, CDC log coordinates, server-generated ids —
-are compared by type only, per `destination_rules`.
+are compared by type only, per `compatibility_rules.json`.
 
 ### Example: a failure
 
