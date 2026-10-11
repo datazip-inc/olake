@@ -55,7 +55,7 @@ jobs:
     if: needs.preflight.outputs.drivers != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    environment: ${{ github.event_name == 'pull_request' && 'integration_tests' || '' }}
+    environment: ${{ github.event_name == 'pull_request' && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     outputs:
       attempt: ${{ github.run_attempt }}
       drivers: ${{ needs.preflight.outputs.drivers }}
@@ -71,7 +71,7 @@ jobs:
     needs: approve
     if: github.event_name == 'pull_request'
     runs-on: 16gb-runner
-    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -183,7 +183,7 @@ jobs:
     needs: approve
     if: github.event_name == 'pull_request' && needs.approve.outputs.base-image-misses != '' && needs.approve.outputs.base-image-misses != '[]'
     runs-on: 16gb-runner
-    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     permissions:
       contents: read
       packages: write
@@ -214,7 +214,7 @@ jobs:
       matrix:
         baseline: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', github.event.pull_request.base.sha) || '[]') }}
     runs-on: 32gb-runner
-    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     timeout-minutes: 90
     env:
       DRIVERS: ${{ join(fromJSON(needs.approve.outputs.drivers-with-compatibility-tests), ' ') }}
@@ -289,7 +289,7 @@ jobs:
     name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility with Older Releases
     needs: approve
     runs-on: 16gb-runner
-    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -317,7 +317,7 @@ jobs:
 
   # Benchmarks against the remote instances, so it shares this run's preflight but none of its
   # stack: no local containers, and the approval is its own environment (which is also where its AWS
-  # and VPN secrets live). Staging pushes only, which is where the benchmark history is kept.
+  # and VPN secrets live). Master pushes, PRs into master and dispatches; master keeps the history.
   performance-tests:
     name: Performance ${{ matrix.driver }}
     needs: approve
@@ -327,11 +327,15 @@ jobs:
       id-token: write
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: performance-tests-${{ matrix.driver }}
+      cancel-in-progress: true
     strategy:
       fail-fast: false
       # TODO: add benchmark tests for mongodb and oracle (instance ids TBD).
       matrix:
-        include: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/staging') && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
+        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master' || github.base_ref == 'master') && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
 
     steps:
       - *checkout
@@ -402,7 +406,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PREVIOUS_ID=$(gh run list --workflow ".github/workflows/tests.yml" --branch "staging" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          PREVIOUS_ID=$(gh run list --workflow ".github/workflows/tests.yml" --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
           
           if [ -n "$PREVIOUS_ID" ]; then
             echo "id=$PREVIOUS_ID" >> $GITHUB_OUTPUT

@@ -14,6 +14,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/s3"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -48,14 +49,18 @@ var (
 var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
-	RunE: func(cmd *cobra.Command, args []string) error {
-
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		// Resolve now as configPaths are needed by logger.Init(), but the error is handled later because the logger is not initialized yet.
+		s3Err := utils.ResolveS3Paths(cmd.Context(), []*string{&configPath, &destinationConfigPath, &streamsPath, &statePath, &differencePath}, telemetry.PropsFiles())
 		// set global variables
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
 		viper.SetDefault(constants.DifferencePath, filepath.Join(os.TempDir(), "difference_streams.json"))
-		if !noSave {
+		// An S3 job without --config or --destination (spec) has no folder to derive: filepath.Dir("not-set")
+		// would give ".", so keep the TempDir defaults, where ResolveS3Paths downloads the telemetry files.
+		noPathFlag := configPath == "not-set" && destinationConfigPath == "not-set"
+		if s3Err == nil && !noSave && !(s3.IsS3Job() && noPathFlag) {
 			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
 			streamsPathEnv := utils.Ternary(streamsPath == "", filepath.Join(configFolder, "streams.json"), streamsPath).(string)
 			differencePathEnv := utils.Ternary(streamsPath != "", filepath.Join(filepath.Dir(streamsPath), "difference_streams.json"), filepath.Join(configFolder, "difference_streams.json")).(string)
@@ -70,10 +75,20 @@ var RootCmd = &cobra.Command{
 			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
 
-		// logger uses CONFIG_FOLDER
-		logger.Init()
+		// logger uses CONFIG_FOLDER; S3 jobs get JSON stdout matching olake.log
+		logger.Init(s3.IsS3Job())
 		telemetry.Init()
 
+		// Checked last so a resolution failure is reported through the
+		// now-initialized logger instead of being silently discarded.
+		return s3Err
+	},
+	// After a successful subcommand (sync/discover/clear). Cobra skips this hook when
+	// RunE failed, which matches FinalizeS3Upload's "do not upload a failed run" rule.
+	PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
+		return utils.FinalizeS3Upload(cmd.Context(), noSave)
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
 		}
@@ -96,7 +111,7 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	// Wire SIGINT/SIGTERM into the root context so CDC, backfill and
 	// destination-writer paths reach their existing ctx.Done() branches on
 	// pod eviction, docker stop, or Ctrl-C, instead of being killed mid-read.
-	ctx := signalAwareRootContext(RootCmd.Context())
+	ctx := signalAwareRootContext()
 	RootCmd.SetContext(ctx)
 
 	connector = abstract.NewAbstractDriver(ctx, driver.(abstract.DriverInterface))
@@ -104,10 +119,10 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	return RootCmd
 }
 
-// signalAwareRootContext wraps parent so that the returned context cancels on
-// SIGINT / SIGTERM as well as on any parent cancellation. Used to wire pod
-// eviction, docker stop, and Ctrl-C through to the existing ctx.Done()
-// branches in CDC, backfill, and destination-writer paths.
+// signalAwareRootContext returns a context rooted at Background() that cancels
+// on SIGINT / SIGTERM. Used to wire pod eviction, docker stop, and Ctrl-C
+// through to the existing ctx.Done() branches in CDC, backfill, and
+// destination-writer paths.
 //
 // Source / destination consistency on cancel is still owned by each
 // driver.PostCDC and destination writer.Close implementation. This wrapper only
@@ -119,8 +134,8 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 //
 // Drivers may have source-specific checkpointing constraints, so this helper
 // should not be used as a substitute for driver-level cancellation safety.
-func signalAwareRootContext(parent context.Context) context.Context {
-	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
+func signalAwareRootContext() context.Context {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	// signal.NotifyContext keeps the signal handler installed until stop() is
 	// called. Releasing it after the first cancellation lets a subsequent
 	// SIGINT/SIGTERM fall through to the Go runtime default (terminate), which
@@ -134,6 +149,9 @@ func signalAwareRootContext(parent context.Context) context.Context {
 }
 
 func init() {
+	// Run root PersistentPreRunE (S3 path resolution) before child hooks like sync's.
+	cobra.EnableTraverseRunHooks = true
+
 	// TODO: replace --catalog flag with --streams
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd, clearCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
@@ -150,15 +168,15 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
 	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
+	// Without this, Cobra rejects unknown positional args at Find time (legacyArgs)
+	// before PersistentPreRunE initializes the logger, so invalid commands fail
+	// silently under SilenceErrors. ArbitraryArgs defers that check to RunE.
+	RootCmd.Args = cobra.ArbitraryArgs
 	RootCmd.PersistentFlags().BoolVarP(&availableQueryEngines, "available-query-engines", "", false, "(Optional) Print the query engines OLake supports and the delete formats each can read, then exit")
 	RootCmd.PersistentFlags().StringSliceVarP(&targetQueryEngines, "target-query-engines", "", nil, "(Optional) Comma separated query engines that will read the destination tables (e.g. spark,duckdb,hive). Narrows the delete formats available to each stream")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
-	err := RootCmd.Execute()
-	if err != nil {
-		logger.Fatal(err)
-	}
 }
 
 const (

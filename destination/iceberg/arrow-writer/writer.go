@@ -193,28 +193,30 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
 		if w.indexThread != nil {
-			if err := w.indexRecord(writer, recordOlakeID, recordOpType, filePosition); err != nil {
+			if err := w.indexRecord(writer, recordOlakeID, recordOpType, rec.OlakeColumns, filePosition); err != nil {
 				return err
 			}
-		} else if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i" || recordOpType == "c") {
-			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
-				// first time, add to equality deletes and track position
-				writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
-				writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
-					FilePath: writer.dataWriter.filePath,
-					Position: filePosition,
-				}
-			} else {
-				// duplicates, add prev position to positional deletes (n-1 logic)
-				// the latest (nth) occurrence is kept in the map but not added to deletes
-				prev := writer.olakeIDPosition[recordOlakeID]
-				writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
-					FilePath: prev.FilePath,
-					Position: prev.Position,
-				})
-				writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
-					FilePath: writer.dataWriter.filePath,
-					Position: filePosition,
+		} else if w.upsertMode {
+			if recordOpType == "d" || recordOpType == "u" || recordOpType == "i" || recordOpType == "c" {
+				if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
+					// first time, add to equality deletes and track position
+					writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
+					writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
+						FilePath: writer.dataWriter.filePath,
+						Position: filePosition,
+					}
+				} else {
+					// duplicates, add prev position to positional deletes (n-1 logic)
+					// the latest (nth) occurrence is kept in the map but not added to deletes
+					prev := writer.olakeIDPosition[recordOlakeID]
+					writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
+						FilePath: prev.FilePath,
+						Position: prev.Position,
+					})
+					writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
+						FilePath: writer.dataWriter.filePath,
+						Position: filePosition,
+					}
 				}
 			}
 		}
@@ -229,8 +231,8 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 }
 
 // search for index for the record and emmit pos when found
-func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePosition int64) error {
-	if w.upsertMode && (opType != "r" && opType != "c") {
+func (w *ArrowWriter) indexRecord(writer *Writer, olakeID string, opType string, olakeColumns map[string]any, filePosition int64) error {
+	if w.upsertMode && opType != "r" && opType != "c" {
 		previous, found, err := w.indexThread.Lookup(olakeID)
 		if err != nil {
 			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
@@ -240,6 +242,8 @@ func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePo
 				FilePath: previous.FilePath,
 				Position: previous.Position,
 			})
+		} else if opType == "u" {
+			olakeColumns[constants.OpType] = "c"
 		}
 	}
 
