@@ -169,14 +169,14 @@ func IcebergSchemaTypes(ctx context.Context, spark sql.SparkSession, fullTableNa
 	if current == nil {
 		return nil, fmt.Errorf("%s: schema %d not found in %s", fullTableName, metadata.CurrentSchemaID, location)
 	}
-	types := make(map[string]string, len(current.Fields))
+	fieldTypes := make(map[string]string, len(current.Fields))
 	for _, field := range current.Fields {
 		var primitive string
 		if json.Unmarshal(field.Type, &primitive) == nil {
-			types[field.Name] = primitive
+			fieldTypes[field.Name] = primitive
 		} else {
-			types[field.Name] = string(field.Type)
+			fieldTypes[field.Name] = string(field.Type)
 		}
 	}
-	return types, nil
+	return fieldTypes, nil
 }

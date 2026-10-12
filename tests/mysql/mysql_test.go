@@ -133,6 +133,9 @@ func TestMySQLBinarySync(t *testing.T) {
 			cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
 			tc.configure(cfg)
 			cfg.TestCommonSync(t)
+			if !testutils.KeepTestData() {
+				cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+			}
 		})
 	}
 }

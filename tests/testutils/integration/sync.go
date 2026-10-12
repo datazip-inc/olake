@@ -59,7 +59,8 @@ func (th *TestHandler) TestSync(t *testing.T) {
 }
 
 // TestCommonSync is the boilerplate every sync suite runs: seed the source, point streams.json at
-// the handler's settings, then full load, CDC and incremental over both Iceberg writers and Parquet
+// the handler's settings, then full load, CDC and incremental over both Iceberg writers and Parquet.
+// It leaves the source table in place: dropping it afterwards is the caller's job, as TestSync does.
 func (th *TestHandler) TestCommonSync(t *testing.T) {
 	ctx := t.Context()
 	testTable := th.GetTableName()
