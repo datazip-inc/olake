@@ -76,6 +76,7 @@ var syncCmd = &cobra.Command{
 		// set state version to global variable to use throughout olake cli instance
 		constants.LoadedStateVersion = state.Version
 
+		// must stay after LoadedStateVersion is set: catalog decoding applies its state-version checks
 		catalog = &types.Catalog{}
 		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
 			return err
