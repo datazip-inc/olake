@@ -142,7 +142,7 @@ func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) (p
 	defer cancel()
 	for {
 		var endLSN pglogrepl.LSN
-		if err := db.QueryRowContext(ctx, fmt.Sprintf(AdvanceLSNTemplate, slot, currentWalPos)).Scan(&endLSN); err != nil {
+		if err := db.QueryRowContext(timeoutCtx, fmt.Sprintf(AdvanceLSNTemplate, slot, currentWalPos)).Scan(&endLSN); err != nil {
 			return 0, fmt.Errorf("failed to advance replication slot: %w", err)
 		}
 		if endLSN >= target {
