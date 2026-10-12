@@ -173,11 +173,14 @@ func (th *TestHandler) runOlake(ctx context.Context, olakeArgs ...string) (int, 
 
 // timedSync runs a sync bounded by SyncTimeout. Hitting the window is expected -- this is a bounded
 // throughput measurement, not a completeness one -- so the still-running container is stopped and
-// whatever it managed reads out of stats.json.
+// whatever it managed reads out of stats.json. The previous sync's stats.json is removed first: a
+// sync writes it only on its stats ticker, so one that never reports would otherwise be credited
+// with the last phase's rate.
 func (th *TestHandler) timedSync(ctx context.Context, useState bool) ([]byte, error) {
 	// Named, so a sync that outlives its window can be stopped rather than hunted for.
 	name := fmt.Sprintf("olake-perf-%s", th.Driver)
 	_ = exec.Command("docker", "rm", "-f", name).Run() // drop any stale container from a previous run
+	_ = os.Remove(th.GetFilePath("stats.json"))
 
 	timedCtx, cancel := context.WithTimeout(ctx, testutils.SyncTimeout)
 	defer cancel()

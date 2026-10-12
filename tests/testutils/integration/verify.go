@@ -146,6 +146,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		expectedIceType, mapped := testutils.GlobalTypeMapping[dbType]
 		if !mapped {
 			t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
+			continue
 		}
 		require.Equal(t, expectedIceType, iceType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
@@ -347,6 +348,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		expectedType, mapped := testutils.GlobalTypeMapping[dbType]
 		if !mapped {
 			t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
+			continue
 		}
 		require.Equal(t, expectedType, pqType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
