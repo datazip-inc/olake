@@ -38,7 +38,6 @@ const MongoDBUISchema = `{
         "ui:widget": "boolean"
     },
     "update_method": {
-        "ui:field": "CdcToggle",
         "ui:widget": "radio",
         "ui:options": {
             "title": false,
@@ -157,7 +156,6 @@ const PostgresUISchema = `{
         }
       },
       "update_method": {
-        "ui:field": "CdcToggle",
         "ui:widget": "radio",
         "ui:grid": [{ "replication_slot": 12, "publication": 12 }, { "initial_wait_time": 12 }],
         "ui:options": {
@@ -225,7 +223,6 @@ const MySQLUISchema = `{
     }
   },
   "update_method": {
-    "ui:field": "CdcToggle",
     "ui:widget": "radio",
     "ui:options": {
       "title": false,
@@ -276,7 +273,6 @@ const MSSQLUISchema = `{
     }
   },
   "update_method": {
-    "ui:field": "CdcToggle",
     "ui:widget": "radio",
     "ui:options": {
       "title": false,
