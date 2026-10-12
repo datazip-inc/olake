@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,5 +229,20 @@ func TestRollsPerPartition(t *testing.T) {
 	}
 	if got, want := totalRows(t, files), int64(batches*perBatch); got != want {
 		t.Fatalf("row count mismatch: got %d want %d", got, want)
+	}
+}
+
+// TestWriteRejectsWrongFixedBinaryWidth writes a 16-byte value into a fixed_binary(8) column, which
+// Write must reject with an error rather than let parquet-go panic.
+func TestWriteRejectsWrongFixedBinaryWidth(t *testing.T) {
+	stream := newStream(true, "", map[string]types.DataType{"id": types.Int64, "name": types.String, "code": types.FixedBinaryOf(8)})
+	p := newParquet(t, t.TempDir(), stream, 0, 0)
+	_, buf, _, err := p.FlattenAndCleanData(context.Background(), []types.RawRecord{rec(1, map[string]any{"code": make([]byte, 16)})})
+	if err != nil {
+		t.Fatalf("FlattenAndCleanData: %v", err)
+	}
+	want := "field[code]: fixed_binary(8) holds exactly 8 bytes, got 16"
+	if err := p.Write(context.Background(), buf); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("Write error = %v, want it to contain %q", err, want)
 	}
 }

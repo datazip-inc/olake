@@ -239,6 +239,9 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		}
 
 		if p.stream.NormalizationEnabled() {
+			if err := p.checkFixedWidths(record.Data); err != nil {
+				return destination.WriteFailure(fmt.Errorf("failed to write in parquet file: %w", err))
+			}
 			_, err = partitionFile.writer.Write([]any{record.Data})
 		} else {
 			dataBytes, merr := json.Marshal(record.Data)
@@ -261,6 +264,20 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		}
 	}
 
+	return nil
+}
+
+// checkFixedWidths rejects a fixed_binary(n) value that is not n bytes, which parquet-go panics on.
+func (p *Parquet) checkFixedWidths(data map[string]any) error {
+	for column, value := range data {
+		b, isBytes := value.([]byte)
+		if !isBytes || p.schema[column] == nil {
+			continue
+		}
+		if width, isFixed := types.FixedBinaryWidth(p.schema[column].Type()); isFixed && len(b) != width {
+			return fmt.Errorf("field[%s]: %s holds exactly %d bytes, got %d", column, p.schema[column].Type(), width, len(b))
+		}
+	}
 	return nil
 }
 

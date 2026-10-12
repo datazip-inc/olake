@@ -174,6 +174,9 @@ func (f *Field) getType() types.DataType {
 	return common
 }
 
+// Type returns the column's resolved type.
+func (f *Field) Type() types.DataType { return f.getType() }
+
 func (f *Field) Types() []types.DataType {
 	var typs []types.DataType
 	for t := range f.typeOccurrence {
