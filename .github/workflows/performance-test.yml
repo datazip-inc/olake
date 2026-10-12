@@ -3,10 +3,26 @@ name: Performance Tests
 on:
   push:
     branches:
-    - "staging"
-    paths:
+    - "master"
+    paths: &performance-paths
     - '**/*.go'
     - '**/*.java'
+    - '**/go.mod'
+    - '**/go.work'
+    - '**/pom.xml'
+    - 'Makefile'
+    - 'Dockerfile'
+    - '.dockerignore'
+    - 'drivers/**.conf'
+    - 'drivers/*/driver.mk'
+    - 'tests/**'
+    - '.github/workflows/performance-test.yml'
+    - '.github/actions/driver-deps/**'
+  pull_request:
+    branches:
+    - "master"
+    paths: *performance-paths
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -17,6 +33,10 @@ jobs:
   performance-tests:
     environment: Performance Testing
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: performance-tests-${{ matrix.driver }}
+      cancel-in-progress: true
     strategy:
       matrix:
         include:
@@ -115,7 +135,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch "staging" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
         
         if [ -n "$PREVIOUS_ID" ]; then
           echo "id=$PREVIOUS_ID" >> $GITHUB_OUTPUT

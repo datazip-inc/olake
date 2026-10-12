@@ -78,6 +78,7 @@ type StreamMetadata struct {
 	//new filter input
 	FilterConfig        *FilterConfig    `json:"filter_config,omitempty"`
 	SelectedColumns     *SelectedColumns `json:"selected_columns,omitempty"`
+	DedupKeys           []string         `json:"dedup_keys,omitempty"`
 	SyncMode            SyncMode         `json:"sync_mode,omitempty"`
 	CursorField         string           `json:"cursor_field,omitempty"`
 	DestinationDatabase string           `json:"destination_database,omitempty"`
@@ -199,7 +200,12 @@ func GetWrappedCatalog(streams []*Stream, engines []QueryEngine) *Catalog {
 		stream.RefreshSelectableColumns()
 		stream.AvailableUpdateTypes = available
 		if stream.DefaultStreamProperties != nil {
-			stream.DefaultStreamProperties.UpdateType = updateType
+			// A driver may preset positional deletes (Kafka upsert always writes them); keep it when offered.
+			if stream.DefaultStreamProperties.UpdateType == UpdateTypePosition && slices.Contains(available, UpdateTypePosition) {
+				stream.DefaultStreamProperties.UpdateType = UpdateTypePosition
+			} else {
+				stream.DefaultStreamProperties.UpdateType = updateType
+			}
 		}
 
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
@@ -489,6 +495,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldSyncMode != newSyncMode) ||
 					(oldDestinationDatabase != newDestinationDatabase) ||
 					(oldDestinationTable != newDestinationTable) ||
+					!reflect.DeepEqual(oldMetadata.DedupKeys, newMetadata.DedupKeys) ||
 					cursorDelta ||
 					dvDelta
 			}()
@@ -524,4 +531,11 @@ func IsDriverRelational(driver string) bool {
 		return src == constants.DriverType(driver)
 	})
 	return isRelational
+}
+
+func IsDriverAppendOnly(driver string) bool {
+	_, isAppendOnly := utils.ArrayContains(constants.DefaultAppendModeDrivers, func(src constants.DriverType) bool {
+		return src == constants.DriverType(driver)
+	})
+	return isAppendOnly
 }

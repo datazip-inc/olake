@@ -146,10 +146,12 @@ func Concurrent[T any](ctx context.Context, array []T, concurrency int, execute 
 	return executor.Wait()
 }
 
-// RetryOnBackoff retries f up to attempts times with doubling backoff. olake's version
-// additionally logs each attempt and gives up early on constants.ErrNonRetryable, neither of
-// which the tests need.
+// RetryOnBackoff invokes f once and retries it up to attempts times with a doubling
+// backoff sleep between attempts (i.e. at most attempts+1 total invocations).
+// olake's version additionally logs each attempt and gives up early on
+// constants.ErrNonRetryable, neither of which the tests need.
 func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
+	attempts = attempts + 1
 	for cur := range attempts {
 		select {
 		case <-ctx.Done():

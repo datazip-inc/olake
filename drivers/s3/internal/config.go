@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/s3/internal/pkg/parser"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 )
 
@@ -153,14 +153,12 @@ func (c *Config) Validate() error {
 	if c.FileFormat == FormatXML && c.XML == nil {
 		c.XML = &parser.XMLConfig{}
 	}
-	// Set default thread count
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	// Set default retry count
-	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	// Normalize path prefix (remove leading/trailing slashes)

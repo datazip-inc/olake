@@ -318,9 +318,12 @@ func (s *ConfiguredStream) AppendModeEnabled() bool {
 	return s.defaultStreamProperties().AppendMode
 }
 
-// GetUpdateType returns the stream's delete format. An omitted (nil) update_type follows the stream's
-// default_stream_properties
+// GetUpdateType returns the stream's delete format. Upsert streams always use positional deletes;
+// otherwise an omitted (nil) update_type follows the stream's default_stream_properties
 func (s *ConfiguredStream) GetUpdateType() UpdateType {
+	if s.ResolveUpsertOp() {
+		return UpdateTypePosition
+	}
 	if s.StreamMetadata.UpdateType == nil {
 		return resolveConfigurableField(s.defaultStreamProperties().UpdateType, UpdateTypeEquality)
 	}
@@ -343,4 +346,10 @@ func (s *ConfiguredStream) ValidateUpdateType() error {
 	}
 
 	return s.GetUpdateType().ValidateAgainst(available)
+}
+
+// ResolveUpsertOp is true when the source cannot differentiate create from update.
+// Kafka upsert (!append && dedup_keys set).
+func (s *ConfiguredStream) ResolveUpsertOp() bool {
+	return !s.AppendModeEnabled() && len(s.StreamMetadata.DedupKeys) > 0
 }
