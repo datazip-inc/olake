@@ -135,7 +135,7 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) (pglogrepl.LSN, error) {
 	target, err := pglogrepl.ParseLSN(currentWalPos)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse advance target lsn[%s]: %s", currentWalPos, err)
+		return 0, fmt.Errorf("failed to parse advance target lsn[%s]: %w", currentWalPos, err)
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
