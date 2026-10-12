@@ -23,6 +23,7 @@ const (
 	codeHostMissing             = "postgres.host_missing"
 	codeHostSchemeIncluded      = "postgres.host_scheme_included"
 	codePortInvalid             = "postgres.port_invalid"
+	codeDatabaseMissing         = "postgres.database_missing"
 	codeSchemaBlank             = "postgres.schema_blank"
 )
 
