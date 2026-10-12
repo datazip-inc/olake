@@ -1177,7 +1177,7 @@ func TestResolveColumnType(t *testing.T) {
 
 		dt, err = getFilterColumnDataType("timestamp_col", schema)
 		assert.NoError(t, err)
-		assert.Equal(t, types.TimestampMilli, dt)
+		assert.Equal(t, types.TimestampMicro, dt)
 
 		_, err = getFilterColumnDataType("nonexistent", schema)
 		assert.Error(t, err)

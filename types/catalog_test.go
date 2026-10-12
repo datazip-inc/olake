@@ -274,7 +274,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetWrappedCatalog(tc.streams, tc.driver)
+			result := GetWrappedCatalog(tc.streams, tc.driver, nil)
 			compareCatalogs(t, tc.expected, result, tc.name)
 
 			if len(tc.streams) > 0 {
@@ -406,6 +406,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns([]string{"id"}, false),
 						},
 					},
@@ -503,6 +504,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -594,6 +596,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -697,6 +700,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							PartitionRegex:  "user_partition",
 							Filter:          "test_filter > 10",
 							Normalization:   true,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -765,6 +769,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 						{
 							StreamName:      "users",
 							Normalization:   true,
+							UpdateType:      "eq", // legacy blank recorded as equality
 							SelectedColumns: createSelectedColumns([]string{"id"}, false),
 						},
 					},
@@ -775,7 +780,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog)
+			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog, nil)
 			compareCatalogs(t, tc.expected, result, tc.name)
 		})
 	}

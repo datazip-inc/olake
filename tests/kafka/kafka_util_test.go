@@ -78,8 +78,8 @@ var (
 
 	// JSON
 	jsonKey          = []byte(`{"key":"json-key"}`)
-	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
-	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101}`)
+	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
 
 	// Avro
@@ -560,37 +560,41 @@ func ensureTopicDeletion(ctx context.Context, t *testing.T, client *kgo.Client, 
 
 // JSON data format resources
 var ExpectedKafkaJSONData = map[string]interface{}{
-	"int_value":       int64(100),
-	"float_value":     float64(99.99),
-	"boolean":         true,
-	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"string_value":    "test_string",
+	"int_value":             int64(100),
+	"float_value":           float64(99.99),
+	"boolean":               true,
+	"timestamp_value":       arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"timestamp_micro_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"string_value":          "test_string",
 }
 
 var KafkaToDestinationJSONSchema = map[string]string{
-	"int_value":       "bigint",
-	"float_value":     "double",
-	"boolean":         "boolean",
-	"timestamp_value": "timestamp",
-	"string_value":    "string",
+	"int_value":             "bigint",
+	"float_value":           "double",
+	"boolean":               "boolean",
+	"timestamp_value":       "timestamp",
+	"timestamp_micro_value": "timestamp",
+	"string_value":          "string",
 }
 
 var ExpectedKafkaUpdatedJSONData = map[string]interface{}{
-	"int_value":       int64(100),
-	"float_value":     float64(99.99),
-	"boolean":         true,
-	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"string_value":    "test_string",
-	"col_included":    int64(102),
+	"int_value":             int64(100),
+	"float_value":           float64(99.99),
+	"boolean":               true,
+	"timestamp_value":       arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"timestamp_micro_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"string_value":          "test_string",
+	"col_included":          int64(102),
 }
 
 var UpdatedKafkaToDestinationJSONSchema = map[string]string{
-	"int_value":       "bigint",
-	"float_value":     "double",
-	"boolean":         "boolean",
-	"timestamp_value": "timestamp",
-	"string_value":    "string",
-	"col_included":    "bigint",
+	"int_value":             "bigint",
+	"float_value":           "double",
+	"boolean":               "boolean",
+	"timestamp_value":       "timestamp",
+	"timestamp_micro_value": "timestamp",
+	"string_value":          "string",
+	"col_included":          "bigint",
 }
 
 // AVRO data format resources
