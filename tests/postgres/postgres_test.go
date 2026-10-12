@@ -57,6 +57,11 @@ func TestPostgres2PC(t *testing.T) {
 	postgresBaseConfig(t).Test2PCIntegration(t)
 }
 
+func TestPostgresIcebergPosIncremental(t *testing.T) {
+	t.Parallel()
+	postgresBaseConfig(t).TestIcebergPosIncremental(t)
+}
+
 func TestPostgresPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(t, string(constants.Postgres)),

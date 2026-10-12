@@ -256,3 +256,80 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 
 	return nil
 }
+
+// TestIcebergPosIncremental syncs incrementally into a pos-mode stream, which keeps a table index. Rows must keep
+// the op type the source emitted: only ResolveUpsertOp streams have create vs update resolved from the index.
+func (cfg *IntegrationTest) TestIcebergPosIncremental(t *testing.T) {
+	cfg.IsolateSuite(t, "pos_incremental")
+	ctx := t.Context()
+	testTable := TestTableName(cfg.TestConfig)
+
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "create-slot")
+	defer cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop-slot")
+
+	seedCatalogFromTestStreams(t, cfg.TestConfig, testTable)
+
+	writerTypes := []struct {
+		name     string
+		useArrow bool
+	}{
+		{"Legacy", false},
+		{"Arrow", true},
+	}
+	for _, wt := range writerTypes {
+		t.Run(wt.name, func(t *testing.T) {
+			require.NoError(t, cfg.testIcebergWriter(ctx, t, testTable, wt.useArrow, cfg.testIcebergPosIncrementalInsert))
+		})
+	}
+
+	if keepTestData() {
+		t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
+		return
+	}
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
+}
+
+// testIcebergPosIncrementalInsert full-loads the seed rows in pos mode, then syncs one inserted row incrementally.
+// Incremental reads emit "u" for every row, so the inserted row must land as "u", not be relabelled "c".
+func (cfg *IntegrationTest) testIcebergPosIncrementalInsert(ctx context.Context, t *testing.T, testTable string) error {
+	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, cfg.DestinationDB, testTable)
+
+	defer dropIcebergTable(t, testTable, cfg.DestinationDB)
+
+	if err := cfg.resetTable(ctx, t); err != nil {
+		return fmt.Errorf("failed resetting table: %w", err)
+	}
+	if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{testTable}, cfg.ColumnToExclude); err != nil {
+		return fmt.Errorf("failed updating selected streams: %w", err)
+	}
+	if err := updateStreamConfig(cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField); err != nil {
+		return fmt.Errorf("failed setting stream mode: %w", err)
+	}
+	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+		return fmt.Errorf("failed setting delete type: %w", err)
+	}
+	if err := resetStateFile(cfg.TestConfig); err != nil {
+		return fmt.Errorf("failed resetting state file: %w", err)
+	}
+	if err := dvClearTableIndex(ctx, t, cfg); err != nil {
+		return fmt.Errorf("failed clearing table index: %w", err)
+	}
+
+	syncCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destinationDBPrefix(cfg.TestConfig))
+	if code, out, err := runOlake(ctx, t, cfg.TestConfig, syncCmd...); err != nil || code != 0 {
+		return fmt.Errorf("full load failed (%d): %s\n%s", code, err, out)
+	}
+
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "insert")
+	if code, out, err := runOlake(ctx, t, cfg.TestConfig, syncCmd...); err != nil || code != 0 {
+		return fmt.Errorf("incremental sync failed (%d): %s\n%s", code, err, out)
+	}
+
+	spark := getSparkSession(ctx, t)
+
+	require.Equal(t, seedRowCount+1, countLiveRecords(ctx, t, spark, fullTableName), "live rows after the incremental insert")
+	require.Equal(t, seedRowCount, countByOpType(ctx, t, spark, fullTableName, "r"), "full load rows")
+	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "incremental insert must keep the op type the source emitted")
+
+	return nil
+}

@@ -243,7 +243,7 @@ func (w *ArrowWriter) indexRecord(writer *Writer, olakeID string, opType string,
 				FilePath: previous.FilePath,
 				Position: previous.Position,
 			})
-		} else if opType == "u" {
+		} else if w.stream.ResolveUpsertOp() && opType == "u" {
 			olakeColumns[constants.OpType] = "c"
 		}
 	}

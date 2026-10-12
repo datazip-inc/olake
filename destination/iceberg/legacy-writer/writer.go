@@ -82,7 +82,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 				deleteFilePath = &filePath
 				deletePosition = &position
 			}
-			if (!found && !existsInBatch) && opType == "u" {
+			if w.stream.ResolveUpsertOp() && !found && !existsInBatch && opType == "u" {
 				opType = "c"
 			}
 			record.OlakeColumns[constants.OpType] = opType
