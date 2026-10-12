@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -429,6 +430,7 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 			if !ok || !selectedNames[fmt.Sprint(stream["stream_name"])] {
 				continue
 			}
+			delete(selectedNames, fmt.Sprint(stream["stream_name"]))
 			stream["normalization"] = true
 			stream["partition_regex"] = partitionRegex
 			stream["filter_config"] = filter
@@ -453,6 +455,9 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 				selectedColumns["columns"] = remaining
 			}
 			kept = append(kept, stream)
+		}
+		if len(selectedNames) > 0 {
+			return fmt.Errorf("streams %v not found in namespace %q", slices.Sorted(maps.Keys(selectedNames)), namespace)
 		}
 		doc["selected_streams"] = map[string]interface{}{namespace: kept}
 		return nil
