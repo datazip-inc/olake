@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -33,14 +34,29 @@ type TestHandler struct {
 	SkipTombstone                    bool
 }
 
-// reset table and add back data to the table
+// reset table and add back data to the table, then reset the catalog so the scenario starts fresh
 func (th *TestHandler) resetTable(ctx context.Context, t *testing.T) {
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, testutils.Ternary(len(th.DedupKeys) > 0, testutils.Ternary(th.UpsertAddOp != "", th.UpsertAddOp, "upsert_add"), "add").(string))
-	if len(th.DedupKeys) > 0 {
-		require.NoError(t, os.RemoveAll(th.tableIndexHostDir()), "failed to clear table index")
+	th.resetCatalog(t)
+}
+
+// resetCatalog renders streams.json from its template with the suite's settings and empties the table
+// index, so a scenario never inherits another scenario's catalog edits or index entries.
+func (th *TestHandler) resetCatalog(t *testing.T) {
+	t.Helper()
+	testTable := th.GetTableName()
+	require.NoError(t, th.RenderConfig("streams.template.json", "streams.json"), "failed to render streams.json")
+	require.NoError(t, th.IsolateDestinationDB(), "failed to isolate the destination database in streams.json")
+	if th.PrimaryKey != "" {
+		require.NoError(t, updateStreamPrimaryKey(th.TestConfig, th.Namespace, testTable, th.PrimaryKey), "failed to key the stream on %s in streams.json", th.PrimaryKey)
 	}
+	if len(th.DedupKeys) > 0 {
+		require.NoError(t, setStreamUpsert(th.TestConfig, th.Namespace, testTable, th.DedupKeys), "failed to set stream upsert")
+	}
+	require.NoError(t, testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}), "failed to enable normalization and partition regex in streams.json")
+	require.NoError(t, os.RemoveAll(th.tableIndexHostDir()), "failed to clear table index")
 }
 
 // runSyncAndVerify executes a sync command and verifies the results in Iceberg
@@ -164,6 +180,7 @@ func editStream(config *testutils.TestConfig, namespace, streamName string, edit
 	streamName = testutils.NormalizeStreamName(config.Driver, streamName)
 	return testutils.EditJSONFile(config.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
 		streams, _ := doc["streams"].([]interface{})
+		matched := false
 		for _, raw := range streams {
 			wrapper, ok := raw.(map[string]interface{})
 			if !ok {
@@ -175,7 +192,11 @@ func editStream(config *testutils.TestConfig, namespace, streamName string, edit
 			}
 			if stream["namespace"] == namespace && stream["name"] == streamName {
 				edit(stream)
+				matched = true
 			}
+		}
+		if !matched {
+			return fmt.Errorf("stream %q not found in namespace %q", streamName, namespace)
 		}
 		return nil
 	})

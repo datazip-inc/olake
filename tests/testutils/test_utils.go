@@ -198,6 +198,13 @@ func (c *TestConfig) addTimingLogsMiddleware() {
 	}
 }
 
+// SetExecuteQuery replaces the config's query function, timed like the one NewTestConfig was
+// given, for a suite that can only build its function once the config exists.
+func (c *TestConfig) SetExecuteQuery(executeQuery ExecuteQueryFn) {
+	c.ExecuteQuery = executeQuery
+	c.addTimingLogsMiddleware()
+}
+
 // UniqueID identifies this run among every suite that can be running beside it: the driver and the
 // suite itself. Everything a suite must not share is named after it.
 func (c *TestConfig) UniqueID() string {
