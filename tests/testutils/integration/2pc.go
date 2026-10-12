@@ -135,7 +135,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 	}
 
 	for _, tc := range twoPCCDCTestCases {
-		t.Run(tc.name, func(t *testing.T) {
+		if passed := t.Run(tc.name, func(t *testing.T) {
 			for _, preSetup := range tc.preSetup {
 				if err := preSetup(th.TestConfig); err != nil {
 					t.Fatalf("%s pre-sync setup failed: %v", tc.name, err)
@@ -153,7 +153,10 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 			if tc.verifyNoDuplicates {
 				VerifyIcebergNoDuplicates(ctx, t, testTable, th.TestConfig.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
 			}
-		})
+		}); !passed {
+			t.Logf("stopping this scenario after %q failed; the remaining cases depend on the state it did not write", tc.name)
+			break
+		}
 	}
 
 	t.Log("Iceberg 2PC CDC Recovery tests completed successfully")
@@ -235,7 +238,7 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 	}
 
 	for _, tc := range twoPCIncrementalTestCases {
-		t.Run(tc.name, func(t *testing.T) {
+		if passed := t.Run(tc.name, func(t *testing.T) {
 			for _, preSetup := range tc.preSetup {
 				if err := preSetup(th.TestConfig); err != nil {
 					t.Fatalf("%s pre-sync setup failed: %v", tc.name, err)
@@ -253,7 +256,10 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 			if tc.verifyNoDuplicates {
 				VerifyIcebergNoDuplicates(ctx, t, testTable, th.TestConfig.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
 			}
-		})
+		}); !passed {
+			t.Logf("stopping this scenario after %q failed; the remaining cases depend on the state it did not write", tc.name)
+			break
+		}
 	}
 
 	t.Log("Iceberg 2PC Incremental Recovery tests completed successfully")

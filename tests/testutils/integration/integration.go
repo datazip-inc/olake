@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -158,6 +159,7 @@ func updateStreamConfig(config *testutils.TestConfig, namespace, streamName, syn
 	streamName = testutils.NormalizeStreamName(config.Driver, streamName)
 	return testutils.EditJSONFile(config.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
 		streams, _ := doc["streams"].([]interface{})
+		matched := false
 		for _, raw := range streams {
 			wrapper, ok := raw.(map[string]interface{})
 			if !ok {
@@ -170,7 +172,11 @@ func updateStreamConfig(config *testutils.TestConfig, namespace, streamName, syn
 			if stream["namespace"] == namespace && stream["name"] == streamName {
 				stream["sync_mode"] = syncMode
 				stream["cursor_field"] = cursorField
+				matched = true
 			}
+		}
+		if !matched {
+			return fmt.Errorf("stream %q not found in namespace %q", streamName, namespace)
 		}
 		return nil
 	})

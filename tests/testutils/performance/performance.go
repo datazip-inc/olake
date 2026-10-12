@@ -153,10 +153,21 @@ func (th *TestHandler) destinationPrefix() []string {
 }
 
 // runOlake runs the driver image with host networking so the benchmark reaches the external
-// instances directly, exactly as a deployed sync would.
+// instances directly, exactly as a deployed sync would. A run still going after SyncTimeout is
+// killed and reported as a failure.
 func (th *TestHandler) runOlake(ctx context.Context, olakeArgs ...string) (int, []byte, error) {
-	args := testutils.DockerRunArgs(th.TestConfig, []string{"--network", "host"}, olakeArgs)
-	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	name := fmt.Sprintf("olake-perf-%s", th.Driver)
+	_ = exec.Command("docker", "rm", "-f", name).Run()
+
+	runCtx, cancel := context.WithTimeout(ctx, testutils.SyncTimeout)
+	defer cancel()
+
+	args := testutils.DockerRunArgs(th.TestConfig, []string{"--network", "host", "--name", name}, olakeArgs)
+	out, err := exec.CommandContext(runCtx, "docker", args...).CombinedOutput()
+	if runCtx.Err() == context.DeadlineExceeded {
+		_ = exec.Command("docker", "kill", name).Run()
+		return -1, out, fmt.Errorf("olake %s of driver %s timed out after %s", olakeArgs[0], th.Driver, testutils.SyncTimeout)
+	}
 	return testutils.DockerExitResult(out, err, olakeArgs[0])
 }
 

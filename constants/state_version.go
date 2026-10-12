@@ -58,7 +58,7 @@ var (
 )
 
 // init initializes static information only: the version this build writes. The version a running
-// sync is pinned at comes from its state file, via SetLoadedStateVersion.
+// sync is pinned at comes from its state file: protocol/sync.go assigns it to LoadedStateVersion.
 func init() {
 	var doc struct {
 		LatestStateVersion int `json:"latest_state_version"`

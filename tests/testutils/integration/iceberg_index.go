@@ -32,12 +32,17 @@ func setUpdateType(config *testutils.TestConfig, namespace, streamName, updateTy
 	return testutils.EditJSONFile(config.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
 		selected, _ := doc["selected_streams"].(map[string]interface{})
 		nsStreams, _ := selected[namespace].([]interface{})
+		matched := false
 		for _, raw := range nsStreams {
 			stream, ok := raw.(map[string]interface{})
 			if !ok || fmt.Sprint(stream["stream_name"]) != streamName {
 				continue
 			}
 			stream["update_type"] = updateType
+			matched = true
+		}
+		if !matched {
+			return fmt.Errorf("stream %q not found in namespace %q", streamName, namespace)
 		}
 		return nil
 	})

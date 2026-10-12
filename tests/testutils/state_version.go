@@ -76,6 +76,10 @@ func readStateVersionManifest() (stateVersionManifest, error) {
 		slices.SortFunc(stateVersionValue.Baselines, func(a, b StateVersionBaseline) int {
 			return cmp.Compare(a.StateVersion, b.StateVersion)
 		})
+		if newest := stateVersionValue.Baselines[len(stateVersionValue.Baselines)-1]; newest.StateVersion != stateVersionValue.LatestStateVersion {
+			stateVersionErr = fmt.Errorf("%s sets latest_state_version to %d, but its newest baseline %s is state version %d; a state version bump adds its baseline in the same change",
+				path, stateVersionValue.LatestStateVersion, newest.ReleaseTag, newest.StateVersion)
+		}
 	})
 	return stateVersionValue, stateVersionErr
 }

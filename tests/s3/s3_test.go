@@ -20,7 +20,7 @@ func s3TestConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestCon
 	config.CursorField = S3CursorField
 	config.PartitionRegex = S3PartitionRegex
 	config.FilterConfig = variant.FilterConfig
-	config.ExecuteQuery = ExecuteQueryFactory(variant, nil)
+	config.SetExecuteQuery(ExecuteQueryFactory(variant, nil))
 	return config
 }
 
@@ -34,7 +34,7 @@ func s3BaseConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestCon
 		DestinationDataTypeSchema: variant.DestinationSchema,
 	}
 	// The factory refreshes this handler's writer expectations, so it is rebuilt once the handler exists.
-	config.ExecuteQuery = ExecuteQueryFactory(variant, cfg)
+	config.SetExecuteQuery(ExecuteQueryFactory(variant, cfg))
 	return cfg
 }
 
