@@ -70,11 +70,17 @@ func FileLoggerWithPath(content any, path string) error {
 }
 
 // NormalizedEqual reports whether two JSON documents are structurally equal, ignoring
-// whitespace, object key order and array order.
+// whitespace, object key order and array order. Numbers compare exactly as written, like
+// ParseJSONDoc reads them, so integers past 2^53 stay distinct.
 func NormalizedEqual(strune1, strune2 string) bool {
+	unmarshal := func(s string, doc *interface{}) error {
+		dec := json.NewDecoder(strings.NewReader(s))
+		dec.UseNumber()
+		return dec.Decode(doc)
+	}
 	decode := func(s string) (interface{}, bool) {
 		var doc interface{}
-		if json.Unmarshal([]byte(s), &doc) == nil {
+		if unmarshal(s, &doc) == nil {
 			return canonicalJSON(doc), true
 		}
 		start := strings.IndexRune(s, '{')
@@ -82,7 +88,7 @@ func NormalizedEqual(strune1, strune2 string) bool {
 		if start < 0 || end < 0 || start > end {
 			return nil, false
 		}
-		if json.Unmarshal([]byte(s[start:end+1]), &doc) != nil {
+		if unmarshal(s[start:end+1], &doc) != nil {
 			return nil, false
 		}
 		return canonicalJSON(doc), true

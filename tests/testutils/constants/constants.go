@@ -25,6 +25,9 @@ const (
 	MSSQL    DriverType = "mssql"
 )
 
+// Drivers lists every driver the suites cover
+var Drivers = []DriverType{MongoDB, Postgres, MySQL, Oracle, DB2, S3, Kafka, MSSQL}
+
 // CdcTimestamp is the column name olake writes the CDC event timestamp into.
 const CdcTimestamp = "_cdc_timestamp"
 

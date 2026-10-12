@@ -30,4 +30,8 @@ func TestNormalizedEqual(t *testing.T) {
 			}
 		})
 	}
+
+	if NormalizedEqual(`{"max":9007199254740993}`, `{"max":9007199254740992}`) {
+		t.Fatal("NormalizedEqual treats 9007199254740993 and 9007199254740992 as equal")
+	}
 }

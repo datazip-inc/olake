@@ -418,9 +418,10 @@ func (th *TestHandler) IcebergFullLoadAndIncremental(
 		},
 	}
 
-	// Run each incremental test case
+	// Run each incremental test case, stopping at the first failure -- see the same loop in
+	// IcebergFullLoadAndCDC for why continuing only burns syncs.
 	for _, tc := range incrementalTestCases {
-		t.Run(tc.name, func(t *testing.T) {
+		if passed := t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
 				if !th.TestConfig.SkipSchemaEvolution {
@@ -445,7 +446,10 @@ func (th *TestHandler) IcebergFullLoadAndIncremental(
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
-		})
+		}); !passed {
+			t.Logf("stopping this scenario after %q failed; the remaining cases depend on the state it did not write", tc.name)
+			break
+		}
 	}
 
 	t.Log("Iceberg Full load + Incremental tests completed successfully")
@@ -503,9 +507,10 @@ func (th *TestHandler) ParquetFullLoadAndIncremental(
 		},
 	}
 
-	// Run each incremental test case
+	// Run each incremental test case, stopping at the first failure -- see the same loop in
+	// IcebergFullLoadAndCDC for why continuing only burns syncs.
 	for _, tc := range incrementalTestCases {
-		t.Run(tc.name, func(t *testing.T) {
+		if passed := t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
 				if !th.TestConfig.SkipSchemaEvolution {
@@ -530,7 +535,10 @@ func (th *TestHandler) ParquetFullLoadAndIncremental(
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
-		})
+		}); !passed {
+			t.Logf("stopping this scenario after %q failed; the remaining cases depend on the state it did not write", tc.name)
+			break
+		}
 	}
 
 	t.Log("Parquet Full load + Incremental tests completed successfully")

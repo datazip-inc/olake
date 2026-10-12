@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
 var (
@@ -91,6 +93,12 @@ func readStateVersionManifest() (stateVersionManifest, error) {
 			if strings.TrimSpace(baseline.Drivers) == "" {
 				stateVersionErr = fmt.Errorf("%s baseline %s gates no drivers; the compatibility tests would silently skip it for every driver", path, baseline.ReleaseTag)
 				return
+			}
+			for gated := range strings.SplitSeq(baseline.Drivers, ",") {
+				if gated = strings.TrimSpace(gated); gated != "*" && !slices.Contains(constants.Drivers, constants.DriverType(gated)) {
+					stateVersionErr = fmt.Errorf("%s baseline %s gates unknown driver %q; the compatibility tests would silently skip it for that driver", path, baseline.ReleaseTag, gated)
+					return
+				}
 			}
 		}
 		slices.SortFunc(stateVersionValue.Baselines, func(a, b StateVersionBaseline) int {
