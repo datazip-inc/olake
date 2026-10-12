@@ -80,6 +80,13 @@ func TestPostgres2PC(t *testing.T) {
 	cfg.Test2PCIntegration(t)
 }
 
+func TestPostgresIcebergPosIncremental(t *testing.T) {
+	t.Parallel()
+	cfg := postgresBaseConfig(t)
+	createReplicationSlot(t, cfg.TestConfig)
+	cfg.TestIcebergPosIncremental(t)
+}
+
 func TestPostgresPerformance(t *testing.T) {
 	cfg, err := testutils.NewTestConfig(t, constants.Postgres, "public", ExecuteQuery)
 	require.NoError(t, err, "failed to build the test config")

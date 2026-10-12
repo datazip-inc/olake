@@ -274,3 +274,62 @@ func (th *TestHandler) testIcebergRebuildIndexFromScratch(ctx context.Context, t
 
 	return nil
 }
+
+// TestIcebergPosIncremental syncs incrementally into a pos-mode stream, which keeps a table index. Rows must keep
+// the op type the source emitted: only ResolveUpsertOp streams have create vs update resolved from the index.
+func (th *TestHandler) TestIcebergPosIncremental(t *testing.T) {
+	ctx := t.Context()
+	testTable := th.GetTableName()
+
+	writerTypes := []struct {
+		name     string
+		useArrow bool
+	}{
+		{"Legacy", false},
+		{"Arrow", true},
+	}
+	for _, wt := range writerTypes {
+		t.Run(wt.name, func(t *testing.T) {
+			require.NoError(t, th.IcebergWriter(ctx, t, testTable, wt.useArrow, th.testIcebergPosIncrementalInsert))
+		})
+	}
+
+	if testutils.KeepTestData() {
+		t.Logf("keeping %s source data for PosIncremental as (%s) is set", th.Driver, testutils.KeepTestDataEnvVar)
+		return
+	}
+	th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
+}
+
+// testIcebergPosIncrementalInsert full-loads the seed rows in pos mode, then syncs one inserted row incrementally.
+// Incremental reads emit "u" for every row, so the inserted row must land as "u", not be relabelled "c".
+func (th *TestHandler) testIcebergPosIncrementalInsert(ctx context.Context, t *testing.T, testTable string) error {
+	th.resetTable(ctx, t)
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
+
+	defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+
+	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, "incremental", th.CursorField); err != nil {
+		return fmt.Errorf("failed setting stream mode: %w", err)
+	}
+	if err := setUpdateType(th.TestConfig, th.Namespace, testTable, "pos"); err != nil {
+		return fmt.Errorf("failed setting delete type: %w", err)
+	}
+
+	if err := th.runIcebergSync(ctx, t, "full load", false); err != nil {
+		return err
+	}
+
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "insert")
+	if err := th.runIcebergSync(ctx, t, "incremental sync", true); err != nil {
+		return err
+	}
+
+	spark := getSparkSession(ctx, t)
+
+	require.Equal(t, seedRowCount+1, countLiveRecords(ctx, t, spark, fullTableName), "live rows after the incremental insert")
+	require.Equal(t, seedRowCount, countByOpType(ctx, t, spark, fullTableName, "r"), "full load rows")
+	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "incremental insert must keep the op type the source emitted")
+
+	return nil
+}
