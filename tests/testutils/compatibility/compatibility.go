@@ -187,7 +187,7 @@ func (th *TestHandler) runSyncMode(t *testing.T, conf *testutils.TestConfig, bas
 				t.Cleanup(func() { checkpoint.stopIfFailed(t) })
 				cfg := th.NewConfig(t, baselineVersion)
 				configs[i] = cfg
-				perpareSourceTable(t, cfg, group, v, policies)
+				prepareSourceTable(t, cfg, group, v, policies)
 				for _, c := range cases {
 					if c.useState {
 						performOlakeVersionUpgrade(t, cfg, side.statefulVersion)

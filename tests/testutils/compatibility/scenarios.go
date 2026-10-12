@@ -114,7 +114,7 @@ func syncCasesForDriver(driver, kind string) []syncCase {
 // prepareSourceTable seeds the side's source table and builds its catalog before the first stateless
 // sync. The catalog is what the baseline's discover writes for the seeded table, because a pipeline
 // upgrades on the streams.json its older build discovered, never on one this build would write.
-func perpareSourceTable(
+func prepareSourceTable(
 	t *testing.T,
 	cfg *testutils.TestConfig,
 	group compatibilityGroup,
