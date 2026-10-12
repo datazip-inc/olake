@@ -212,7 +212,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate tables: %s", err)
+		return nil, fmt.Errorf("failed to iterate tables: %w", err)
 	}
 	return tableNames, nil
 }

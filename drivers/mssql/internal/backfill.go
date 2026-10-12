@@ -422,7 +422,11 @@ func (m *MSSQL) probeIAMWalkCapability(ctx context.Context) bool {
 		return false
 	}
 	defer rows.Close()
-	return rows.Err() == nil
+	if err := rows.Err(); err != nil {
+		logger.Debugf("IAM walk probe: failed to read permission test result: %s", err)
+		return false
+	}
+	return true
 }
 
 // getColumnTypeMSSQL returns SQL data type for the requested column.

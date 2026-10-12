@@ -1552,26 +1552,6 @@ func keepTestData() bool {
 	return os.Getenv("OLAKE_TEST_KEEP_DATA") == "true"
 }
 
-// seedCatalog copies the tracked test_streams.json over the generated streams.json, for the suites
-// that skip discovery and reuse the schema the integration test already validated. The copy runs
-// inside an os.Root scoped to the driver's testdata dir, so neither side can address a file outside it.
-func seedCatalog(cfg *TestConfig) error {
-	root, err := os.OpenRoot(cfg.HostTestDataPath)
-	if err != nil {
-		return fmt.Errorf("failed to open test data directory: %s", err)
-	}
-	defer func() { _ = root.Close() }()
-
-	data, err := root.ReadFile(filepath.Base(cfg.HostTestCatalogPath))
-	if err != nil {
-		return fmt.Errorf("failed to read test_streams.json: %s", err)
-	}
-	if err := root.WriteFile(filepath.Base(cfg.HostCatalogPath), data, 0600); err != nil {
-		return fmt.Errorf("failed to write streams.json: %s", err)
-	}
-	return nil
-}
-
 // Test2PCIntegration runs the full Two-Phase Commit (2PC) failure-recovery integration test
 // suite against the driver image. It exercises CDC and incremental state-recovery scenarios
 // independently of the happy-path integration tests, allowing them to be scheduled and

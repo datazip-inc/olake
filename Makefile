@@ -39,7 +39,7 @@ $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
 gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
-# Pinned: v2.13+ needs Go >= 1.26, above olake's current Go version.
+# Pinned so a new golangci-lint release can't fail lint on unchanged code.
 golangci.install:
 	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
