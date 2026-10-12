@@ -73,6 +73,12 @@ func readStateVersionManifest() (stateVersionManifest, error) {
 			stateVersionErr = fmt.Errorf("%s carries no baselines; the compatibility tests would silently skip all the older releases with a state version update", path)
 			return
 		}
+		for _, baseline := range stateVersionValue.Baselines {
+			if strings.TrimSpace(baseline.Drivers) == "" {
+				stateVersionErr = fmt.Errorf("%s baseline %s gates no drivers; the compatibility tests would silently skip it for every driver", path, baseline.ReleaseTag)
+				return
+			}
+		}
 		slices.SortFunc(stateVersionValue.Baselines, func(a, b StateVersionBaseline) int {
 			return cmp.Compare(a.StateVersion, b.StateVersion)
 		})
