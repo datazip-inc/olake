@@ -337,6 +337,32 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectErr: false,
 		},
+		// Rejects negative max threads.
+		{
+			name: "invalid config - negative max threads",
+			config: &Config{
+				Host:       "localhost",
+				Port:       3306,
+				Username:   "testuser",
+				Password:   "testpass",
+				Database:   "testdb",
+				MaxThreads: -1,
+			},
+			expectErr: true,
+		},
+		// Rejects negative retry count.
+		{
+			name: "invalid config - negative retry count",
+			config: &Config{
+				Host:       "localhost",
+				Port:       3306,
+				Username:   "testuser",
+				Password:   "testpass",
+				Database:   "testdb",
+				RetryCount: -1,
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -348,8 +374,8 @@ func TestConfig_Validate(t *testing.T) {
 			if !tt.expectErr && err != nil {
 				t.Errorf("Expected no error but got: %v", err)
 			}
-			if !tt.expectErr && err == nil && tt.config.Database == "" {
-				t.Errorf("Expected database to default to 'mysql'")
+			if !tt.expectErr && err == nil && tt.name == "valid config - defaults database" && tt.config.Database != "mysql" {
+				t.Errorf("Expected database to default to 'mysql', got %q", tt.config.Database)
 			}
 		})
 	}

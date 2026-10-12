@@ -3,9 +3,9 @@ package driver
 import (
 	"fmt"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 type Config struct {
@@ -29,19 +29,23 @@ type ProtocolConfig struct {
 
 func (c *Config) Validate() error {
 	if c.BootstrapServers == "" {
-		return fmt.Errorf("bootstrap_servers is required")
+		return errs.Precondition(errs.ConfigInvalid, codeBootstrapServersMissing,
+			fmt.Errorf("bootstrap_servers is required"))
 	}
 
 	if c.Protocol.SecurityProtocol == "" {
-		return fmt.Errorf("security_protocol must be one of: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL")
+		return errs.Precondition(errs.ConfigInvalid, codeSecurityProtocolMissing,
+			fmt.Errorf("security_protocol must be one of: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL"))
 	}
 
 	if c.Protocol.SecurityProtocol == "SASL_PLAINTEXT" || c.Protocol.SecurityProtocol == "SASL_SSL" {
 		if c.Protocol.SASLMechanism == "" {
-			return fmt.Errorf("sasl_mechanism must be either PLAIN or SCRAM-SHA-512")
+			return errs.Precondition(errs.ConfigInvalid, codeSASLMechanismMissing,
+				fmt.Errorf("sasl_mechanism must be either PLAIN or SCRAM-SHA-512"))
 		}
 		if c.Protocol.SASLJAASConfig == "" {
-			return fmt.Errorf("sasl_jaas_config must be provided")
+			return errs.Precondition(errs.ConfigInvalid, codeSASLJAASConfigMissing,
+				fmt.Errorf("sasl_jaas_config must be provided"))
 		}
 	}
 
@@ -49,29 +53,32 @@ func (c *Config) Validate() error {
 		if c.Protocol.SSL != nil {
 			// Server CA is always required
 			if c.Protocol.SSL.ServerCA == "" {
-				return fmt.Errorf("server_ca must be provided")
+				return errs.Precondition(errs.ConfigInvalid, codeServerCAMissing,
+					fmt.Errorf("server_ca must be provided"))
 			}
 
 			// Client Cert and Key are required together for mTLS
 			if (c.Protocol.SSL.ClientCert != "") != (c.Protocol.SSL.ClientKey != "") {
-				return fmt.Errorf("both client_cert and client_key must be provided together for mTLS")
+				return errs.Precondition(errs.ConfigInvalid, codeClientKeypairIncomplete,
+					fmt.Errorf("both client_cert and client_key must be provided together for mTLS"))
 			}
 		}
 	}
 
 	if c.SchemaRegistry != nil {
 		if c.SchemaRegistry.Endpoint == "" {
-			return fmt.Errorf("schema registry endpoint is required")
+			return errs.Precondition(errs.ConfigInvalid, codeSchemaRegistryEndpointMissing,
+				fmt.Errorf("schema registry endpoint is required"))
 		}
 	}
 
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
-	return utils.Validate(c)
+	return errs.Precondition(errs.ConfigInvalid, codeConfigValidationFailed, utils.Validate(c))
 }

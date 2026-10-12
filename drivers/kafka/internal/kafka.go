@@ -130,10 +130,6 @@ func (k *Kafka) Setup(ctx context.Context) error {
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
 	}
 
-	// TODO: Avoid modifying the configured/default retry count during initialization across all drivers.
-	// check for default backoff count
-	k.config.RetryCount = utils.Ternary(k.config.RetryCount <= 0, 1, k.config.RetryCount+1).(int)
-
 	return nil
 }
 
@@ -180,10 +176,19 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	return topicNames, nil
 }
 
-// TODO: for avro, we use decode messages to get stream properties similar to JSON, we should directly use the avro schema to get stream properties
+// discover samples topics in buckets through ProduceSampledSchema
+var _ abstract.SampledSchemaProducer = (*Kafka)(nil)
+
 func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
+	buckets := abstract.DiscoverSampleBuckets
+	return k.ProduceSampledSchema(ctx, streamID, buckets[len(buckets)-1])
+}
+
+// TODO: for avro, we use decode messages to get stream properties similar to JSON, we should directly use the avro schema to get stream properties
+// ProduceSampledSchema builds the topic's schema from the first limit messages of every partition.
+func (k *Kafka) ProduceSampledSchema(ctx context.Context, streamID types.StreamID, limit int) (*types.Stream, error) {
 	streamName, streamNamespace := streamID.Name, streamID.Namespace
-	logger.Infof("producing schema for topic [%s]", streamName)
+	logger.Infof("producing schema for topic [%s] from %d messages per partition", streamName, limit)
 	stream := types.NewStream(streamName, streamNamespace, nil)
 	stream.WithSyncMode(types.STRICTCDC)
 	stream.SyncMode = types.STRICTCDC
@@ -258,8 +263,8 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 				}
 			}
 
-			// stop if hit 10000 messages or reach the last known offset
-			shouldExit := messageCount >= 10000 || record.Message.Offset >= endOffset.Offset-1
+			// stop if hit limit messages or reach the last known offset
+			shouldExit := messageCount >= limit || record.Message.Offset >= endOffset.Offset-1
 			return shouldExit, nil
 		})
 		return nil

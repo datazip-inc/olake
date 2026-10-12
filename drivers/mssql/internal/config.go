@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 // Config represents the configuration for connecting to a MSSQL database.
@@ -39,7 +39,7 @@ func (p *PrimaryConfig) Validate() error {
 	if err := validateSQLConnection(p.Host, p.Port, p.Username, p.Password, true); err != nil {
 		return err
 	}
-	return utils.Validate(p)
+	return errs.Precondition(errs.ConfigInvalid, codePrimaryConfigValidationFailed, utils.Validate(p))
 }
 
 // Validate checks and normalises MSSQL configuration.
@@ -48,15 +48,16 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if c.Database == "" {
-		return fmt.Errorf("database is required")
+		return errs.Precondition(errs.ConfigInvalid, codeDatabaseMissing,
+			fmt.Errorf("database is required"))
 	}
 
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	if c.SSLConfiguration == nil {
@@ -76,25 +77,32 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	return utils.Validate(c)
+	return errs.Precondition(errs.ConfigInvalid, codeConfigValidationFailed, utils.Validate(c))
 }
 
 func validateSQLConnection(host string, port int, username, password string, isPrimaryNode bool) error {
 	prefix := utils.Ternary(isPrimaryNode, "primary_config: ", "").(string)
+	// Codes carry the same scope the message does: the primary block is a separate field to fix.
+	code := func(main, primary string) string { return utils.Ternary(isPrimaryNode, primary, main).(string) }
 	if host == "" {
-		return fmt.Errorf("%sempty host name", prefix)
+		return errs.Precondition(errs.ConfigInvalid, code(codeHostMissing, codePrimaryHostMissing),
+			fmt.Errorf("%sempty host name", prefix))
 	}
 	if strings.Contains(host, "https") || strings.Contains(host, "http") {
-		return fmt.Errorf("%shost should not contain http or https", prefix)
+		return errs.Precondition(errs.ConfigInvalid, code(codeHostSchemeIncluded, codePrimaryHostSchemeIncluded),
+			fmt.Errorf("%shost should not contain http or https", prefix))
 	}
 	if port <= 0 || port > 65535 {
-		return fmt.Errorf("%sinvalid port number: must be between 1 and 65535", prefix)
+		return errs.Precondition(errs.ConfigInvalid, code(codePortInvalid, codePrimaryPortInvalid),
+			fmt.Errorf("%sinvalid port number: must be between 1 and 65535", prefix))
 	}
 	if username == "" {
-		return fmt.Errorf("%susername is required", prefix)
+		return errs.Precondition(errs.ConfigInvalid, code(codeUsernameMissing, codePrimaryUsernameMissing),
+			fmt.Errorf("%susername is required", prefix))
 	}
 	if password == "" {
-		return fmt.Errorf("%spassword is required", prefix)
+		return errs.Precondition(errs.ConfigInvalid, code(codePasswordMissing, codePrimaryPasswordMissing),
+			fmt.Errorf("%spassword is required", prefix))
 	}
 	return nil
 }
