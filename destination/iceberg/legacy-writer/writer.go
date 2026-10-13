@@ -299,7 +299,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as timestamp value: %s", val, val, err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
-			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: t.UnixMilli()},
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: t.UnixMicro()},
 		}, nil
 
 	default:

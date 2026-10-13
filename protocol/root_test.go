@@ -50,7 +50,7 @@ func TestSignalAwareRootContextCancelsOnSignal(t *testing.T) {
 	// asserts the context cancels with context.Canceled within a bounded
 	// timeout.
 	if os.Getenv("OLAKE_SIGNAL_CONTEXT_HELPER") == "1" {
-		ctx := signalAwareRootContext(context.Background())
+		ctx := signalAwareRootContext()
 
 		var signal syscall.Signal
 
@@ -95,25 +95,6 @@ func TestSignalAwareRootContextCancelsOnSignal(t *testing.T) {
 				t.Fatalf("signal helper failed: %v\n%s", err, output)
 			}
 		})
-	}
-}
-
-// TestSignalAwareRootContextPreservesParentCancellation verifies that
-// canceling the parent context still propagates through the signal-aware
-// wrapper. Without this, callers that cancel via context.WithCancel /
-// context.WithTimeout would be silently ignored after the wrap.
-func TestSignalAwareRootContextPreservesParentCancellation(t *testing.T) {
-	parent, cancel := context.WithCancel(context.Background())
-	ctx := signalAwareRootContext(parent)
-	cancel()
-
-	select {
-	case <-ctx.Done():
-		if ctx.Err() != context.Canceled {
-			t.Fatalf("expected canceled context, got %v", ctx.Err())
-		}
-	case <-time.After(time.Second):
-		t.Fatal("context was not canceled after parent cancellation")
 	}
 }
 

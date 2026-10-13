@@ -96,6 +96,15 @@ func allTypeColumns() []fixtureColumn {
 		{name: "c_varchar_latin1", columnType: mysql.MYSQL_TYPE_VARCHAR, columnMeta: 128,
 			sqlType: "varchar(32)", collation: "latin1_swedish_ci",
 			value: string([]byte{0x63, 0x61, 0x66, 0xE9}), want: "café"},
+		// MySQL latin1 is cp1252: 0x80-0x9F carry typographic characters, not C1 controls.
+		{name: "c_varchar_latin1_cp1252", columnType: mysql.MYSQL_TYPE_VARCHAR, columnMeta: 128,
+			sqlType: "varchar(32)", collation: "latin1_swedish_ci",
+			value: string([]byte{0x92, 0x93, 0x94, 0x85, 0x97, 0x80}), want: "’“”…—€"},
+		// The five bytes cp1252 leaves undefined keep MySQL's C1 mapping rather than U+FFFD.
+		{name: "c_varchar_latin1_undefined", columnType: mysql.MYSQL_TYPE_VARCHAR, columnMeta: 128,
+			sqlType: "varchar(32)", collation: "latin1_swedish_ci",
+			value: string([]byte{0x81, 0x8D, 0x8F, 0x90, 0x9D}),
+			want:  "\u0081\u008d\u008f\u0090\u009d"},
 		{name: "c_text", columnType: mysql.MYSQL_TYPE_BLOB, columnMeta: 2, sqlType: "text",
 			collation: "utf8mb4_general_ci", value: []byte("text data"), want: "text data"},
 		// A binary column carries collation 63; decodeBytesToString passes its bytes through.

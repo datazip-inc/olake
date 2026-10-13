@@ -7,12 +7,10 @@ import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.StructType;
+import org.apache.iceberg.util.DateTimeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 
@@ -27,8 +25,6 @@ public class SchemaConvertor {
   private final String identifierField;
   protected static final Logger LOGGER = LoggerFactory.getLogger(SchemaConvertor.class);
 
-  public static final List<String> TS_MS_FIELDS = List.of("_olake_timestamp", "_cdc_timestamp");
-
   public SchemaConvertor(String pk, List<RecordIngest.IcebergPayload.SchemaField> schema) {
     schemaMetadata = schema;
     identifierField = pk;
@@ -41,7 +37,7 @@ public class SchemaConvertor {
       String fieldName = rawField.getKey(); // field name 
       String fieldType = rawField.getIceType();
       Boolean isPkField = (fieldName.equals(identifierField));
-      final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
+      final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldType));
       schemaData.fields().add(field);
       if (isPkField) schemaData.identifierFieldIds().add(field.fieldId());
     }
@@ -123,7 +119,8 @@ public class SchemaConvertor {
                   if (value.hasStringValue()) return value.getStringValue();
                   return null;
               case TIMESTAMP:
-                  if (value.hasLongValue()) return OffsetDateTime.ofInstant(Instant.ofEpochMilli(value.getLongValue()), ZoneOffset.UTC);
+                  // Epoch micros, matching what the Go legacy writer encodes for timestamptz.
+                  if (value.hasLongValue()) return DateTimeUtil.timestamptzFromMicros(value.getLongValue());
                   return null;
               default:
                   return value;
@@ -147,16 +144,12 @@ public class SchemaConvertor {
     };
   }
 
-  private static Type.PrimitiveType icebergPrimitiveField(String fieldName, String fieldType) {
+  private static Type.PrimitiveType icebergPrimitiveField(String fieldType) {
     switch (fieldType) {
       case "int": // int 4 bytes
         return Types.IntegerType.get();
       case "long": // long 8 bytes
-        if (TS_MS_FIELDS.contains(fieldName)) {
-          return Types.TimestampType.withZone();
-        } else {
-          return Types.LongType.get();
-        }
+        return Types.LongType.get();
       case "float": // float is represented in 32 bits,
         return Types.FloatType.get();
       case "double": // double is represented in 64 bits

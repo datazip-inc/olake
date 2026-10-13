@@ -224,6 +224,11 @@ func (s *S3) matchesFileFormat(key string) bool {
 	return false
 }
 
+// TODO: implement abstract.SampledSchemaProducer so discover samples S3 streams in
+// abstract.DiscoverSampleBuckets (1 -> 100 -> 10000 records, like MongoDB and Kafka) and keeps the
+// last completed sample when the discover timeout hits. Today the discover timeout fails discover
+// for S3 whenever a stream is still sampling.
+
 // ProduceSchema generates schema for a given stream (folder or file)
 func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
 	logger.Infof("Producing schema for stream: %s", streamID)
