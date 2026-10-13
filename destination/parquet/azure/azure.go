@@ -115,6 +115,19 @@ func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
 }
 
 func (a *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
+	// Azurite (local emulator) does not support StartCopyFromURL, so we need to download and upload the blob instead.
+	if strings.HasPrefix(a.azureEndpoint, "http://") {
+		out, err := a.client.DownloadStream(ctx, a.container, srcKey, nil)
+		if err != nil {
+			return fmt.Errorf("failed to read azure copy source %s: %w", srcKey, err)
+		}
+		defer out.Body.Close()
+		if _, err := a.client.UploadStream(ctx, a.container, dstKey, out.Body, nil); err != nil {
+			return fmt.Errorf("failed to write azure copy dest %s: %w", dstKey, err)
+		}
+		return nil
+	}
+
 	dst := a.blobClient(dstKey)
 	srcURL, err := a.blobReadURL(srcKey)
 	if err != nil {

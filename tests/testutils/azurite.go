@@ -76,6 +76,11 @@ func (cfg *IntegrationTest) testAzureBlob(ctx context.Context, t *testing.T, tes
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "clean")
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "add")
 
+	// For DB2, we need to populate the statistics after adding the data to the table
+	if cfg.TestConfig.Driver == string(constants.DB2) {
+		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "populate-stats")
+	}
+
 	require.NoError(t, updateSelectedStreams(cfg.TestConfig, cfg.Namespace, "", "", []string{testTable}, cfg.ColumnToExclude))
 	syncMode := "full_refresh"
 	if cfg.TestConfig.Driver == string(constants.Kafka) {
