@@ -7,9 +7,7 @@ import (
 	"github.com/parquet-go/parquet-go"
 )
 
-// fixedBinaryFamily registers fixed_binary(%d): one width, and it must be positive. A fixed width
-// is a promise about every value, so two different widths cannot meet in a third; instances that
-// disagree fall to the family's parent in the typecast tree.
+// fixedBinaryFamily registers fixed_binary(%d): one width, and it must be positive.
 var fixedBinaryFamily = newTypeFamily(FixedBinary, validFixedBinary)
 
 // validFixedBinary is fixedBinaryFamily's parameter check, named so FixedBinaryWidth can call it

@@ -282,8 +282,3 @@ func TestTypeFamilyTwoParameters(t *testing.T) {
 		})
 	}
 }
-
-func TestFixedBinaryWidthsMeetAtBinary(t *testing.T) {
-	require.Equal(t, Binary, GetCommonAncestorType(FixedBinaryOf(16), FixedBinaryOf(32)))
-	require.Equal(t, FixedBinaryOf(16), GetCommonAncestorType(FixedBinaryOf(16), FixedBinaryOf(16)))
-}

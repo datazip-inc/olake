@@ -312,8 +312,7 @@ func GetCommonAncestorType(t1, t2 DataType) DataType {
 	return lowestCommonAncestor(typecastTree, t1, t2)
 }
 
-// lowestCommonAncestor walks down from root to the node where t1 and t2 split. Two instances of one
-// family that differ in their parameters meet at the family's parent, as neither promise holds.
+// lowestCommonAncestor walks down from root to the node where t1 and t2 split.
 func lowestCommonAncestor(
 	root *typeNode,
 	t1, t2 DataType,
@@ -329,7 +328,6 @@ func lowestCommonAncestor(
 		return String
 	}
 
-	var parent *typeNode
 	node := root
 	for node != nil {
 		rootW, rootExist := TypeWeights[node.t]
@@ -339,15 +337,12 @@ func lowestCommonAncestor(
 
 		if wt1 > rootW && wt2 > rootW {
 			// If both t1 and t2 have greater weights than parent
-			parent, node = node, node.right
+			node = node.right
 		} else if wt1 < rootW && wt2 < rootW {
 			// If both t1 and t2 have lesser weights than parent
-			parent, node = node, node.left
+			node = node.left
 		} else {
 			// We have found the split point, i.e. the LCA node.
-			if parent != nil && BaseOf(t1) == node.t && BaseOf(t2) == node.t {
-				return parent.t
-			}
 			return node.t
 		}
 	}

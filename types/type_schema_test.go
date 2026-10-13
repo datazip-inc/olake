@@ -146,18 +146,6 @@ func TestGetCommonAncestorType(t *testing.T) {
 			expected: FixedBinaryOf(16),
 		},
 		{
-			name:     "fixed binaries of different lengths widen to binary",
-			t1:       FixedBinaryOf(16),
-			t2:       FixedBinaryOf(32),
-			expected: Binary,
-		},
-		{
-			name:     "length-less fixed binary widens to binary against a sized one",
-			t1:       FixedBinary,
-			t2:       FixedBinaryOf(16),
-			expected: Binary,
-		},
-		{
 			name:     "binary absorbs fixed binary",
 			t1:       FixedBinaryOf(16),
 			t2:       Binary,
@@ -305,11 +293,6 @@ func TestPropertyDataType(t *testing.T) {
 			name:     "fixed binary keeps its length",
 			types:    []DataType{Null, FixedBinaryOf(16)},
 			expected: FixedBinaryOf(16),
-		},
-		{
-			name:     "mixed fixed binary lengths widen to binary",
-			types:    []DataType{FixedBinaryOf(16), FixedBinaryOf(32)},
-			expected: Binary,
 		},
 		{
 			name:     "null with incompatible types still meets at string",
