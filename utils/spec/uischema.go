@@ -518,8 +518,12 @@ const IcebergUISchema = `{
       { "gcp_project_id": 12 },
 
       { "azure_storage_support": 24 },
-      { "azure_storage_account_name": 12, "azure_storage_account_key": 12 },
-      { "azure_container_name": 12, "azure_path": 12 },
+      { "azure_auth_type": 12, "azure_warehouse": 12 },
+      { "azure_storage_suffix": 12, "azure_path": 12 },
+      { "azure_storage_account_name": 12, "azure_container_name": 12 },
+      { "azure_storage_account_key": 12, "azure_sas_token": 12 },
+      { "azure_client_id": 12, "azure_tenant_id": 12 },
+      { "azure_client_secret": 12 },
 
       { "glue_additional_config": 24 },
       { "glue_catalog_id": 12, "glue_endpoint": 12},
@@ -572,7 +576,21 @@ const IcebergUISchema = `{
         "Horizon"
       ]
     },
+    "azure_auth_type": {
+      "ui:enumNames": [
+        "Shared Key",
+        "SAS Token",
+        "Service Principal",
+        "Managed Identity"
+      ]
+    },
     "azure_storage_account_key": {
+      "ui:widget": "password"
+    },
+    "azure_sas_token": {
+      "ui:widget": "password"
+    },
+    "azure_client_secret": {
       "ui:widget": "password"
     },
     "ui:options": {

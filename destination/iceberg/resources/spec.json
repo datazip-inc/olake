@@ -145,16 +145,22 @@
                         "storage_type": {
                           "const": "Azure"
                         },
+                        "azure_auth_type": {
+                          "type": "string",
+                          "enum": [
+                            "shared-key",
+                            "sas-token",
+                            "service-principal",
+                            "managed-identity"
+                          ],
+                          "default": "shared-key",
+                          "title": "Azure Auth Type",
+                          "description": "How OLake authenticates to Azure storage"
+                        },
                         "azure_storage_account_name": {
                           "type": "string",
                           "title": "Azure Storage Account Name",
                           "description": "Name of the Azure storage account"
-                        },
-                        "azure_storage_account_key": {
-                          "type": "string",
-                          "format": "password",
-                          "title": "Azure Storage Account Key",
-                          "description": "Key of the Azure storage account"
                         },
                         "azure_container_name": {
                           "type": "string",
@@ -165,13 +171,97 @@
                           "type": "string",
                           "title": "Azure Path",
                           "description": "Path of the Azure storage account"
+                        },
+                        "azure_storage_suffix": {
+                          "type": "string",
+                          "default": "dfs.core.windows.net",
+                          "title": "Azure Storage Suffix",
+                          "description": "DFS host suffix. Public: dfs.core.windows.net. China: dfs.core.chinacloudapi.cn. Gov: dfs.core.usgovcloudapi.net"
                         }
                       },
                       "required": [
+                        "azure_auth_type",
                         "azure_storage_account_name",
-                        "azure_storage_account_key",
                         "azure_container_name"
-                      ]
+                      ],
+                      "dependencies": {
+                        "azure_auth_type": {
+                          "oneOf": [
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "shared-key"
+                                },
+                                "azure_storage_account_key": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Storage Account Key",
+                                  "description": "Account key (shared-key auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_storage_account_key"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "sas-token"
+                                },
+                                "azure_sas_token": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure SAS Token",
+                                  "description": "SAS token (sas-token auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_sas_token"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "service-principal"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Service principal application (client) ID"
+                                },
+                                "azure_tenant_id": {
+                                  "type": "string",
+                                  "title": "Azure Tenant ID",
+                                  "description": "Service principal directory (tenant) ID"
+                                },
+                                "azure_client_secret": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Client Secret",
+                                  "description": "Service principal client secret"
+                                }
+                              },
+                              "required": [
+                                "azure_client_id",
+                                "azure_tenant_id",
+                                "azure_client_secret"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "managed-identity"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Optional. User-assigned managed identity client ID. Leave empty for system-assigned"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   ]
                 }
@@ -277,16 +367,22 @@
                         "storage_type": {
                           "const": "Azure"
                         },
+                        "azure_auth_type": {
+                          "type": "string",
+                          "enum": [
+                            "shared-key",
+                            "sas-token",
+                            "service-principal",
+                            "managed-identity"
+                          ],
+                          "default": "shared-key",
+                          "title": "Azure Auth Type",
+                          "description": "How OLake authenticates to Azure storage"
+                        },
                         "azure_storage_account_name": {
                           "type": "string",
                           "title": "Azure Storage Account Name",
                           "description": "Name of the Azure storage account"
-                        },
-                        "azure_storage_account_key": {
-                          "type": "string",
-                          "format": "password",
-                          "title": "Azure Storage Account Key",
-                          "description": "Key of the Azure storage account"
                         },
                         "azure_container_name": {
                           "type": "string",
@@ -297,13 +393,97 @@
                           "type": "string",
                           "title": "Azure Path",
                           "description": "Path of the Azure storage account"
+                        },
+                        "azure_storage_suffix": {
+                          "type": "string",
+                          "default": "dfs.core.windows.net",
+                          "title": "Azure Storage Suffix",
+                          "description": "DFS host suffix. Public: dfs.core.windows.net. China: dfs.core.chinacloudapi.cn. Gov: dfs.core.usgovcloudapi.net"
                         }
                       },
                       "required": [
+                        "azure_auth_type",
                         "azure_storage_account_name",
-                        "azure_storage_account_key",
                         "azure_container_name"
-                      ]
+                      ],
+                      "dependencies": {
+                        "azure_auth_type": {
+                          "oneOf": [
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "shared-key"
+                                },
+                                "azure_storage_account_key": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Storage Account Key",
+                                  "description": "Account key (shared-key auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_storage_account_key"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "sas-token"
+                                },
+                                "azure_sas_token": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure SAS Token",
+                                  "description": "SAS token (sas-token auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_sas_token"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "service-principal"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Service principal application (client) ID"
+                                },
+                                "azure_tenant_id": {
+                                  "type": "string",
+                                  "title": "Azure Tenant ID",
+                                  "description": "Service principal directory (tenant) ID"
+                                },
+                                "azure_client_secret": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Client Secret",
+                                  "description": "Service principal client secret"
+                                }
+                              },
+                              "required": [
+                                "azure_client_id",
+                                "azure_tenant_id",
+                                "azure_client_secret"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "managed-identity"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Optional. User-assigned managed identity client ID. Leave empty for system-assigned"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   ]
                 }
@@ -319,6 +499,16 @@
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
+                },
+                "storage_type": {
+                  "type": "string",
+                  "enum": [
+                    "S3",
+                    "Azure"
+                  ],
+                  "default": "S3",
+                  "title": "Storage Type",
+                  "description": "Type of storage to use"
                 },
                 "rest_auth_type": {
                   "type": "string",
@@ -367,33 +557,6 @@
                   "description": "Enable AWS Signature V4 signing (boolean)",
                   "default": false
                 },
-                "iceberg_s3_path": {
-                  "type": "string",
-                  "title": "S3 Path",
-                  "description": "S3 bucket path where Iceberg data and metadata are stored"
-                },
-                "s3_endpoint": {
-                  "type": "string",
-                  "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
-                },
-                "aws_secret_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Secret Key",
-                  "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
-                },
-                "aws_access_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Access Key",
-                  "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
-                },
-                "aws_region": {
-                  "type": "string",
-                  "title": "AWS Region",
-                  "description": "Specify the AWS region where the S3 bucket is hosted"
-                },
                 "no_identifier_fields": {
                   "type": "boolean",
                   "default": false,
@@ -415,32 +578,184 @@
                   "type": "string",
                   "title": "GCP Project ID",
                   "description": "Required for multi-bucket catalogs only. Identifies the GCP project for BigLake request routing and billing."
-                },
-                "azure_storage_account_name": {
-                  "type": "string",
-                  "title": "Azure Storage Account Name",
-                  "description": "Name of the Azure storage account"
-                },
-                "azure_storage_account_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "Azure Storage Account Key",
-                  "description": "Key of the Azure storage account"
-                },
-                "azure_container_name": {
-                  "type": "string",
-                  "title": "Azure Container Name",
-                  "description": "Name of the Azure container"
-                },
-                "azure_path": {
-                  "type": "string",
-                  "title": "Azure Path",
-                  "description": "Path of the Azure storage account"
                 }
               },
               "required": [
                 "rest_catalog_url"
-              ]
+              ],
+              "dependencies": {
+                "storage_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "S3"
+                        },
+                        "iceberg_s3_path": {
+                          "type": "string",
+                          "title": "S3 Path",
+                          "description": "S3 bucket path where Iceberg data and metadata are stored"
+                        },
+                        "s3_endpoint": {
+                          "type": "string",
+                          "title": "S3 Endpoint",
+                          "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
+                        },
+                        "aws_secret_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Secret Key",
+                          "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
+                        },
+                        "aws_access_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Access Key",
+                          "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
+                        },
+                        "aws_region": {
+                          "type": "string",
+                          "title": "AWS Region",
+                          "description": "Specify the AWS region where the S3 bucket is hosted"
+                        }
+                      },
+                      "required": [
+                        "iceberg_s3_path",
+                        "aws_region"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "Azure"
+                        },
+                        "azure_warehouse": {
+                          "type": "string",
+                          "title": "REST Warehouse",
+                          "description": "Warehouse or catalog name registered in the REST catalog (not an abfss URI)"
+                        },
+                        "azure_auth_type": {
+                          "type": "string",
+                          "enum": [
+                            "shared-key",
+                            "sas-token",
+                            "service-principal",
+                            "managed-identity"
+                          ],
+                          "default": "shared-key",
+                          "title": "Azure Auth Type",
+                          "description": "How OLake authenticates to Azure storage"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "Name of the Azure storage account"
+                        },
+                        "azure_container_name": {
+                          "type": "string",
+                          "title": "Azure Container Name",
+                          "description": "Name of the Azure container"
+                        },
+                        "azure_path": {
+                          "type": "string",
+                          "title": "Azure Path",
+                          "description": "Path of the Azure storage account"
+                        },
+                        "azure_storage_suffix": {
+                          "type": "string",
+                          "default": "dfs.core.windows.net",
+                          "title": "Azure Storage Suffix",
+                          "description": "DFS host suffix. Public: dfs.core.windows.net. China: dfs.core.chinacloudapi.cn. Gov: dfs.core.usgovcloudapi.net"
+                        }
+                      },
+                      "required": [
+                        "azure_warehouse",
+                        "azure_auth_type",
+                        "azure_storage_account_name",
+                        "azure_container_name"
+                      ],
+                      "dependencies": {
+                        "azure_auth_type": {
+                          "oneOf": [
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "shared-key"
+                                },
+                                "azure_storage_account_key": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Storage Account Key",
+                                  "description": "Account key (shared-key auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_storage_account_key"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "sas-token"
+                                },
+                                "azure_sas_token": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure SAS Token",
+                                  "description": "SAS token (sas-token auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_sas_token"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "service-principal"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Service principal application (client) ID"
+                                },
+                                "azure_tenant_id": {
+                                  "type": "string",
+                                  "title": "Azure Tenant ID",
+                                  "description": "Service principal directory (tenant) ID"
+                                },
+                                "azure_client_secret": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Client Secret",
+                                  "description": "Service principal client secret"
+                                }
+                              },
+                              "required": [
+                                "azure_client_id",
+                                "azure_tenant_id",
+                                "azure_client_secret"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "managed-identity"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Optional. User-assigned managed identity client ID. Leave empty for system-assigned"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
             },
             {
               "properties": {
@@ -564,16 +879,27 @@
                         "storage_type": {
                           "const": "Azure"
                         },
+                        "azure_warehouse": {
+                          "type": "string",
+                          "title": "Lakekeeper Warehouse",
+                          "description": "Name of the warehouse registered in Lakekeeper (not an abfss URI)"
+                        },
+                        "azure_auth_type": {
+                          "type": "string",
+                          "enum": [
+                            "shared-key",
+                            "sas-token",
+                            "service-principal",
+                            "managed-identity"
+                          ],
+                          "default": "shared-key",
+                          "title": "Azure Auth Type",
+                          "description": "How OLake authenticates to Azure storage"
+                        },
                         "azure_storage_account_name": {
                           "type": "string",
                           "title": "Azure Storage Account Name",
                           "description": "Name of the Azure storage account"
-                        },
-                        "azure_storage_account_key": {
-                          "type": "string",
-                          "format": "password",
-                          "title": "Azure Storage Account Key",
-                          "description": "Key of the Azure storage account"
                         },
                         "azure_container_name": {
                           "type": "string",
@@ -584,13 +910,98 @@
                           "type": "string",
                           "title": "Azure Path",
                           "description": "Path of the Azure storage account"
+                        },
+                        "azure_storage_suffix": {
+                          "type": "string",
+                          "default": "dfs.core.windows.net",
+                          "title": "Azure Storage Suffix",
+                          "description": "DFS host suffix. Public: dfs.core.windows.net. China: dfs.core.chinacloudapi.cn. Gov: dfs.core.usgovcloudapi.net"
                         }
                       },
                       "required": [
+                        "azure_warehouse",
+                        "azure_auth_type",
                         "azure_storage_account_name",
-                        "azure_storage_account_key",
                         "azure_container_name"
-                      ]
+                      ],
+                      "dependencies": {
+                        "azure_auth_type": {
+                          "oneOf": [
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "shared-key"
+                                },
+                                "azure_storage_account_key": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Storage Account Key",
+                                  "description": "Account key (shared-key auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_storage_account_key"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "sas-token"
+                                },
+                                "azure_sas_token": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure SAS Token",
+                                  "description": "SAS token (sas-token auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_sas_token"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "service-principal"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Service principal application (client) ID"
+                                },
+                                "azure_tenant_id": {
+                                  "type": "string",
+                                  "title": "Azure Tenant ID",
+                                  "description": "Service principal directory (tenant) ID"
+                                },
+                                "azure_client_secret": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Client Secret",
+                                  "description": "Service principal client secret"
+                                }
+                              },
+                              "required": [
+                                "azure_client_id",
+                                "azure_tenant_id",
+                                "azure_client_secret"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "managed-identity"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Optional. User-assigned managed identity client ID. Leave empty for system-assigned"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   ]
                 }
@@ -736,16 +1147,27 @@
                         "storage_type": {
                           "const": "Azure"
                         },
+                        "azure_warehouse": {
+                          "type": "string",
+                          "title": "Nessie Warehouse",
+                          "description": "Warehouse identifier registered in Nessie (not an abfss URI)"
+                        },
+                        "azure_auth_type": {
+                          "type": "string",
+                          "enum": [
+                            "shared-key",
+                            "sas-token",
+                            "service-principal",
+                            "managed-identity"
+                          ],
+                          "default": "shared-key",
+                          "title": "Azure Auth Type",
+                          "description": "How OLake authenticates to Azure storage"
+                        },
                         "azure_storage_account_name": {
                           "type": "string",
                           "title": "Azure Storage Account Name",
                           "description": "Name of the Azure storage account"
-                        },
-                        "azure_storage_account_key": {
-                          "type": "string",
-                          "format": "password",
-                          "title": "Azure Storage Account Key",
-                          "description": "Key of the Azure storage account"
                         },
                         "azure_container_name": {
                           "type": "string",
@@ -756,13 +1178,98 @@
                           "type": "string",
                           "title": "Azure Path",
                           "description": "Path of the Azure storage account"
+                        },
+                        "azure_storage_suffix": {
+                          "type": "string",
+                          "default": "dfs.core.windows.net",
+                          "title": "Azure Storage Suffix",
+                          "description": "DFS host suffix. Public: dfs.core.windows.net. China: dfs.core.chinacloudapi.cn. Gov: dfs.core.usgovcloudapi.net"
                         }
                       },
                       "required": [
+                        "azure_warehouse",
+                        "azure_auth_type",
                         "azure_storage_account_name",
-                        "azure_storage_account_key",
                         "azure_container_name"
-                      ]
+                      ],
+                      "dependencies": {
+                        "azure_auth_type": {
+                          "oneOf": [
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "shared-key"
+                                },
+                                "azure_storage_account_key": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Storage Account Key",
+                                  "description": "Account key (shared-key auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_storage_account_key"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "sas-token"
+                                },
+                                "azure_sas_token": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure SAS Token",
+                                  "description": "SAS token (sas-token auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_sas_token"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "service-principal"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Service principal application (client) ID"
+                                },
+                                "azure_tenant_id": {
+                                  "type": "string",
+                                  "title": "Azure Tenant ID",
+                                  "description": "Service principal directory (tenant) ID"
+                                },
+                                "azure_client_secret": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Client Secret",
+                                  "description": "Service principal client secret"
+                                }
+                              },
+                              "required": [
+                                "azure_client_id",
+                                "azure_tenant_id",
+                                "azure_client_secret"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "managed-identity"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Optional. User-assigned managed identity client ID. Leave empty for system-assigned"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   ]
                 }
@@ -860,11 +1367,6 @@
                   "title": "REST Catalog URI",
                   "description": "Databricks workspace URL with Unity Catalog REST API endpoint"
                 },
-                "iceberg_s3_path": {
-                  "type": "string",
-                  "title": "Unity Catalog Name",
-                  "description": "Name of the catalog in Unity (only for S3 storage, leave empty for ADLS)"
-                },
                 "azure_storage_support": {
                   "type": "boolean",
                   "default": false,
@@ -960,25 +1462,29 @@
                     {
                       "properties": {
                         "azure_storage_support": {
-                          "const": false
-                        }
-                      }
-                    },
-                    {
-                      "properties": {
-                        "azure_storage_support": {
                           "const": true
+                        },
+                        "azure_warehouse": {
+                          "type": "string",
+                          "title": "Unity Catalog Name",
+                          "description": "Name of the catalog in Unity"
+                        },
+                        "azure_auth_type": {
+                          "type": "string",
+                          "enum": [
+                            "shared-key",
+                            "sas-token",
+                            "service-principal",
+                            "managed-identity"
+                          ],
+                          "default": "shared-key",
+                          "title": "Azure Auth Type",
+                          "description": "How OLake authenticates to Azure storage"
                         },
                         "azure_storage_account_name": {
                           "type": "string",
                           "title": "Azure Storage Account Name",
                           "description": "Name of the Azure storage account"
-                        },
-                        "azure_storage_account_key": {
-                          "type": "string",
-                          "format": "password",
-                          "title": "Azure Storage Account Key",
-                          "description": "Key of the Azure storage account"
                         },
                         "azure_container_name": {
                           "type": "string",
@@ -989,13 +1495,113 @@
                           "type": "string",
                           "title": "Azure Path",
                           "description": "Path of the Azure storage account"
+                        },
+                        "azure_storage_suffix": {
+                          "type": "string",
+                          "default": "dfs.core.windows.net",
+                          "title": "Azure Storage Suffix",
+                          "description": "DFS host suffix. Public: dfs.core.windows.net. China: dfs.core.chinacloudapi.cn. Gov: dfs.core.usgovcloudapi.net"
                         }
                       },
                       "required": [
                         "azure_storage_support",
+                        "azure_warehouse",
+                        "azure_auth_type",
                         "azure_storage_account_name",
-                        "azure_storage_account_key",
                         "azure_container_name"
+                      ],
+                      "dependencies": {
+                        "azure_auth_type": {
+                          "oneOf": [
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "shared-key"
+                                },
+                                "azure_storage_account_key": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Storage Account Key",
+                                  "description": "Account key (shared-key auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_storage_account_key"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "sas-token"
+                                },
+                                "azure_sas_token": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure SAS Token",
+                                  "description": "SAS token (sas-token auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_sas_token"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "service-principal"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Service principal application (client) ID"
+                                },
+                                "azure_tenant_id": {
+                                  "type": "string",
+                                  "title": "Azure Tenant ID",
+                                  "description": "Service principal directory (tenant) ID"
+                                },
+                                "azure_client_secret": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Client Secret",
+                                  "description": "Service principal client secret"
+                                }
+                              },
+                              "required": [
+                                "azure_client_id",
+                                "azure_tenant_id",
+                                "azure_client_secret"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "managed-identity"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Optional. User-assigned managed identity client ID. Leave empty for system-assigned"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "azure_storage_support": {
+                          "const": false
+                        },
+                        "iceberg_s3_path": {
+                          "type": "string",
+                          "title": "Unity Catalog Name",
+                          "description": "Name of the catalog in Unity (S3 storage only)"
+                        }
+                      },
+                      "required": [
+                        "iceberg_s3_path"
                       ]
                     }
                   ]
@@ -1134,16 +1740,27 @@
                         "storage_type": {
                           "const": "Azure"
                         },
+                        "azure_warehouse": {
+                          "type": "string",
+                          "title": "Polaris Catalog Name",
+                          "description": "Name of the catalog created in your Polaris instance"
+                        },
+                        "azure_auth_type": {
+                          "type": "string",
+                          "enum": [
+                            "shared-key",
+                            "sas-token",
+                            "service-principal",
+                            "managed-identity"
+                          ],
+                          "default": "shared-key",
+                          "title": "Azure Auth Type",
+                          "description": "How OLake authenticates to Azure storage"
+                        },
                         "azure_storage_account_name": {
                           "type": "string",
                           "title": "Azure Storage Account Name",
                           "description": "Name of the Azure storage account"
-                        },
-                        "azure_storage_account_key": {
-                          "type": "string",
-                          "format": "password",
-                          "title": "Azure Storage Account Key",
-                          "description": "Key of the Azure storage account"
                         },
                         "azure_container_name": {
                           "type": "string",
@@ -1154,13 +1771,98 @@
                           "type": "string",
                           "title": "Azure Path",
                           "description": "Path of the Azure storage account"
+                        },
+                        "azure_storage_suffix": {
+                          "type": "string",
+                          "default": "dfs.core.windows.net",
+                          "title": "Azure Storage Suffix",
+                          "description": "DFS host suffix. Public: dfs.core.windows.net. China: dfs.core.chinacloudapi.cn. Gov: dfs.core.usgovcloudapi.net"
                         }
                       },
                       "required": [
+                        "azure_warehouse",
+                        "azure_auth_type",
                         "azure_storage_account_name",
-                        "azure_storage_account_key",
                         "azure_container_name"
-                      ]
+                      ],
+                      "dependencies": {
+                        "azure_auth_type": {
+                          "oneOf": [
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "shared-key"
+                                },
+                                "azure_storage_account_key": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Storage Account Key",
+                                  "description": "Account key (shared-key auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_storage_account_key"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "sas-token"
+                                },
+                                "azure_sas_token": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure SAS Token",
+                                  "description": "SAS token (sas-token auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_sas_token"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "service-principal"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Service principal application (client) ID"
+                                },
+                                "azure_tenant_id": {
+                                  "type": "string",
+                                  "title": "Azure Tenant ID",
+                                  "description": "Service principal directory (tenant) ID"
+                                },
+                                "azure_client_secret": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Client Secret",
+                                  "description": "Service principal client secret"
+                                }
+                              },
+                              "required": [
+                                "azure_client_id",
+                                "azure_tenant_id",
+                                "azure_client_secret"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "managed-identity"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Optional. User-assigned managed identity client ID. Leave empty for system-assigned"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   ]
                 }
@@ -1245,11 +1947,6 @@
                   "title": "Horizon Iceberg REST Catalog URI",
                   "description": "Snowflake Horizon Catalog REST API endpoint"
                 },
-                "iceberg_s3_path": {
-                  "type": "string",
-                  "title": "Snowflake Database",
-                  "description": "Snowflake database name used as Iceberg Warehouse (only for S3/Snowflake managed; leave empty for ADLS"
-                },
                 "aws_region": {
                   "type": "string",
                   "title": "Cloud Storage Region",
@@ -1270,6 +1967,7 @@
               "required": [
                 "rest_catalog_url",
                 "rest_auth_type",
+                "aws_region",
                 "scope"
               ],
               "dependencies": {
@@ -1357,24 +2055,43 @@
                       "properties": {
                         "azure_storage_support": {
                           "const": false
+                        },
+                        "iceberg_s3_path": {
+                          "type": "string",
+                          "title": "Snowflake Database",
+                          "description": "Snowflake database name used as Iceberg warehouse (S3/Snowflake managed storage)"
                         }
-                      }
+                      },
+                      "required": [
+                        "iceberg_s3_path"
+                      ]
                     },
                     {
                       "properties": {
                         "azure_storage_support": {
                           "const": true
                         },
+                        "azure_warehouse": {
+                          "type": "string",
+                          "title": "Snowflake Database",
+                          "description": "Snowflake database name used as Iceberg warehouse"
+                        },
+                        "azure_auth_type": {
+                          "type": "string",
+                          "enum": [
+                            "shared-key",
+                            "sas-token",
+                            "service-principal",
+                            "managed-identity"
+                          ],
+                          "default": "shared-key",
+                          "title": "Azure Auth Type",
+                          "description": "How OLake authenticates to Azure storage"
+                        },
                         "azure_storage_account_name": {
                           "type": "string",
                           "title": "Azure Storage Account Name",
                           "description": "Name of the Azure storage account"
-                        },
-                        "azure_storage_account_key": {
-                          "type": "string",
-                          "format": "password",
-                          "title": "Azure Storage Account Key",
-                          "description": "Key of the Azure storage account"
                         },
                         "azure_container_name": {
                           "type": "string",
@@ -1385,13 +2102,98 @@
                           "type": "string",
                           "title": "Azure Path",
                           "description": "Path of the Azure storage account"
+                        },
+                        "azure_storage_suffix": {
+                          "type": "string",
+                          "default": "dfs.core.windows.net",
+                          "title": "Azure Storage Suffix",
+                          "description": "DFS host suffix. Public: dfs.core.windows.net. China: dfs.core.chinacloudapi.cn. Gov: dfs.core.usgovcloudapi.net"
                         }
                       },
                       "required": [
+                        "azure_warehouse",
+                        "azure_auth_type",
                         "azure_storage_account_name",
-                        "azure_storage_account_key",
                         "azure_container_name"
-                      ]
+                      ],
+                      "dependencies": {
+                        "azure_auth_type": {
+                          "oneOf": [
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "shared-key"
+                                },
+                                "azure_storage_account_key": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Storage Account Key",
+                                  "description": "Account key (shared-key auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_storage_account_key"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "sas-token"
+                                },
+                                "azure_sas_token": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure SAS Token",
+                                  "description": "SAS token (sas-token auth)"
+                                }
+                              },
+                              "required": [
+                                "azure_sas_token"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "service-principal"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Service principal application (client) ID"
+                                },
+                                "azure_tenant_id": {
+                                  "type": "string",
+                                  "title": "Azure Tenant ID",
+                                  "description": "Service principal directory (tenant) ID"
+                                },
+                                "azure_client_secret": {
+                                  "type": "string",
+                                  "format": "password",
+                                  "title": "Azure Client Secret",
+                                  "description": "Service principal client secret"
+                                }
+                              },
+                              "required": [
+                                "azure_client_id",
+                                "azure_tenant_id",
+                                "azure_client_secret"
+                              ]
+                            },
+                            {
+                              "properties": {
+                                "azure_auth_type": {
+                                  "const": "managed-identity"
+                                },
+                                "azure_client_id": {
+                                  "type": "string",
+                                  "title": "Azure Client ID",
+                                  "description": "Optional. User-assigned managed identity client ID. Leave empty for system-assigned"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
                     }
                   ]
                 }
@@ -1437,6 +2239,7 @@
                 }
               },
               "required": [
+                "iceberg_s3_path",
                 "aws_region"
               ],
               "dependencies": {

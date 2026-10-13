@@ -104,32 +104,40 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 	}
 
 	if config.usingAzure() {
-		path := strings.Trim(config.AzurePath, "/")
-		warehouse := fmt.Sprintf("abfs://%s@%s.dfs.core.windows.net", config.AzureContainerName, config.AzureStorageAccountName)
-		if path != "" {
-			warehouse = warehouse + "/" + path
+		azurePath := strings.Trim(config.AzurePath, "/")
+		suffix := strings.TrimPrefix(config.AzureStorageSuffix, ".")
+		if suffix == "" {
+			suffix = "dfs.core.windows.net"
 		}
-		// Lakekeeper/Polaris (.../catalog) and Nessie (.../iceberg) resolve
-		// `warehouse` as a registered name, not an object-store URI.
-		if config.CatalogType == RestCatalog && (strings.Contains(config.RestCatalogURL, "/catalog") || strings.Contains(config.RestCatalogURL, "/iceberg")) {
-			warehouse = config.CatalogName
-			if warehouse == "" {
-				warehouse = "olake_iceberg"
+		azureWarehouse := fmt.Sprintf("abfss://%s@%s.%s", config.AzureContainerName, config.AzureStorageAccountName, suffix)
+		if azurePath != "" {
+			azureWarehouse = azureWarehouse + "/" + azurePath
+		}
+
+		// REST catalogs take a registered warehouse/catalog name (azure_warehouse), not an abfss URI.
+		if config.CatalogType == RestCatalog {
+			if name := strings.TrimSpace(config.AzureWarehouse); name != "" {
+				azureWarehouse = name
 			}
 		}
-		serverConfig["warehouse"] = warehouse
-		serverConfig["io-impl"] = "org.apache.iceberg.azure.adlsv2.ADLSFileIO"
-		serverConfig["adls.auth.shared-key.account.name"] = config.AzureStorageAccountName
-		serverConfig["adls.auth.shared-key.account.key"] = config.AzureStorageAccountKey
 
-		if config.AzureEndpoint != "" {
-			serverConfig["adls.connection-string."+config.AzureStorageAccountName] = fmt.Sprintf(
-				"DefaultEndpointsProtocol:http;AccountName=%s;AccountKey=%s;BlobEndpoint=%s;DfsEndpoint=%s",
-				config.AzureStorageAccountName, config.AzureStorageAccountKey, config.AzureEndpoint,
-				strings.Replace(config.AzureEndpoint, ":11000", ":11001", 1),
-			)
+		serverConfig["warehouse"] = azureWarehouse
+		serverConfig["io-impl"] = "org.apache.iceberg.azure.adlsv2.ADLSFileIO"
+
+		azureAccountName := config.AzureStorageAccountName
+		switch config.AzureAuthType {
+		case azureAuthSharedKey:
+			serverConfig["adls.auth.shared-key.account.name"] = config.AzureStorageAccountName
+			serverConfig["adls.auth.shared-key.account.key"] = config.AzureStorageAccountKey
+		case azureAuthSASToken:
+			serverConfig["adls.sas-token."+azureAccountName+"."+suffix] = config.AzureSASToken
+		case azureAuthServicePrincipal, azureAuthManagedIdentity:
+			// DefaultAzureCredential via AZURE env in startServer
 		}
-		addMapKeyIfNotEmpty("azure.path", config.AzurePath)
+		// IT-only: Azurite DFS/blob emulator connection string. If set, it overrides the above auth methods.
+		if conn := strings.TrimSpace(os.Getenv("OLAKE_AZURE_CONNECTION_STRING")); conn != "" {
+			serverConfig["adls.connection-string."+azureAccountName+"."+suffix] = conn
+		}
 	} else {
 		// Only set access keys if explicitly provided, otherwise they'll be picked up from
 		// environment variables or AWS credential files
@@ -251,6 +259,16 @@ func startServer(config *Config) (*serverInstance, error) {
 	appendEnv("AWS_PROFILE", config.ProfileName)
 	// GCSFileIO auths separately from GoogleAuthManager; only via ADC env var. No-op if empty.
 	appendEnv("GOOGLE_APPLICATION_CREDENTIALS", gcpCredsTemp)
+
+	// Azure auth
+	switch config.AzureAuthType {
+	case azureAuthServicePrincipal:
+		appendEnv("AZURE_TENANT_ID", config.AzureTenantID)
+		appendEnv("AZURE_CLIENT_ID", config.AzureClientID)
+		appendEnv("AZURE_CLIENT_SECRET", config.AzureClientSecret)
+	case azureAuthManagedIdentity:
+		appendEnv("AZURE_CLIENT_ID", config.AzureClientID) // user-assigned; empty = system-assigned
+	}
 
 	if err := logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd); err != nil {
 		if gcpCredsTemp != "" {
