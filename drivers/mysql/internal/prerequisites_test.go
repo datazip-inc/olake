@@ -199,6 +199,7 @@ func TestMySQLCheckBinlogAccess(t *testing.T) {
 		})
 	}
 
+	// an empty result still proves REPLICATION CLIENT; log_bin reports binlog being off
 	t.Run("binlog disabled returns no position row", func(t *testing.T) {
 		m, mock := newMockMySQL(t)
 		mock.ExpectQuery("SELECT @@version").WillReturnRows(sqlmock.NewRows([]string{"@@version"}).AddRow("8.0.36"))
@@ -206,8 +207,8 @@ func TestMySQLCheckBinlogAccess(t *testing.T) {
 
 		current, ok, err := m.checkBinlogAccess(context.Background())
 		require.NoError(t, err)
-		assert.False(t, ok)
-		assert.Contains(t, current, "no binlog position available")
+		assert.True(t, ok)
+		assert.Contains(t, current, "binary logging is off")
 	})
 
 	// a failed row read is not an empty result, so it must not read as binlog being off

@@ -122,12 +122,13 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			return fmt.Errorf("failed to open database connection: %w", err)
 		}
 	}
-	// Test connection
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Test connection. Only the ping and timezone detection share this timeout; the prerequisites
+	// below run under ctx, since RunPrerequisites bounds each check on its own.
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
-	if err := client.PingContext(ctx); err != nil {
+	if err := client.PingContext(pingCtx); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -138,7 +139,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if resolved == nil {
 		query := jdbc.MySQLTimeZoneQuery()
 		var sessionTimezone, globalTimezone, systemTimezone string
-		if err := client.QueryRowxContext(ctx, query).Scan(&sessionTimezone, &globalTimezone, &systemTimezone); err != nil {
+		if err := client.QueryRowxContext(pingCtx, query).Scan(&sessionTimezone, &globalTimezone, &systemTimezone); err != nil {
 			logger.Warnf("mysql timezone detection failed; defaulting to UTC: %s", err)
 			resolved = time.UTC
 		} else {

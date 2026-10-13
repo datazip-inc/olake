@@ -93,14 +93,17 @@ func (m *MySQL) checkBinlogRowMetadata(ctx context.Context) (string, bool, error
 }
 
 // checkBinlogAccess reuses the position read CDC starts with: SHOW MASTER STATUS requires
-// REPLICATION CLIENT, so success proves the permission. Only a missing privilege or binlog
-// being off is a check result; any other error means the check could not be evaluated.
+// REPLICATION CLIENT, so success proves the permission. Only a missing privilege is a failed
+// result; any other error means the check could not be evaluated.
 func (m *MySQL) checkBinlogAccess(ctx context.Context) (string, bool, error) {
 	_, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
 	switch {
 	case err == nil:
 		return "granted", true, nil
-	case isMySQLError(err, errSpecificAccessDenied), errors.Is(err, binlog.ErrNoBinlogPosition):
+	case errors.Is(err, binlog.ErrNoBinlogPosition):
+		// the statement ran, so the privilege is there; binary logging being off is reported by log_bin
+		return "granted (binary logging is off, see log_bin)", true, nil
+	case isMySQLError(err, errSpecificAccessDenied):
 		return fmt.Sprintf("cannot read binlog position: %s", err), false, nil
 	}
 	return "", false, err
