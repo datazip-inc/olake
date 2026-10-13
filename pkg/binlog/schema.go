@@ -99,6 +99,9 @@ func (c *schemaCache) invalidate() {
 }
 
 // snapshot returns a copy of the cached schemas, for saving alongside the binlog position.
+// The copy is shallow: it shares *tableMeta pointers with the live cache and they are
+// persisted into the state file, so tableMeta must stay immutable after insertion
+// (AnchoredAt is set before the entry is cached, and readers never mutate it).
 func (c *schemaCache) snapshot() map[string]*tableMeta {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
