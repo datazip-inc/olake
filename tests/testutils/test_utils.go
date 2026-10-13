@@ -2679,7 +2679,7 @@ func setStreamUpsert(cfg *TestConfig, namespace, table string, dedupKeys []strin
 	for _, k := range dedupKeys {
 		keys = append(keys, k)
 	}
-	return editJSONFile(cfg.HostCatalogPath, func(doc map[string]interface{}) error {
+	return cfg.catalog().edit(func(doc map[string]interface{}) error {
 		selected, _ := doc["selected_streams"].(map[string]interface{})
 		namespaceStreams, ok := selected[namespace].([]interface{})
 		if !ok {

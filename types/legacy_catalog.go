@@ -25,6 +25,7 @@ type LegacyStreamMetadata struct {
 	Filter               string           `json:"filter,omitempty"`
 	FilterConfig         *FilterConfig    `json:"filter_config,omitempty"`
 	SelectedColumns      *SelectedColumns `json:"selected_columns"`
+	DedupKeys            []string         `json:"dedup_keys,omitempty"`
 }
 
 // LegacyCatalog is the streams.json ([]streams + selected_streams)
@@ -65,6 +66,7 @@ func legacyToStreamMetadata(streamMetadata LegacyStreamMetadata) StreamMetadata 
 		Filter:               streamMetadata.Filter,
 		FilterConfig:         streamMetadata.FilterConfig,
 		SelectedColumns:      streamMetadata.SelectedColumns,
+		DedupKeys:            streamMetadata.DedupKeys,
 	}
 }
 
@@ -163,5 +165,6 @@ func toLegacyStreamMetadata(metadata StreamMetadata, stream *Stream) LegacyStrea
 		Filter:               metadata.Filter,
 		FilterConfig:         metadata.FilterConfig,
 		SelectedColumns:      selectedColumns,
+		DedupKeys:            metadata.DedupKeys,
 	}
 }

@@ -799,6 +799,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							DestinationDatabase: "custom:public",
 							DestinationTable:    "custom_users",
 							Normalization:       new(true),
+							DedupKeys:           []string{"id"},
 						},
 					},
 				},
@@ -846,6 +847,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							DestinationDatabase: "custom:public",
 							DestinationTable:    "custom_users",
 							Normalization:       new(true),
+							DedupKeys:           []string{"id"},
 						},
 					},
 				},
@@ -1653,6 +1655,21 @@ func TestGetStreamsDelta(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UseSourceColumnNames: true}}},
 			},
 		},
+		{
+			name: "dedup_keys change is a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DedupKeys: []string{"id"}}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DedupKeys: []string{"id", "region"}}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DedupKeys: []string{"id", "region"}}}},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1704,11 +1721,11 @@ func TestResolveCatalog(t *testing.T) {
 			name: "legacy: streams.json resolves with legacy values made explicit",
 			legacy: &LegacyCatalog{
 				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: CDC}}},
-				SelectedStreams: map[string][]LegacyStreamMetadata{"public": {{StreamName: "users", Normalization: true, AppendMode: false}}},
+				SelectedStreams: map[string][]LegacyStreamMetadata{"public": {{StreamName: "users", Normalization: true, AppendMode: false, DedupKeys: []string{"id"}}}},
 			},
 			expected: &Catalog{
 				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: CDC}}},
-				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true), AppendMode: new(false), UpdateType: new("")}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true), AppendMode: new(false), UpdateType: new(""), DedupKeys: []string{"id"}}}},
 			},
 		},
 		{
