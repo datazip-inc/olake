@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 	pqgo "github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/require"
 )
@@ -76,8 +77,11 @@ func (cfg *IntegrationTest) testAzureBlob(ctx context.Context, t *testing.T, tes
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "add")
 
 	require.NoError(t, updateSelectedStreams(cfg.TestConfig, cfg.Namespace, "", "", []string{testTable}, cfg.ColumnToExclude))
-	// Full refresh - make azure independent of CDC
-	require.NoError(t, updateStreamConfig(cfg.TestConfig, cfg.Namespace, testTable, "full_refresh", ""))
+	syncMode := "full_refresh"
+	if cfg.TestConfig.Driver == string(constants.Kafka) {
+		syncMode = "strict_cdc"
+	}
+	require.NoError(t, updateStreamConfig(cfg.TestConfig, cfg.Namespace, testTable, syncMode, ""))
 
 	dest := loadAzureDest(t, cfg.TestConfig)
 	requireAzurite(t, dest)

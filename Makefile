@@ -91,7 +91,7 @@ DEST_COMPOSE := destination/iceberg/local-test/docker-compose.yml
 DEST_DATA_DIR := destination/iceberg/local-test/data
 # Only these services are needed by the tests; a bare `up -d` would also start
 # the unused lakekeeper REST catalog and its migrate job.
-DEST_SERVICES := minio mc postgres spark-iceberg
+DEST_SERVICES := minio mc postgres spark-iceberg azurite
 ICEBERG_WRITER_DIR := destination/iceberg/olake-iceberg-java-writer
 ICEBERG_JAR := $(ICEBERG_WRITER_DIR)/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
 ICEBERG_JAR_SRCS := $(ICEBERG_WRITER_DIR)/pom.xml $(shell find $(ICEBERG_WRITER_DIR)/src -type f 2>/dev/null)
@@ -107,6 +107,8 @@ WAIT_SLEEP := 5
 WAIT_RETRIES.spark := 60
 PROBE.minio = curl -f http://localhost:9000/minio/health/live
 PROBE.spark = docker exec spark-iceberg grep -q ':3A9A' /proc/net/tcp6
+PROBE.azurite = curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:11000/devstoreaccount1?comp=list | grep -qE '^(200|403)'
+
 
 # Optional per-service recovery hooks: wait_ready runs RECOVER.<name> after
 # every failed probe, for services that cannot come back by themselves. Hooks
@@ -257,6 +259,7 @@ olake.destination.all.up: olake.minio.up
 
 olake.destination.all.wait:
 	@$(call wait_ready,minio)
+	@$(call wait_ready,azurite)
 	@$(call wait_ready,spark)
 
 olake.destination.all.start:
