@@ -48,7 +48,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("%w: failed to run backfill: %w", constants.ErrNonRetryable, err)
+		return fmt.Errorf("%w: failed to run backfill: %w", constants.ErrRetryable, err)
 	}
 
 	// Wait for all backfill processes to complete

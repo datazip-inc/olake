@@ -67,7 +67,10 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			cancel()
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrNonRetryable)
+					if !messageReceived {
+						return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrNonRetryable)
+					}
+					return fmt.Errorf("no WAL message received for %s, replication connection may be lost: %w", p.socket.initialWaitTime, err)
 				}
 
 				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {

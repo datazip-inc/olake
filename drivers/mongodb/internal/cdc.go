@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -73,7 +74,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
 	if prevResumeToken == nil {
 		return nil, errs.Precondition(errs.StateInvalid, codeResumeTokenMissing,
-			fmt.Errorf("resume token not found for stream: %s", stream.ID()))
+			fmt.Errorf("%w: resume token not found for stream: %s", constants.ErrNonRetryable, stream.ID()))
 	}
 	//   metadata > state  →  metadata is further ahead (crash-recovery path: metadata
 	//                         was committed to the destination but state write failed).
