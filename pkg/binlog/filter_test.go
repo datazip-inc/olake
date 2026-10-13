@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/assert"
@@ -396,6 +397,123 @@ func TestTextTypeName(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.wireType, func(t *testing.T) {
 			assert.Equal(t, tc.want, textTypeName(tc.wireType))
+		})
+	}
+}
+
+// TestDecodeCollatedValue checks what a collated column's value and wire type become on each side
+// of state version 8.
+func TestDecodeCollatedValue(t *testing.T) {
+	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+
+	testCases := []struct {
+		name         string
+		stateVersion int
+		val          any
+		collationID  uint64
+		width        int
+		columnType   string
+		want         any
+		wantType     string
+	}{
+		{
+			name:         "below v8 binary bytes decode as text under the wire type",
+			stateVersion: 7,
+			val:          []byte{0xFF, 0x05},
+			collationID:  63,
+			width:        16,
+			columnType:   "CHAR",
+			want:         string([]byte{0xFF, 0x05}),
+			wantType:     "CHAR",
+		},
+		{
+			name:         "below v8 latin1 decodes as text under the wire type",
+			stateVersion: 7,
+			val:          []byte{0xE9},
+			collationID:  8,
+			width:        0,
+			columnType:   "BLOB",
+			want:         "é",
+			wantType:     "BLOB",
+		},
+		{
+			name:         "binary CHAR pads to its width as BINARY",
+			stateVersion: 8,
+			val:          string([]byte{0xFF, 0x05}),
+			collationID:  63,
+			width:        16,
+			columnType:   "CHAR",
+			want:         append([]byte{0xFF, 0x05}, make([]byte, 14)...),
+			wantType:     "BINARY",
+		},
+		{
+			name:         "binary VARCHAR keeps its bytes as VARBINARY",
+			stateVersion: 8,
+			val:          string([]byte{0x10, 0x20}),
+			collationID:  63,
+			width:        0,
+			columnType:   "VARCHAR",
+			want:         []byte{0x10, 0x20},
+			wantType:     "VARBINARY",
+		},
+		{
+			name:         "binary BLOB keeps its bytes and type",
+			stateVersion: 8,
+			val:          []byte{0x00, 0x01, 0xFF},
+			collationID:  63,
+			width:        0,
+			columnType:   "BLOB",
+			want:         []byte{0x00, 0x01, 0xFF},
+			wantType:     "BLOB",
+		},
+		{
+			name:         "latin1 BLOB decodes as TEXT",
+			stateVersion: 8,
+			val:          []byte{0xE9},
+			collationID:  8,
+			width:        0,
+			columnType:   "BLOB",
+			want:         "é",
+			wantType:     "TEXT",
+		},
+		{
+			name:         "utf8mb4 CHAR stays text",
+			stateVersion: 8,
+			val:          "héllo",
+			collationID:  45,
+			width:        0,
+			columnType:   "CHAR",
+			want:         "héllo",
+			wantType:     "CHAR",
+		},
+		{
+			name:         "a value that is not bytes is left alone",
+			stateVersion: 8,
+			val:          int64(5),
+			collationID:  63,
+			width:        16,
+			columnType:   "CHAR",
+			want:         int64(5),
+			wantType:     "CHAR",
+		},
+		{
+			name:         "a nil byte slice is left alone",
+			stateVersion: 8,
+			val:          []byte(nil),
+			collationID:  63,
+			width:        16,
+			columnType:   "CHAR",
+			want:         []byte(nil),
+			wantType:     "CHAR",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			got, gotType := decodeCollatedValue(tc.val, tc.collationID, tc.width, tc.columnType)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantType, gotType)
 		})
 	}
 }

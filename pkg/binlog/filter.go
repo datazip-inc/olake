@@ -285,34 +285,7 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 			}
 
 		case view.collations[i] != 0:
-			// go-mysql blindly casts VARCHAR/CHAR bytes to string via ByteSliceToString;
-			// BLOBs arrive as []byte. In both cases, cast back to bytes to recover the
-			// original charset bytes, then decode properly.
-			var raw []byte
-			switch v := val.(type) {
-			case string:
-				raw = []byte(v)
-			case []byte:
-				raw = v
-			}
-			if raw != nil {
-				switch {
-				case !utils.IsBinarySupported():
-					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
-						val = decoded
-					}
-				case isBinaryCollation(view.collations[i]):
-					// e.g. TableMapEvent.Dump of (id INT, c_text VARCHAR(16), c_fixed BINARY(8), c_var VARBINARY(16), c_blob BLOB):
-					// CollationMap: map[int]uint64{1:0xff, 2:0x3f, 3:0x3f, 4:0x3f}, where 0x3f is collation 63 "binary"
-					val = padToWidth(raw, view.widths[i])
-					columnType = binaryTypeName(columnType)
-				default:
-					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
-						val = decoded
-						columnType = textTypeName(columnType)
-					}
-				}
-			}
+			val, columnType = decodeCollatedValue(val, view.collations[i], view.widths[i], columnType)
 		}
 
 		convertedVal, err := converter(val, columnType)
@@ -322,6 +295,34 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 		record[view.names[i]] = convertedVal
 	}
 	return record, nil
+}
+
+// decodeCollatedValue returns a collated binlog value with its column type. Below state version 8
+// it decodes to text. From 8 only binary collations keep their bytes, padded to width.
+func decodeCollatedValue(val any, collationID uint64, width int, columnType string) (any, string) {
+	var raw []byte
+	switch v := val.(type) {
+	case string:
+		raw = []byte(v)
+	case []byte:
+		raw = v
+	}
+	if raw == nil {
+		return val, columnType
+	}
+	switch {
+	case !utils.IsBinarySupported():
+		if decoded, err := decodeBytesToString(raw, collationID); err == nil {
+			return decoded, columnType
+		}
+	case isBinaryCollation(collationID):
+		return padToWidth(raw, width), binaryTypeName(columnType)
+	default:
+		if decoded, err := decodeBytesToString(raw, collationID); err == nil {
+			return decoded, textTypeName(columnType)
+		}
+	}
+	return val, columnType
 }
 
 // mysqlTypeName maps MySQL binlog protocol type bytes to SQL type names.
