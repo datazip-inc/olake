@@ -2,10 +2,12 @@ package parquet
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -667,6 +669,9 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 				} else {
 					logger.Debugf("Thread[%s]: failed to convert value to timestamp: %s", p.options.ThreadID, err)
 				}
+			}
+			if b, isBytes := value.([]byte); isBytes {
+				return url.QueryEscape(base64.StdEncoding.EncodeToString(b))
 			}
 			return fmt.Sprintf("%v", value)
 		}
