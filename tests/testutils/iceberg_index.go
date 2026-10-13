@@ -262,28 +262,18 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 	return nil
 }
 
-// TestUnchangedToastRecovery checks, with preserve_toast_values on, that discover offers only pos/dv and that
-// both refill a col_toast the CDC update left out. Run serially: discover lists every table in the database.
+// TestUnchangedToastRecovery checks, with preserve_toast_values on, that pos and dv refill a col_toast the CDC
+// update left out. TestDiscover checks what discover offers with the option on.
 func (cfg *IntegrationTest) TestUnchangedToastRecovery(t *testing.T) {
+	cfg.IsolateSuite(t, "toast")
 	ctx := t.Context()
 	testTable := TestTableName(cfg.TestConfig)
 
-	require.NoError(t, editJSONFile(cfg.TestConfig.HostSourcePath, func(doc map[string]interface{}) error {
-		updateMethod, ok := doc["update_method"].(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("no update_method object in source config")
-		}
-		updateMethod["preserve_toast_values"] = true
-		return nil
-	}), "failed enabling preserve_toast_values")
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "create-slot")
+	defer cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop-slot")
 
-	// discover writes the catalog the cases below sync with; prepareTableIndexSync configures it per case
-	require.NoError(t, cfg.resetTable(ctx, t))
-	if code, out, err := runOlake(ctx, t, cfg.TestConfig, discoverArgs(*cfg.TestConfig)...); err != nil || code != 0 {
-		t.Fatalf("discover failed (%d): %s\n%s", code, err, out)
-	}
-	verifyDiscoveredStreams(t, filepath.Join(filepath.Dir(cfg.TestConfig.HostTestCatalogPath), "test_streams_preserve_toast.json"),
-		cfg.TestConfig.HostCatalogPath)
+	seedCatalogFromTestStreams(t, cfg.TestConfig, testTable)
+	require.NoError(t, enablePreserveToastValues(cfg.TestConfig), "failed enabling preserve_toast_values")
 
 	toastValue := strings.Repeat("t", ToastValueLength)
 	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, cfg.DestinationDB, testTable)
@@ -319,6 +309,18 @@ func (cfg *IntegrationTest) TestUnchangedToastRecovery(t *testing.T) {
 		return
 	}
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
+}
+
+// enablePreserveToastValues turns preserve_toast_values on in the config's own copy of source.json.
+func enablePreserveToastValues(c *TestConfig) error {
+	return editJSONFile(c.HostSourcePath, func(doc map[string]interface{}) error {
+		updateMethod, ok := doc["update_method"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("no update_method object in source config")
+		}
+		updateMethod["preserve_toast_values"] = true
+		return nil
+	})
 }
 
 // TestIcebergPosIncremental syncs incrementally into a pos-mode stream, which keeps a table index. Rows must keep

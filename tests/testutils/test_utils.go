@@ -1867,6 +1867,16 @@ func (cfg *IntegrationTest) TestDiscover(t *testing.T) {
 
 	// 3. Verify streams.json describes exactly the streams we expect
 	verifyDiscoveredStreams(t, cfg.TestConfig.HostTestCatalogPath, cfg.TestConfig.HostCatalogPath)
+
+	// 4. With preserve_toast_values on, only the update types that keep a row index (pos, dv) are offered
+	if cfg.TestConfig.Driver == string(constants.Postgres) {
+		require.NoError(t, enablePreserveToastValues(cfg.TestConfig), "failed enabling preserve_toast_values")
+		if code, out, err := runOlake(ctx, t, cfg.TestConfig, discoverArgs(*cfg.TestConfig)...); err != nil || code != 0 {
+			t.Fatalf("discover failed (%d): %s\n%s", code, err, string(out))
+		}
+		verifyDiscoveredStreams(t, filepath.Join(filepath.Dir(cfg.TestConfig.HostTestCatalogPath), "test_streams_preserve_toast.json"),
+			cfg.TestConfig.HostCatalogPath)
+	}
 }
 
 // TestSync runs the happy-path sync suite: full load, CDC and incremental, over both Iceberg writers
