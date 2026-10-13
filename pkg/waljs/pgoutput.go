@@ -25,7 +25,7 @@ type pgoutputReplicator struct {
 	txnCommitTime        time.Time                             // transaction commit time
 	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
 	transactionCompleted bool                                  // if both begin and commit message received, then transaction is completed
-	postRead             bool                                  // mark columns Postgres left out of an UPDATE so the destination can recover them
+	preserveToastValues  bool                                  // mark columns Postgres left out of an UPDATE so the destination can recover them
 }
 
 func (p *pgoutputReplicator) Socket() *Socket {
@@ -40,8 +40,8 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 
 	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
-	if p.postRead {
-		logger.Info("post_read enabled: column values postgres omits from an update are recovered from the destination, for iceberg streams using positional deletes or deletion vectors")
+	if p.preserveToastValues {
+		logger.Info("preserve_toast_values enabled: column values postgres omits from an update are recovered from the destination, for iceberg streams using positional deletes or deletion vectors")
 	}
 
 	cdcStartTime := time.Now()
@@ -146,7 +146,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 
 // tupleValuesToMap converts one row's tuple into column values. unchangedToastColumns
 // lists this row's out-of-line values the UPDATE left unchanged, which Postgres did not
-// send. Nil unless postRead is on.
+// send. Nil unless preserveToastValues is on.
 func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (data map[string]any, rowBytes int64, unchangedToastColumns []string, err error) {
 	data = make(map[string]any)
 	if tuple == nil {
@@ -179,7 +179,7 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		if col.Data == nil {
 			// If the column is a TOAST column, set the value to __olake_unavailable_value__ otherwise set it to nil
 			data[colName] = utils.Ternary(isUnchangedToast, constants.UnavailableValue, nil)
-			if isUnchangedToast && p.postRead {
+			if isUnchangedToast && p.preserveToastValues {
 				unchangedToastColumns = append(unchangedToastColumns, colName)
 			}
 			continue

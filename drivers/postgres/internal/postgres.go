@@ -165,8 +165,8 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
-		// post_read reads rows back through the destination's table index
-		viper.Set(constants.TableIndexRequired, cdc.PostRead)
+		// preserve_toast_values reads rows back through the destination's table index
+		viper.Set(constants.TableIndexRequired, cdc.PreserveToastValues)
 	} else {
 		logger.Info("Standard Replication is selected")
 	}

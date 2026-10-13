@@ -60,7 +60,7 @@ func TestAvailableUpdateTypes(t *testing.T) {
 	testCases := []struct {
 		name          string
 		engines       []QueryEngine
-		indexRequired bool // the source reads rows back through the table index (Postgres post_read)
+		indexRequired bool // the source reads rows back through the table index (Postgres preserve_toast_values)
 		expected      []UpdateType
 	}{
 		{

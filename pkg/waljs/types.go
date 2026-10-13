@@ -21,9 +21,8 @@ type Config struct {
 	BatchSize           int
 	// Publications is used with pgoutput
 	Publication string
-	// PostRead marks columns Postgres could not send (unchanged TOAST) so the
-	// destination can recover them.
-	PostRead bool
+	// PreserveToastValues marks columns Postgres could not send (unchanged TOAST) so the destination can recover them.
+	PreserveToastValues bool
 }
 
 type WALState struct {

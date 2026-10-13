@@ -124,7 +124,7 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 	plugin := strings.ToLower(strings.TrimSpace(slot.Plugin))
 	switch plugin {
 	case "pgoutput":
-		return &pgoutputReplicator{socket: socket, publication: config.Publication, postRead: config.PostRead, relationIDToMsgMap: make(map[uint32]*pglogrepl.RelationMessage)}, nil
+		return &pgoutputReplicator{socket: socket, publication: config.Publication, preserveToastValues: config.PreserveToastValues, relationIDToMsgMap: make(map[uint32]*pglogrepl.RelationMessage)}, nil
 	default:
 		return &wal2jsonReplicator{socket: socket}, nil
 	}

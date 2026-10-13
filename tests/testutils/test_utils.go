@@ -41,6 +41,7 @@ type IntegrationTest struct {
 	TestConfig                       *TestConfig
 	ExpectedData                     map[string]interface{}
 	ExpectedUpdatedData              map[string]interface{}
+	ExpectedCDCUpdatedData           map[string]interface{} // CDC update row, when a CDC change leaves columns out
 	DestinationDataTypeSchema        map[string]string
 	UpdatedDestinationDataTypeSchema map[string]string
 	DefaultCDCColumnsSchema          map[string]string
@@ -931,7 +932,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			operation: "update",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			expected:  Ternary(cfg.ExpectedCDCUpdatedData != nil, cfg.ExpectedCDCUpdatedData, cfg.ExpectedUpdatedData).(map[string]interface{}),
 		},
 		{
 			name:      "CDC - delete",
@@ -1062,7 +1063,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 			operation: "update",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			expected:  Ternary(cfg.ExpectedCDCUpdatedData != nil, cfg.ExpectedCDCUpdatedData, cfg.ExpectedUpdatedData).(map[string]interface{}),
 		},
 		{
 			name:      "CDC - delete",
