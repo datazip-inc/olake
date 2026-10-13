@@ -69,6 +69,15 @@ func (d DataType) ValueType() DataType {
 	}
 }
 
+// IcebergValueType is ValueType for an iceberg type: the type of the values a column of
+// icebergType holds. A fixed[n] column holds binary values, as a value cannot reveal a width.
+func IcebergValueType(icebergType string) string {
+	if _, isFixed := IsIcebergBytes(icebergType); isFixed {
+		return "binary"
+	}
+	return icebergType
+}
+
 var RawSchema = map[string]DataType{
 	constants.StringifiedData: String,
 	constants.CdcTimestamp:    Timestamp,

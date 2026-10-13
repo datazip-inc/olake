@@ -480,6 +480,15 @@ func IsType[T ~string](dataType, pattern T, numParams int) (bool, []int) {
 
 // ScanType is IsType writing the parameters into params, whose length is the number expected, so
 // a per-value caller can scan into an array on its stack without allocating.
+// For example:
+//
+//	var width [1]int
+//	ScanType("fixed_binary(16)", "fixed_binary(%d)", width[:]) // true, width == [16]
+//	ScanType("fixed[16]", "fixed_binary(%d)", width[:])        // false, another family
+//
+//	var precisionScale [2]int
+//	ScanType("decimal(9,2)", "decimal(%d,%d)", precisionScale[:])  // true, precisionScale == [9 2]
+//	ScanType("decimal(9, 2)", "decimal(%d,%d)", precisionScale[:]) // false, the pattern has no space
 func ScanType[T ~string](dataType, pattern T, params []int) bool {
 	s, p := string(dataType), string(pattern)
 	found := 0

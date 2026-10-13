@@ -115,6 +115,12 @@ func TestIsValidTypeForColumn(t *testing.T) {
 			valueType:  "string",
 			valid:      false,
 		},
+		{
+			name:       "a column type olake does not map keeps its own value type and rejects string",
+			columnType: "date",
+			valueType:  "string",
+			valid:      false,
+		},
 	}
 
 	for _, tc := range testCases {

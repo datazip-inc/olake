@@ -1501,7 +1501,7 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 	bytesConverter := func(cursorType types.DataType, value any) any {
 		switch v := value.(type) {
 		case []byte:
-			if cursorType == types.Binary {
+			if driverType == constants.MySQL && cursorType == types.Binary {
 				return v
 			}
 			return string(v)
