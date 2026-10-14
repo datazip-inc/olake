@@ -289,8 +289,5 @@ func partitionPageBytes(partitions []PartitionPage, blockSize uint32, start int6
 			effectivePageSize += bytesPerHeapPage(blockSize, p.HeapBytes, p.TableBytes)
 		}
 	}
-	if heapPageBytes == 0 {
-		return float64(blockSize), float64(blockSize)
-	}
 	return heapPageBytes, effectivePageSize
 }
