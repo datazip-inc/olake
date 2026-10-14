@@ -281,10 +281,10 @@ func (p *Postgres) loadPartitionPages(ctx context.Context, stream types.StreamIn
 }
 
 // partitionPageBytes sums the heap bytes and the effective page size (heap + TOAST bytes) behind one page offset
-// over partitions with more than 'end' pages, since a ctid chunk reads the same page range from each of them.
-func partitionPageBytes(partitions []PartitionPage, blockSize uint32, end int64) (heapPageBytes, effectivePageSize float64) {
+// over partitions that still have pages at 'start', since a ctid chunk reads the same page range from each of them.
+func partitionPageBytes(partitions []PartitionPage, blockSize uint32, start int64) (heapPageBytes, effectivePageSize float64) {
 	for _, p := range partitions {
-		if p.Pages > end {
+		if p.Pages > start {
 			heapPageBytes += float64(blockSize)
 			effectivePageSize += bytesPerHeapPage(blockSize, p.HeapBytes, p.TableBytes)
 		}
