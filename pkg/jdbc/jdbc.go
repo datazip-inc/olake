@@ -139,18 +139,17 @@ func PostgresServerVersionNum() string {
 	return `SELECT current_setting('server_version_num')::int`
 }
 
-// PostgresPartitionPagesPG12 returns leaf-partition page counts, heap and table (heap + TOAST) sizes using pg_partition_tree (PG 12+).
+// PostgresPartitionPagesPG12 returns leaf-partition heap and table (heap + TOAST) sizes using pg_partition_tree (PG 12+).
 // Intermediate partitions are excluded via isleaf=true; works for any partition depth.
 func PostgresPartitionPagesPG12(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
         SELECT
             pt.relid::text AS name,
-            CEIL(1.05 * (pg_relation_size(pt.relid::oid) / current_setting('block_size')::int))::bigint AS pages,
             pg_relation_size(pt.relid::oid) AS heap_bytes,
             pg_table_size(pt.relid::oid) AS table_bytes
         FROM pg_partition_tree('%s.%s') pt
         WHERE pt.isleaf = true
-        ORDER BY pages DESC;
+        ORDER BY heap_bytes DESC;
     `,
 		stream.Namespace(),
 		stream.Name(),
@@ -158,15 +157,14 @@ func PostgresPartitionPagesPG12(stream types.StreamInterface) string {
 }
 
 // TODO:check this query might be more optimized for performance
-// PostgresPartitionPages returns leaf-partition page counts, heap and table (heap + TOAST) sizes using a
-// recursive CTE over pg_inherits. Works on all Postgres versions (10+); used as fallback for PG < 12.
+// PostgresPartitionPages returns leaf-partition heap and table (heap + TOAST) sizes using a recursive CTE
+// over pg_inherits. Works on all Postgres versions (10+); used as fallback for PG < 12.
 func PostgresPartitionPages(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
         WITH RECURSIVE partition_tree AS (
             SELECT
                 c.oid,
-                c.relname AS name,
-                CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int))::bigint AS pages
+                c.relname AS name
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = '%s'
@@ -176,22 +174,20 @@ func PostgresPartitionPages(stream types.StreamInterface) string {
 
             SELECT
                 child.oid,
-                child.relname AS name,
-                CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int))::bigint AS pages
+                child.relname AS name
             FROM pg_inherits i
             JOIN pg_class child ON child.oid = i.inhrelid
             JOIN partition_tree pt ON pt.oid = i.inhparent
         )
         SELECT
             name,
-            pages,
             pg_relation_size(oid) AS heap_bytes,
             pg_table_size(oid) AS table_bytes
         FROM partition_tree
         WHERE NOT EXISTS (
             SELECT 1 FROM pg_inherits WHERE inhparent = partition_tree.oid
         )
-        ORDER BY pages DESC;
+        ORDER BY heap_bytes DESC;
     `,
 		stream.Namespace(),
 		stream.Name(),
@@ -215,9 +211,9 @@ func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
 	)
 }
 
-// PostgresRelPageCount returns the query to fetch relation page count, heap size and table size (heap + TOAST) in PostgreSQL
-func PostgresRelPageCount(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT relpages, pg_relation_size(oid), pg_table_size(oid) FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
+// PostgresRelationSizeQuery returns the query to fetch a relation's heap size and table size (heap + TOAST) in PostgreSQL
+func PostgresRelationSizeQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT pg_relation_size(oid), pg_table_size(oid) FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
 }
 
 // PostgresWalLSNQuery returns the query to fetch the current WAL LSN in PostgreSQL
