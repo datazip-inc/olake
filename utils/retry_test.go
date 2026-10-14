@@ -28,7 +28,7 @@ func TestRetryOnBackoffMarkers(t *testing.T) {
 		expectedErr   error
 	}{
 		{name: "success on first attempt", attempts: 3, errs: nil, expectedCalls: 1},
-		{name: "plain error is retried until attempts run out", attempts: 3, errs: []error{plain, plain, plain}, expectedCalls: 3, expectedErr: plain},
+		{name: "plain error is retried until attempts run out", attempts: 3, errs: []error{plain, plain, plain, plain}, expectedCalls: 4, expectedErr: plain},
 		{name: "plain error then success", attempts: 3, errs: []error{plain}, expectedCalls: 2},
 		{name: "ErrRetryable stops after one attempt", attempts: 3, errs: []error{retryable}, expectedCalls: 1, expectedErr: retryable},
 		{name: "ErrNonRetryable stops after one attempt", attempts: 3, errs: []error{nonRetryable}, expectedCalls: 1, expectedErr: nonRetryable},
@@ -49,10 +49,10 @@ func TestRetryOnBackoffMarkers(t *testing.T) {
 		{
 			name:          "marker lost through %s is retried",
 			attempts:      3,
-			errs:          []error{fmt.Errorf("outer: %s", nonRetryable), fmt.Errorf("outer: %s", nonRetryable), fmt.Errorf("outer: %s", nonRetryable)},
-			expectedCalls: 3,
+			errs:          []error{fmt.Errorf("outer: %s", nonRetryable), fmt.Errorf("outer: %s", nonRetryable), fmt.Errorf("outer: %s", nonRetryable), fmt.Errorf("outer: %s", nonRetryable)},
+			expectedCalls: 4,
 		},
-		{name: "single attempt is not retried", attempts: 1, errs: []error{plain}, expectedCalls: 1, expectedErr: plain},
+		{name: "single attempt is not retried", attempts: 0, errs: []error{plain}, expectedCalls: 1, expectedErr: plain},
 	}
 
 	for _, tc := range testCases {

@@ -23,7 +23,7 @@ type markerStubDriver struct {
 	produceCalls     *int
 }
 
-func (s markerStubDriver) MaxRetries() int { return 1 } // one attempt, so no test waits on backoff
+func (s markerStubDriver) MaxRetries() int { return 0 } // no retries, so no test waits on backoff
 func (s markerStubDriver) GetStreamNames(context.Context) ([]types.StreamID, error) {
 	return s.streamNames, nil
 }
