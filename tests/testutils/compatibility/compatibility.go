@@ -207,7 +207,7 @@ func (th *TestHandler) runSyncMode(t *testing.T, conf *testutils.TestConfig, bas
 		t.Cleanup(func() { checkpoint.stopIfFailed(t) })
 		for _, c := range cases {
 			if !checkpoint.bothDone() {
-				diag.fatalf(t, "a %s side never finished case %q, so the two destinations were never compared; the side's own subtest output has why", v.name, c.operation)
+				diag.fatalf(t, "a %s side never finished case %q, so the two destinations were never compared%s; the side's own subtest output has why", v.name, c.operation, testutils.Ternary(c.useState, "", "; both sides were still on "+baselineVersion+", before the upgrade, so no state version is implicated").(string))
 			}
 			compareSyncMode(t, diag, policies, configs[0], configs[1], group, v, ruleSpec)
 			checkpoint.release()
