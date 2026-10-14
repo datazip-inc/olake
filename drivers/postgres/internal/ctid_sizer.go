@@ -10,9 +10,9 @@ import (
 const postgresMinVersionPG14 = 140000
 
 // ctidSizer returns the heap pages one ctid chunk spans, given the bytes behind one page offset across the relations
-// the chunk reads (heapPageBytes for the heap alone, tablePageBytes with TOAST) and the heap bytes a full scan reads.
+// the chunk reads (heapPageBytes for the heap alone, effectivePageSize with TOAST) and the heap bytes a full scan reads.
 type ctidSizer interface {
-	pagesPerChunk(heapPageBytes, tablePageBytes float64, scannedHeapBytes int64) float64
+	pagesPerChunk(heapPageBytes, effectivePageSize float64, scannedHeapBytes int64) float64
 }
 
 // newCTIDSizer picks the sizer for the server. PG 14+ reads only a chunk's own pages (TID range scan), while
@@ -29,16 +29,16 @@ func newCTIDSizer(version int) ctidSizer {
 // tidRangeSizer gives every chunk EffectiveParquetSize of table data.
 type tidRangeSizer struct{}
 
-func (tidRangeSizer) pagesPerChunk(_, tablePageBytes float64, _ int64) float64 {
-	return math.Ceil(float64(constants.EffectiveParquetSize) / tablePageBytes)
+func (tidRangeSizer) pagesPerChunk(_, effectivePageSize float64, _ int64) float64 {
+	return math.Ceil(float64(constants.EffectiveParquetSize) / effectivePageSize)
 }
 
 // seqScanSizer gives every chunk at least the heap it scans, so the repeated scans add at most one pass over
 // the table, and never more pages than a heap-only chunk, so tables without TOAST keep their old chunks.
 type seqScanSizer struct{}
 
-func (seqScanSizer) pagesPerChunk(heapPageBytes, tablePageBytes float64, scannedHeapBytes int64) float64 {
+func (seqScanSizer) pagesPerChunk(heapPageBytes, effectivePageSize float64, scannedHeapBytes int64) float64 {
 	heapOnly := float64(constants.EffectiveParquetSize) / heapPageBytes
-	capped := float64(max(constants.EffectiveParquetSize, scannedHeapBytes)) / tablePageBytes
+	capped := float64(max(constants.EffectiveParquetSize, scannedHeapBytes)) / effectivePageSize
 	return math.Ceil(min(heapOnly, capped))
 }

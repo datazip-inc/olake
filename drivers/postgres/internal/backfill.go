@@ -124,8 +124,8 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		chunks := types.NewSet[types.Chunk]()
 		for start := int64(0); start < maxPageCountAcrossPartitions; {
 			// size the chunk from the partitions that still have pages at its start
-			heapPageBytes, tablePageBytes := partitionPageBytes(partitions, blockSize, start)
-			end := start + int64(p.sizer.pagesPerChunk(heapPageBytes, tablePageBytes, scannedHeapBytes))
+			heapPageBytes, effectivePageSize := partitionPageBytes(partitions, blockSize, start)
+			end := start + int64(p.sizer.pagesPerChunk(heapPageBytes, effectivePageSize, scannedHeapBytes))
 			if end >= maxPageCountAcrossPartitions {
 				end = int64(^uint32(0))
 			}
@@ -279,17 +279,17 @@ func (p *Postgres) loadPartitionPages(ctx context.Context, stream types.StreamIn
 	return partitions, maxPageCountAcrossPartitions, nil
 }
 
-// partitionPageBytes sums the heap and table (heap + TOAST) bytes behind one page offset over partitions with
-// more than 'end' pages, since a ctid chunk reads the same page range from each of them.
-func partitionPageBytes(partitions []PartitionPage, blockSize uint32, end int64) (heapPageBytes, tablePageBytes float64) {
+// partitionPageBytes sums the heap bytes and the effective page size (heap + TOAST bytes) behind one page offset
+// over partitions with more than 'end' pages, since a ctid chunk reads the same page range from each of them.
+func partitionPageBytes(partitions []PartitionPage, blockSize uint32, end int64) (heapPageBytes, effectivePageSize float64) {
 	for _, p := range partitions {
 		if p.Pages > end {
 			heapPageBytes += float64(blockSize)
-			tablePageBytes += bytesPerHeapPage(blockSize, p.HeapBytes, p.TableBytes)
+			effectivePageSize += bytesPerHeapPage(blockSize, p.HeapBytes, p.TableBytes)
 		}
 	}
 	if heapPageBytes == 0 {
 		return float64(blockSize), float64(blockSize)
 	}
-	return heapPageBytes, tablePageBytes
+	return heapPageBytes, effectivePageSize
 }
