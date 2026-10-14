@@ -215,9 +215,10 @@ func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
 	)
 }
 
-// PostgresRelPageCount returns the query to fetch relation page count, heap size and table size (heap + TOAST) in PostgreSQL
+// PostgresRelPageCount returns the query to fetch relation page count, heap size and table size (heap + TOAST) in PostgreSQL.
+// The page count comes from the live heap size, since pg_class.relpages stays stale until VACUUM or ANALYZE.
 func PostgresRelPageCount(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT relpages, pg_relation_size(oid), pg_table_size(oid) FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
+	return fmt.Sprintf(`SELECT pg_relation_size(oid) / current_setting('block_size')::int, pg_relation_size(oid), pg_table_size(oid) FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
 }
 
 // PostgresWalLSNQuery returns the query to fetch the current WAL LSN in PostgreSQL
