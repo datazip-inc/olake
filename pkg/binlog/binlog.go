@@ -134,12 +134,9 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 				}
 
 			case *replication.QueryEvent:
-				// QueryEvent carries DDL even under binlog_format=ROW. Any DDL may have
-				// reshaped a cached table, so drop the cache and reload lazily.
-				if isDDL(e.Query) {
-					logger.Infof("DDL observed in binlog, invalidating cached column metadata: %s", string(e.Query))
-					c.changeFilter.schema.invalidate()
-				}
+				// QueryEvent carries DDL even under binlog_format=ROW. Apply it to the cached
+				// schemas in stream order, so they keep matching the rows that follow.
+				c.changeFilter.schema.applyDDL(string(e.Query), string(e.Schema), c.CurrentPos)
 			}
 		}
 	}

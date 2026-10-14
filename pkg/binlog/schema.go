@@ -33,15 +33,11 @@ type tableMeta struct {
 // schemaCache supplies the column metadata the binlog omits. Safe for concurrent use:
 // StreamMessages is single-goroutine today, but the cache outlives one event.
 //
-// An entry is the server's schema when it was loaded, not the schema at the binlog position
-// being decoded. Those agree in steady state, since invalidate() drops the entry as the
-// reader passes the DDL, but diverge when a table's first load happens while the reader is
-// already behind one -- a stale state file, or a backlog.
-//
-// TODO: key the cache to the reader's position rather than the server's present, by applying
-// each DDL from its QueryEvent in stream order. Same-arity drift needs it: a reorder, a
-// reordered ENUM/SET, or a changed signedness or charset all pass resolveColumns'
-// column-count check and decode silently wrong.
+// Each entry carries AnchoredAt, the binlog position it is valid at. Entries are saved in
+// Binlog.Schemas and seeded back on resume, and applyDDL (ddl.go) advances them through each
+// DDL in stream order, so they describe tables at the reader's position. Only a table's
+// first load reads information_schema, the server's present; get() anchors that load and
+// warns when the server is ahead of the reader.
 type schemaCache struct {
 	mu     sync.RWMutex
 	client *sqlx.DB
@@ -89,9 +85,8 @@ func (c *schemaCache) get(ctx context.Context, schema, table string, readerPos m
 	return meta, nil
 }
 
-// invalidate drops every cached table, on any DDL seen in the binlog. DDL is rare enough
-// that a full drop beats tracking which table a statement touched, and the lazy reload
-// only pays for tables still streaming.
+// invalidate drops every cached table, for DDL that applyDDL cannot parse.
+// Each table reloads lazily, so only tables still streaming pay for it.
 func (c *schemaCache) invalidate() {
 	c.mu.Lock()
 	c.tables = map[string]*tableMeta{}
@@ -100,8 +95,9 @@ func (c *schemaCache) invalidate() {
 
 // snapshot returns a copy of the cached schemas, for saving alongside the binlog position.
 // The copy is shallow: it shares *tableMeta pointers with the live cache and they are
-// persisted into the state file, so tableMeta must stay immutable after insertion
-// (AnchoredAt is set before the entry is cached, and readers never mutate it).
+// persisted into the state file, so tableMeta must stay immutable after insertion.
+// AnchoredAt is set before the entry is cached, readers never mutate it, and applyDDL
+// replaces an entry with a modified clone() rather than editing it in place.
 func (c *schemaCache) snapshot() map[string]*tableMeta {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -229,17 +225,11 @@ func parseEnumSetMembers(columnType string) []string {
 	return members
 }
 
-// ddlRe matches DDL that can change a table's column layout. BEGIN, COMMIT, ROLLBACK and
-// SAVEPOINT arrive as QueryEvents too and must not invalidate; neither must TRUNCATE, which
-// removes rows, not columns. Leading comments are skipped so annotated migrations match.
-// CREATE stays in the list for MariaDB's CREATE OR REPLACE TABLE, which reshapes an
-// existing name.
-//
-// TODO: attribute DDL to the table it touches, so migrations on tables we do not capture
-// (gh-ost/pt-osc shadow tables, partition maintenance) stop evicting every cached stream.
-// Needs real parsing: RENAME and DROP accept table lists, and the cutover swap
-// (RENAME TABLE users TO _users_del, _users_gho TO users) must not be attributed to its
-// first name alone. Until then the caller logs every invalidation.
+// ddlRe matches DDL that can change a table's column layout, as a cheap filter before
+// applyDDL parses a statement. BEGIN, COMMIT, ROLLBACK and SAVEPOINT arrive as QueryEvents
+// too and are skipped, as is TRUNCATE, which removes rows, not columns. Leading comments are
+// skipped so annotated migrations match. CREATE stays in the list for a table recreated
+// under an existing name.
 var ddlRe = regexp.MustCompile(`(?is)^\s*(?:/\*.*?\*/\s*)*(alter|rename|drop|create)\s`)
 
 func isDDL(query []byte) bool {
