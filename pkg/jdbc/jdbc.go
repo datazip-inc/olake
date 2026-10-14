@@ -511,22 +511,53 @@ func MySQLMasterStatusQueryNew() string {
 
 // MySQLLogBinQuery returns the query to fetch the log_bin variable in MySQL
 func MySQLLogBinQuery() string {
-	return "SHOW VARIABLES LIKE 'log_bin'"
+	return "SHOW GLOBAL VARIABLES LIKE 'log_bin'"
 }
 
-// MySQLBinlogFormatQuery returns the query to fetch the binlog_format variable in MySQL
+// MySQLBinlogFormatQuery returns the query to fetch the binlog_format variable in MySQL.
+// GLOBAL scope: replication reads the global value, and a session may override binlog_format.
 func MySQLBinlogFormatQuery() string {
-	return "SHOW VARIABLES LIKE 'binlog_format'"
+	return "SHOW GLOBAL VARIABLES LIKE 'binlog_format'"
 }
 
 // MySQLBinlogRowMetadataQuery returns the query to fetch the binlog_row_metadata variable in MySQL
 func MySQLBinlogRowMetadataQuery() string {
-	return "SHOW VARIABLES LIKE 'binlog_row_metadata'"
+	return "SHOW GLOBAL VARIABLES LIKE 'binlog_row_metadata'"
 }
 
 // MySQLBinlogRowImageQuery returns the query to fetch the binlog_row_image variable in MySQL
 func MySQLBinlogRowImageQuery() string {
-	return "SHOW VARIABLES LIKE 'binlog_row_image'"
+	return "SHOW GLOBAL VARIABLES LIKE 'binlog_row_image'"
+}
+
+// PostgresWalLevelQuery returns the query to fetch the wal_level setting
+func PostgresWalLevelQuery() string {
+	return "SHOW wal_level"
+}
+
+// PostgresReplicationAttrQuery reports whether the current role can open replication connections
+func PostgresReplicationAttrQuery() string {
+	return "SELECT rolsuper OR rolreplication FROM pg_roles WHERE rolname = current_user"
+}
+
+// PostgresRDSReplicationRoleQuery reports rds_replication membership; it errors when the role does not exist.
+func PostgresRDSReplicationRoleQuery() string {
+	return "SELECT pg_has_role(current_user, 'rds_replication', 'member')"
+}
+
+// MySQLRDSBinlogRetentionQuery returns the RDS/Aurora binlog retention setting; it errors on other servers.
+func MySQLRDSBinlogRetentionQuery() string {
+	return "SELECT name, value FROM mysql.rds_configuration WHERE name = 'binlog retention hours'"
+}
+
+// MySQLBinlogExpireSecondsQuery returns the query to fetch the binlog_expire_logs_seconds variable
+func MySQLBinlogExpireSecondsQuery() string {
+	return "SHOW GLOBAL VARIABLES LIKE 'binlog_expire_logs_seconds'"
+}
+
+// MySQLExpireLogsDaysQuery returns the query to fetch the expire_logs_days variable
+func MySQLExpireLogsDaysQuery() string {
+	return "SHOW GLOBAL VARIABLES LIKE 'expire_logs_days'"
 }
 
 // MySQLCDCColumnMetadataQuery returns the per-column metadata needed to decode binlog rows
@@ -787,6 +818,11 @@ func MSSQLCDCDiscoverQuery(streamIDs []string) string {
 	)
 }
 
+// MSSQLIsDBOwnerQuery reports whether the current user is a member of db_owner
+func MSSQLIsDBOwnerQuery() string {
+	return "SELECT CAST(ISNULL(IS_ROLEMEMBER('db_owner'), 0) AS bit)"
+}
+
 // MSSQLViewDatabaseStatePermissionQuery checks for VIEW DATABASE STATE (all versions) or
 // VIEW DATABASE PERFORMANCE STATE (SQL Server 2022+). Either permission grants access to
 // sys.dm_cdc_log_scan_sessions.
@@ -813,7 +849,8 @@ func MSSQLCDCLatestScanSessionQuery() string {
 
 // MSSQLCDCCaptureJobConfigQuery returns maxtrans and pollinginterval settings for the CDC capture job.
 func MSSQLCDCCaptureJobConfigQuery() string {
-	return "SELECT maxtrans, pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID()"
+	// cdc_jobs also holds the cleanup job, whose row must not be read here
+	return "SELECT maxtrans, pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID() AND job_type = N'capture'"
 }
 
 // MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance
