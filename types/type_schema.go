@@ -325,7 +325,7 @@ func lowestCommonAncestor(
 	wt1, t1Exist := typeWeight(t1)
 	wt2, t2Exist := typeWeight(t2)
 	if !t1Exist || !t2Exist {
-		return fallbackType()
+		return fallbackType
 	}
 
 	node := root

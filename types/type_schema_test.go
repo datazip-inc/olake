@@ -180,36 +180,12 @@ func TestGetCommonAncestorType(t *testing.T) {
 }
 
 func TestGetCommonAncestorTypeUndeclared(t *testing.T) {
-	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
 	undeclared := DataType("undeclared_type")
-
-	testCases := []struct {
-		name         string
-		stateVersion int
-		want         DataType
-	}{
-		{
-			name:         "below v8 an undeclared type meets anything at String",
-			stateVersion: 7,
-			want:         String,
-		},
-		{
-			name:         "from v8 an undeclared type meets anything at Binary",
-			stateVersion: 8,
-			want:         Binary,
-		},
+	for _, other := range treeDataTypes(t) {
+		require.Equal(t, String, GetCommonAncestorType(undeclared, other), "ancestor of %s and %s must be String", undeclared, other)
+		require.Equal(t, String, GetCommonAncestorType(other, undeclared), "ancestor of %s and %s must be String", other, undeclared)
 	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			constants.LoadedStateVersion = tc.stateVersion
-			for _, other := range treeDataTypes(t) {
-				require.Equal(t, tc.want, GetCommonAncestorType(undeclared, other), "ancestor of %s and %s", undeclared, other)
-				require.Equal(t, tc.want, GetCommonAncestorType(other, undeclared), "ancestor of %s and %s", other, undeclared)
-			}
-			require.Equal(t, undeclared, GetCommonAncestorType(undeclared, undeclared), "a type is its own ancestor, declared or not")
-		})
-	}
+	require.Equal(t, undeclared, GetCommonAncestorType(undeclared, undeclared), "a type is its own ancestor, declared or not")
 }
 
 func TestGetCommonAncestorTypeInvariants(t *testing.T) {

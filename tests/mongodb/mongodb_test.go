@@ -44,7 +44,8 @@ func mongodbBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integr
 		TestConfig:                mongodbTestConfig(t, opts...),
 		ExpectedData:              ExpectedMongoData,
 		DestinationDataTypeSchema: MongoToDestinationSchema,
-		TypeMapping:               MongoTypeMapping,
+		TypeMapping:               MongoTypeMapping(),
+		ParquetTypeMapping:        MongoParquetTypeMapping(),
 		DefaultCDCColumnsSchema:   ExpectedMongoDBDefaultCDCColumnsSchema,
 	}
 }

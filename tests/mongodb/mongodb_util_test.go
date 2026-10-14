@@ -304,6 +304,7 @@ var MongoToDestinationSchema = map[string]string{
 	"id_double":         "double",
 	"id_bool":           "boolean",
 	"created_timestamp": "int",
+	"id_nil":            "null",
 	"id_regex":          "string",
 	"id_nested":         "string",
 	"id_minkey":         "string",
@@ -318,6 +319,7 @@ var UpdatedMongoToDestinationSchema = map[string]string{
 	"id_double":         "double",
 	"id_bool":           "boolean",
 	"created_timestamp": "int",
+	"id_nil":            "null",
 	"id_regex":          "string",
 	"id_nested":         "string",
 	"id_minkey":         "string",
@@ -331,13 +333,25 @@ var ExpectedMongoDBDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp":    "timestamp",
 }
 
-// MongoTypeMapping maps the source types MongoToDestinationSchema declare to the type they land as in
-// the destination. A declared type missing here fails the suite with "No mapping defined".
-var MongoTypeMapping = map[string]string{
-	"bigint":    "bigint",
-	"boolean":   "boolean",
-	"double":    "double",
-	"int":       "int",
-	"string":    "string",
-	"timestamp": "timestamp",
+// MongoTypeMapping returns a new map from the source types MongoToDestinationSchema declare to the
+// type they land as in the destination. A declared type missing here fails the suite with "No
+// mapping defined".
+func MongoTypeMapping() map[string]string {
+	return map[string]string{
+		"bigint":    "bigint",
+		"boolean":   "boolean",
+		"double":    "double",
+		"int":       "int",
+		"null":      "string",
+		"string":    "string",
+		"timestamp": "timestamp",
+	}
+}
+
+// MongoParquetTypeMapping is MongoTypeMapping for Parquet, which writes an always-null field as untyped bytes that Spark reads as binary.
+// NOTE: this behavior was even before the binary column support was added in olake
+func MongoParquetTypeMapping() map[string]string {
+	mapping := MongoTypeMapping()
+	mapping["null"] = "binary"
+	return mapping
 }

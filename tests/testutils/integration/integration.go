@@ -28,6 +28,7 @@ type TestHandler struct {
 	UpdatedDestinationDataTypeSchema map[string]string
 	DefaultCDCColumnsSchema          map[string]string
 	TypeMapping                      map[string]string
+	ParquetTypeMapping               map[string]string
 	DedupKeys                        []string
 	UpsertAddOp                      string
 	UpsertUpdateOp                   string
@@ -102,10 +103,14 @@ func (th *TestHandler) runSyncAndVerify(
 		}
 	case "parquet":
 		{
+			typeMapping := th.TypeMapping
+			if th.ParquetTypeMapping != nil {
+				typeMapping = th.ParquetTypeMapping
+			}
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
 			} else {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
 			}
 		}
 	}
