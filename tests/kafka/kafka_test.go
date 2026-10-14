@@ -235,7 +235,7 @@ func TestKafkaUpsert(t *testing.T) {
 			seed:         "upsert_add",
 			dedup:        []string{"customer_id"},
 			expectFail:   true,
-			wantErr:      "missing dedup keys",
+			wantErr:      "all the selected dedup keys are missing",
 		},
 		{
 			name:         "dedup_value_empty",
@@ -257,7 +257,7 @@ func TestKafkaUpsert(t *testing.T) {
 			seed:         "upsert_null",
 			dedup:        []string{"customer_id"},
 			expectFail:   true,
-			wantErr:      "all dedup keys are null",
+			wantErr:      "all the selected dedup keys are missing",
 		},
 	}
 	for _, tc := range icebergTestCases {

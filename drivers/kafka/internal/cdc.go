@@ -211,9 +211,10 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 							return false, err
 						}
 					} else {
+						dedupKeysErr := fmt.Errorf("all the selected dedup keys are missing in the record at least one dedupe key must be present. dedup_keys: %v", dedupKeys)
 						return false, errs.Precondition(errs.CDCPreconditionFailed, "kafka.null_dedup_keys",
 							fmt.Errorf("%w: stream[%s], paritition=%d, offset=%d: %w",
-								constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, err))
+								constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, dedupKeysErr))
 					}
 				} else {
 					extraColumns := map[string]any{
