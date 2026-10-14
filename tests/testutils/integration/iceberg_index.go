@@ -129,15 +129,9 @@ func (th *TestHandler) prepareTableIndexSync(ctx context.Context, t *testing.T, 
 	t.Helper()
 	th.resetTable(ctx, t)
 
-	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}); err != nil {
-		return fmt.Errorf("failed updating selected streams: %w", err)
-	}
-
 	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, "cdc", ""); err != nil {
 		return fmt.Errorf("failed setting stream mode: %w", err)
 	}
-
-	_ = os.RemoveAll(th.tableIndexHostDir())
 	return nil
 }
 
@@ -254,7 +248,9 @@ func (th *TestHandler) testIcebergRebuildIndexFromScratch(ctx context.Context, t
 		return err
 	}
 
-	_ = os.RemoveAll(th.tableIndexHostDir())
+	if err := os.RemoveAll(th.tableIndexHostDir()); err != nil {
+		return fmt.Errorf("failed to delete the table index: %w", err)
+	}
 
 	th.applyCDCUpdate(ctx, t)
 

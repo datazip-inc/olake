@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
 var (
@@ -72,6 +74,32 @@ func readStateVersionManifest() (stateVersionManifest, error) {
 		if len(stateVersionValue.Baselines) == 0 {
 			stateVersionErr = fmt.Errorf("%s carries no baselines; the compatibility tests would silently skip all the older releases with a state version update", path)
 			return
+		}
+		releaseByVersion := make(map[int]string, len(stateVersionValue.Baselines))
+		for _, baseline := range stateVersionValue.Baselines {
+			if strings.TrimSpace(baseline.ReleaseTag) == "" {
+				stateVersionErr = fmt.Errorf("%s has a baseline with no release_tag; the compatibility tests would have no release to run it against", path)
+				return
+			}
+			if baseline.StateVersion < 0 {
+				stateVersionErr = fmt.Errorf("%s baseline %s has a negative state_version %d", path, baseline.ReleaseTag, baseline.StateVersion)
+				return
+			}
+			if earlier, duplicate := releaseByVersion[baseline.StateVersion]; duplicate {
+				stateVersionErr = fmt.Errorf("%s gives state version %d two baselines, %s and %s; each state version is introduced by one release", path, baseline.StateVersion, earlier, baseline.ReleaseTag)
+				return
+			}
+			releaseByVersion[baseline.StateVersion] = baseline.ReleaseTag
+			if strings.TrimSpace(baseline.Drivers) == "" {
+				stateVersionErr = fmt.Errorf("%s baseline %s gates no drivers; the compatibility tests would silently skip it for every driver", path, baseline.ReleaseTag)
+				return
+			}
+			for gated := range strings.SplitSeq(baseline.Drivers, ",") {
+				if gated = strings.TrimSpace(gated); gated != "*" && !slices.Contains(constants.Drivers, constants.DriverType(gated)) {
+					stateVersionErr = fmt.Errorf("%s baseline %s gates unknown driver %q; the compatibility tests would silently skip it for that driver", path, baseline.ReleaseTag, gated)
+					return
+				}
+			}
 		}
 		slices.SortFunc(stateVersionValue.Baselines, func(a, b StateVersionBaseline) int {
 			return cmp.Compare(a.StateVersion, b.StateVersion)

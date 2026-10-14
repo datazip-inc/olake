@@ -180,6 +180,9 @@ func generateUniqueContainerName(cfg *TestConfig) string {
 }
 
 func RunOlake(ctx context.Context, t *testing.T, cfg *TestConfig, olakeArgs ...string) (int, []byte, error) {
+	if len(olakeArgs) == 0 {
+		return -1, nil, fmt.Errorf("olake run of driver %s needs a command", cfg.Driver)
+	}
 	name := generateUniqueContainerName(cfg)
 	args := DockerRunArgs(cfg, []string{"--add-host", "host.docker.internal:host-gateway", "--name", name}, olakeArgs)
 

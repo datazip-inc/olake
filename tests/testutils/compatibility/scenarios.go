@@ -73,14 +73,16 @@ func compatibilitySyncModeGroups(driver string) []compatibilityGroup {
 	// Same fan-out as TestSync, and the same two skips.
 	cdc := !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(driver))
 	inc := driver != string(constants.Kafka)
+	cdcCases := syncCasesForDriver(driver, syncModeCDC)
+	cdcEndsOnDelete := cdcCases[len(cdcCases)-1].operation == "delete"
 
 	var groups []compatibilityGroup
 	for _, spec := range compatibilityGroupSpecs() {
 		var syncModes []compatibilitySyncMode
 		if cdc {
-			// The parquet CDC scenario ends on a delete-only batch, and parquet holds only its
-			// last case's files -- so both sides ending with none is its verified outcome.
-			syncModes = append(syncModes, compatibilitySyncMode{name: "cdc", kind: syncModeCDC, emptyFinalState: spec.destination == "parquet"})
+			// A parquet CDC scenario that ends on a delete-only batch holds only that case's files,
+			// none -- so both sides ending empty is its verified outcome.
+			syncModes = append(syncModes, compatibilitySyncMode{name: "cdc", kind: syncModeCDC, emptyFinalState: spec.destination == "parquet" && cdcEndsOnDelete})
 		}
 		if inc {
 			syncModes = append(syncModes, compatibilitySyncMode{name: "inc", kind: syncModeIncremental})

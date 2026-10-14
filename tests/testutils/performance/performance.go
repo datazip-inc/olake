@@ -190,6 +190,9 @@ func (th *TestHandler) timedSync(ctx context.Context, useState bool) ([]byte, er
 	out, err := exec.CommandContext(timedCtx, "docker", args...).CombinedOutput()
 	if timedCtx.Err() == context.DeadlineExceeded {
 		_ = exec.Command("docker", "kill", name).Run()
+		if _, statErr := os.Stat(th.GetFilePath("stats.json")); statErr != nil {
+			return out, fmt.Errorf("sync of driver %s was killed after %s without reporting any stats", th.Driver, testutils.SyncTimeout)
+		}
 		return out, nil
 	}
 
