@@ -263,7 +263,8 @@ func (p *Postgres) loadPartitionPages(ctx context.Context, stream types.StreamIn
 		if err := rows.Scan(&partition.Name, &partition.HeapBytes, &partition.TableBytes); err != nil {
 			return nil, 0, err
 		}
-		partition.Pages = int64(math.Ceil(1.05 * float64(partition.HeapBytes/int64(blockSize))))
+		// ctid block numbers are uint32, so never plan past the last one
+		partition.Pages = min(int64(math.Ceil(1.05*float64(partition.HeapBytes/int64(blockSize)))), int64(^uint32(0)))
 		maxPageCountAcrossPartitions = max(maxPageCountAcrossPartitions, partition.Pages)
 		partitions = append(partitions, partition)
 	}
