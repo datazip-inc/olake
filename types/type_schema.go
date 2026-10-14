@@ -312,7 +312,8 @@ func GetCommonAncestorType(t1, t2 DataType) DataType {
 	return lowestCommonAncestor(typecastTree, t1, t2)
 }
 
-// lowestCommonAncestor walks down from root to the node where t1 and t2 split.
+// lowestCommonAncestor walks down from root to the node where t1 and t2 split. A type without a weight,
+// one OLake does not declare, falls back to fallbackType.
 func lowestCommonAncestor(
 	root *typeNode,
 	t1, t2 DataType,
@@ -323,9 +324,8 @@ func lowestCommonAncestor(
 
 	wt1, t1Exist := typeWeight(t1)
 	wt2, t2Exist := typeWeight(t2)
-	// String is the default fallback as not all the drivers support binary
 	if !t1Exist || !t2Exist {
-		return String
+		return fallbackType
 	}
 
 	node := root

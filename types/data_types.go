@@ -124,6 +124,12 @@ var destinationTypes = destinationTypesMap{
 	FixedBinary:    {"fixed[%d]", fixedBinaryNode}, // the pattern is a registry key; only an instance renders
 }
 
+var (
+	// fallbackType is what an undeclared or unregistered type falls back to
+	fallbackType        = String
+	fallbackIcebergType = destinationTypes[fallbackType].icebergType
+)
+
 type icebergToDataTypeMap map[string]DataType
 
 // get returns the DataType an iceberg type denotes.
@@ -144,7 +150,7 @@ func (m icebergToDataTypeMap) get(icebergType string) (DataType, bool) {
 
 // icebergToDataType maps each iceberg type back to one canonical DataType — several DataTypes
 // share the same iceberg type. A family is registered under its pattern, the same key its
-// destination mapping produces. IcebergTypeToDatatype's fallback is String.
+// destination mapping produces. IcebergTypeToDatatype falls back to fallbackType.
 var icebergToDataType = icebergToDataTypeMap{
 	"boolean":     Bool,
 	"int":         Int32,
@@ -196,7 +202,7 @@ func (d DataType) ToIceberg() string {
 	mapping, params, registered := destinationTypes.get(d)
 	switch {
 	case !registered:
-		return "string" // fallback for unregistered types
+		return fallbackIcebergType
 	case len(params) == 0:
 		return mapping.icebergType
 	default:
@@ -208,5 +214,5 @@ func IcebergTypeToDatatype(d string) DataType {
 	if dataType, registered := icebergToDataType.get(d); registered {
 		return dataType
 	}
-	return String // fallback for unregistered types
+	return fallbackType
 }
