@@ -120,15 +120,12 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		for _, partition := range partitions {
 			scannedHeapBytes += partition.HeapBytes
 		}
-		heapPageBytes, tablePageBytes := partitionPageBytes(partitions, blockSize, 0)
-		batchSize := int64(p.sizer.pagesPerChunk(heapPageBytes, tablePageBytes, scannedHeapBytes))
 
 		chunks := types.NewSet[types.Chunk]()
-		for start := int64(0); start < maxPageCountAcrossPartitions; start += batchSize {
-			lastChunkEnd := start + batchSize
-			heapPageBytes, tablePageBytes = partitionPageBytes(partitions, blockSize, lastChunkEnd)
-			batchSize = int64(p.sizer.pagesPerChunk(heapPageBytes, tablePageBytes, scannedHeapBytes))
-			end := start + batchSize
+		for start := int64(0); start < maxPageCountAcrossPartitions; {
+			// size the chunk from the partitions that still have pages at its start
+			heapPageBytes, tablePageBytes := partitionPageBytes(partitions, blockSize, start)
+			end := start + int64(p.sizer.pagesPerChunk(heapPageBytes, tablePageBytes, scannedHeapBytes))
 			if end >= maxPageCountAcrossPartitions {
 				end = int64(^uint32(0))
 			}
@@ -137,6 +134,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 				Min: fmt.Sprintf("'(%d,0)'", start),
 				Max: fmt.Sprintf("'(%d,0)'", end),
 			})
+			start = end
 		}
 
 		return chunks, nil
