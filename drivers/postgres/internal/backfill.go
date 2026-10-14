@@ -74,6 +74,15 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 			return nil, fmt.Errorf("failed to get block size: %w", err)
 		}
 
+		var serverVersionNum int
+		err = p.client.QueryRowContext(ctx, jdbc.PostgresServerVersionNum()).Scan(&serverVersionNum)
+		if err != nil {
+			return nil, fmt.Errorf("failed to detect postgres server version: %w", err)
+		}
+		// Before PG 14 every ctid chunk is a full heap scan (no TID range scan), so more chunks mean more full scans.
+		// There chunks keep the heap-only size and the relpages count; PG 14+ counts TOAST and the live heap size.
+		tidRangeScan := serverVersionNum >= postgresMinVersionPG14
+
 		//  Step 1: Detect if the table is partitioned
 		var partitionCount int
 		partitionQuery := jdbc.PostgresIsPartitionedQuery(stream)
@@ -92,7 +101,10 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 				return nil, fmt.Errorf("failed to get relPages: %w", err)
 			}
 
-			batchSize := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / bytesPerHeapPage(blockSize, heapBytes, tableBytes)))
+			if tidRangeScan {
+				relPages = uint32(math.Ceil(float64(heapBytes) / float64(blockSize)))
+			}
+			batchSize := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / bytesPerHeapPage(blockSize, heapBytes, tableBytes, tidRangeScan)))
 			relPages = utils.Ternary(relPages == 0, uint32(1), relPages).(uint32)
 
 			chunks := types.NewSet[types.Chunk]()
@@ -110,17 +122,17 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		}
 
 		//  Step 3: Partitioned table
-		partitions, maxPageCountAcrossPartitions, err := loadPartitionPages(ctx, p.client.DB, stream)
+		partitions, maxPageCountAcrossPartitions, err := loadPartitionPages(ctx, p.client.DB, stream, serverVersionNum)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load partition pages: %w", err)
 		}
 
-		batchSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / partitionBytesPerPage(partitions, blockSize, 0)))
+		batchSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / partitionBytesPerPage(partitions, blockSize, 0, tidRangeScan)))
 
 		chunks := types.NewSet[types.Chunk]()
 		for start := int64(0); start < maxPageCountAcrossPartitions; start += batchSize {
 			lastChunkEnd := start + batchSize
-			batchSize = int64(math.Ceil(float64(constants.EffectiveParquetSize) / partitionBytesPerPage(partitions, blockSize, lastChunkEnd)))
+			batchSize = int64(math.Ceil(float64(constants.EffectiveParquetSize) / partitionBytesPerPage(partitions, blockSize, lastChunkEnd, tidRangeScan)))
 			end := start + batchSize
 			if end >= maxPageCountAcrossPartitions {
 				end = int64(^uint32(0))
@@ -222,10 +234,10 @@ type PartitionPage struct {
 	TableBytes int64
 }
 
-// bytesPerHeapPage is the table data (heap + TOAST) behind one heap page. ctid ranges and relpages
-// count heap pages only, so a TOAST-heavy table would otherwise get chunks far above the target size.
-func bytesPerHeapPage(blockSize uint32, heapBytes, tableBytes int64) float64 {
-	if heapBytes <= 0 || tableBytes <= heapBytes {
+// bytesPerHeapPage is the table data behind one heap page, TOAST included when countTOAST is set. ctid ranges and
+// relpages count heap pages only, so a TOAST-heavy table would otherwise get chunks far above the target size.
+func bytesPerHeapPage(blockSize uint32, heapBytes, tableBytes int64, countTOAST bool) float64 {
+	if !countTOAST || heapBytes <= 0 || tableBytes <= heapBytes {
 		return float64(blockSize)
 	}
 	return float64(blockSize) * float64(tableBytes) / float64(heapBytes)
@@ -235,12 +247,10 @@ func bytesPerHeapPage(blockSize uint32, heapBytes, tableBytes int64) float64 {
 // pg_partition_tree() (PG 12+) is preferred; older versions use a recursive CTE.
 const postgresMinVersionPG12 = 120000
 
-func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInterface) ([]PartitionPage, int64, error) {
-	var serverVersionNum int
-	if err := db.QueryRowContext(ctx, jdbc.PostgresServerVersionNum()).Scan(&serverVersionNum); err != nil {
-		return nil, 0, fmt.Errorf("failed to detect postgres server version: %w", err)
-	}
+// postgresMinVersionPG14 is the server_version_num for PostgreSQL 14.0, the first with TID range scans.
+const postgresMinVersionPG14 = 140000
 
+func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInterface, serverVersionNum int) ([]PartitionPage, int64, error) {
 	var query string
 	if serverVersionNum >= postgresMinVersionPG12 {
 		logger.Debugf("using pg_partition_tree for partition page discovery (server_version_num=%d)", serverVersionNum)
@@ -280,11 +290,11 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 
 // partitionBytesPerPage sums bytesPerHeapPage over partitions with more than 'end' pages, since a ctid
 // chunk reads the same page range from each of them.
-func partitionBytesPerPage(partitions []PartitionPage, blockSize uint32, end int64) float64 {
+func partitionBytesPerPage(partitions []PartitionPage, blockSize uint32, end int64, countTOAST bool) float64 {
 	var sum float64
 	for _, p := range partitions {
 		if p.Pages > end {
-			sum += bytesPerHeapPage(blockSize, p.HeapBytes, p.TableBytes)
+			sum += bytesPerHeapPage(blockSize, p.HeapBytes, p.TableBytes, countTOAST)
 		}
 	}
 	return utils.Ternary(sum == 0, float64(blockSize), sum).(float64)
