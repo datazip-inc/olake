@@ -23,6 +23,9 @@ type Config struct {
 	ManageCaptureInstances bool              `json:"manage_capture_instances"`
 	SSHConfig              *utils.SSHConfig  `json:"ssh_config"`
 	PrimaryConfig          *PrimaryConfig    `json:"primary_config,omitempty"`
+	// UpdateMethod selects CDC or standard replication. Configs saved before this field existed
+	// leave it empty, which keeps CDC available.
+	UpdateMethod interface{} `json:"update_method"`
 }
 
 // PrimaryConfig holds connection details for the primary replica when the main
