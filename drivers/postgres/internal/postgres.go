@@ -73,6 +73,7 @@ const (
 type Postgres struct {
 	client     *sqlx.DB
 	version    int // server_version_num of the connected server (e.g. 140005), read in Setup
+	sizer      ctidSizer
 	sshClient  *ssh.Client
 	config     *Config // postgres driver connection config
 	CDCSupport bool    // indicates if the Postgres instance supports CDC
@@ -141,6 +142,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to detect postgres server version: %w", err)
 	}
+	p.sizer = newCTIDSizer(p.version)
 	logger.Infof("Connected to Postgres server_version_num=%d", p.version)
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")

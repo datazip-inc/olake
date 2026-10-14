@@ -74,7 +74,6 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		if err != nil {
 			return nil, fmt.Errorf("failed to get block size: %w", err)
 		}
-		sizer := newCTIDSizer(p.version)
 
 		//  Step 1: Detect if the table is partitioned
 		var partitionCount int
@@ -94,7 +93,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 			}
 
 			relPages := uint32(math.Ceil(float64(heapBytes) / float64(blockSize)))
-			batchSize := uint32(sizer.pagesPerChunk(float64(blockSize), bytesPerHeapPage(blockSize, heapBytes, tableBytes), heapBytes))
+			batchSize := uint32(p.sizer.pagesPerChunk(float64(blockSize), bytesPerHeapPage(blockSize, heapBytes, tableBytes), heapBytes))
 			relPages = utils.Ternary(relPages == 0, uint32(1), relPages).(uint32)
 
 			chunks := types.NewSet[types.Chunk]()
@@ -122,13 +121,13 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 			scannedHeapBytes += partition.HeapBytes
 		}
 		heapPageBytes, tablePageBytes := partitionPageBytes(partitions, blockSize, 0)
-		batchSize := int64(sizer.pagesPerChunk(heapPageBytes, tablePageBytes, scannedHeapBytes))
+		batchSize := int64(p.sizer.pagesPerChunk(heapPageBytes, tablePageBytes, scannedHeapBytes))
 
 		chunks := types.NewSet[types.Chunk]()
 		for start := int64(0); start < maxPageCountAcrossPartitions; start += batchSize {
 			lastChunkEnd := start + batchSize
 			heapPageBytes, tablePageBytes = partitionPageBytes(partitions, blockSize, lastChunkEnd)
-			batchSize = int64(sizer.pagesPerChunk(heapPageBytes, tablePageBytes, scannedHeapBytes))
+			batchSize = int64(p.sizer.pagesPerChunk(heapPageBytes, tablePageBytes, scannedHeapBytes))
 			end := start + batchSize
 			if end >= maxPageCountAcrossPartitions {
 				end = int64(^uint32(0))
