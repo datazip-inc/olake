@@ -115,20 +115,12 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 			return nil, fmt.Errorf("failed to load partition pages: %w", err)
 		}
 
-		var heapBytes, tableBytes int64
-		for _, partition := range partitions {
-			heapBytes += partition.HeapBytes
-			tableBytes += partition.TableBytes
-		}
-		batchPages := int64(math.Ceil(float64(constants.EffectiveParquetSize) / bytesPerHeapPage(blockSize, heapBytes, tableBytes)))
-		partionsInRange := PartitionPagesGreaterThan(partitions, 0)
-		batchSize := int64(math.Ceil(float64(batchPages) / float64(partionsInRange)))
+		batchSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / partitionBytesPerPage(partitions, blockSize, 0)))
 
 		chunks := types.NewSet[types.Chunk]()
 		for start := int64(0); start < maxPageCountAcrossPartitions; start += batchSize {
 			lastChunkEnd := start + batchSize
-			partionsInRange := PartitionPagesGreaterThan(partitions, lastChunkEnd)
-			batchSize = int64(math.Ceil(float64(batchPages) / float64(partionsInRange)))
+			batchSize = int64(math.Ceil(float64(constants.EffectiveParquetSize) / partitionBytesPerPage(partitions, blockSize, lastChunkEnd)))
 			end := start + batchSize
 			if end >= maxPageCountAcrossPartitions {
 				end = int64(^uint32(0))
@@ -286,13 +278,14 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 	return partitions, maxPageCountAcrossPartitions, nil
 }
 
-// PartitionPagesGreaterThan returns how many partitions have pages greater than the given 'end' page.
-func PartitionPagesGreaterThan(partitions []PartitionPage, end int64) int {
-	count := 0
+// partitionBytesPerPage sums bytesPerHeapPage over partitions with more than 'end' pages, since a ctid
+// chunk reads the same page range from each of them.
+func partitionBytesPerPage(partitions []PartitionPage, blockSize uint32, end int64) float64 {
+	var sum float64
 	for _, p := range partitions {
 		if p.Pages > end {
-			count++
+			sum += bytesPerHeapPage(blockSize, p.HeapBytes, p.TableBytes)
 		}
 	}
-	return utils.Ternary(count == 0, 1, count).(int)
+	return utils.Ternary(sum == 0, float64(blockSize), sum).(float64)
 }
