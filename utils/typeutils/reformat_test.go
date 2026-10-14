@@ -680,14 +680,24 @@ func TestReformatBytes(t *testing.T) {
 			expected: []byte{},
 		},
 		{
-			name:    "numbers are not bytes",
-			input:   int64(42),
-			wantErr: fmt.Errorf("failed to change int64 to bytes: unsupported type"),
+			name:    "nil is a null value",
+			input:   nil,
+			wantErr: ErrNullValue,
 		},
 		{
-			name:    "maps are not bytes",
-			input:   map[string]any{"a": 1},
-			wantErr: fmt.Errorf("failed to change map[string]interface {} to bytes: unsupported type"),
+			name:     "a number becomes the bytes of its text",
+			input:    int64(42),
+			expected: []byte("42"),
+		},
+		{
+			name:     "a bool becomes the bytes of its text",
+			input:    true,
+			expected: []byte("true"),
+		},
+		{
+			name:     "a map becomes the bytes of its text",
+			input:    map[string]any{"a": 1},
+			expected: []byte("map[a:1]"),
 		},
 	}
 

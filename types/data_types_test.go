@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/require"
 )
@@ -33,12 +34,72 @@ func TestToIceberg(t *testing.T) {
 		{Array, "string"},
 		{Binary, "binary"},
 		{FixedBinaryOf(16), "fixed[16]"},
-		{DataType("undeclared_type"), "string"},
+		{DataType("undeclared_type"), "binary"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(string(tc.dataType), func(t *testing.T) {
 			require.Equal(t, tc.expected, tc.dataType.ToIceberg())
+		})
+	}
+}
+
+// TestFallbackType checks the type an undeclared or unregistered type falls back to on each side
+// of state version 8.
+func TestFallbackType(t *testing.T) {
+	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+
+	testCases := []struct {
+		name         string
+		stateVersion int
+		want         DataType
+	}{
+		{
+			name:         "below v8 the fallback is String",
+			stateVersion: 7,
+			want:         String,
+		},
+		{
+			name:         "from v8 the fallback is Binary",
+			stateVersion: 8,
+			want:         Binary,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			require.Equal(t, tc.want, fallbackType())
+		})
+	}
+}
+
+// TestFallbackIcebergType checks the iceberg type ToIceberg returns for an unregistered DataType on
+// each side of state version 8.
+func TestFallbackIcebergType(t *testing.T) {
+	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+
+	testCases := []struct {
+		name         string
+		stateVersion int
+		want         string
+	}{
+		{
+			name:         "below v8 the fallback is string",
+			stateVersion: 7,
+			want:         "string",
+		},
+		{
+			name:         "from v8 the fallback is binary",
+			stateVersion: 8,
+			want:         "binary",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			require.Equal(t, tc.want, fallbackIcebergType())
 		})
 	}
 }
@@ -88,10 +149,10 @@ func TestIcebergTypeToDatatype(t *testing.T) {
 		{"string", String},
 		{"binary", Binary},
 		{"fixed[16]", FixedBinaryOf(16)},
-		{"fixed[0]", String},   // iceberg fixed needs a positive length
-		{"fixed[abc]", String}, // malformed length
-		{"fixed", String},      // length missing
-		{"undeclared_type", String},
+		{"fixed[0]", Binary},   // iceberg fixed needs a positive length
+		{"fixed[abc]", Binary}, // malformed length
+		{"fixed", Binary},      // length missing
+		{"undeclared_type", Binary},
 	}
 
 	for _, tc := range testCases {

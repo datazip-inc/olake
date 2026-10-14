@@ -74,22 +74,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		return ReformatDate(v, true)
 	case types.String:
-		switch v := v.(type) {
-		case int, int8, int16, int32, int64:
-			return fmt.Sprintf("%d", v), nil
-		case uint, uint8, uint16, uint32, uint64:
-			return fmt.Sprintf("%d", v), nil
-		case float32, float64:
-			return fmt.Sprintf("%v", v), nil
-		case string:
-			return v, nil
-		case bool:
-			return fmt.Sprintf("%t", v), nil
-		case []byte: // byte slice
-			return string(v), nil
-		default:
-			return fmt.Sprintf("%v", v), nil
-		}
+		return reformatString(v), nil
 	case types.Float32:
 		return ReformatFloat32(v)
 	case types.Float64:
@@ -127,9 +112,32 @@ func ParseFilterValue(dataType types.DataType, v any) (any, error) {
 	}
 }
 
-// ReformatBytes converts v to bytes.
+// reformatString renders any value as the text a string column holds.
+func reformatString(v any) string {
+	switch v := v.(type) {
+	case int, int8, int16, int32, int64:
+		return fmt.Sprintf("%d", v)
+	case uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%d", v)
+	case float32, float64:
+		return fmt.Sprintf("%v", v)
+	case string:
+		return v
+	case bool:
+		return fmt.Sprintf("%t", v)
+	case []byte:
+		return string(v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// ReformatBytes converts v to bytes. Byte slices pass through, and any other value becomes the bytes
+// of the text a string column would hold for it.
 func ReformatBytes(v any) ([]byte, error) {
 	switch val := v.(type) {
+	case nil:
+		return nil, ErrNullValue
 	case []byte:
 		return val, nil
 	case *[]byte:
@@ -137,10 +145,8 @@ func ReformatBytes(v any) ([]byte, error) {
 			return nil, ErrNullValue
 		}
 		return *val, nil
-	case string:
-		return []byte(val), nil
 	default:
-		return nil, fmt.Errorf("failed to change %T to bytes: unsupported type", v)
+		return []byte(reformatString(v)), nil
 	}
 }
 

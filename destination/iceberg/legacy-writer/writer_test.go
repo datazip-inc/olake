@@ -90,10 +90,10 @@ func TestToProtoFieldValue(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "a value that is not bytes is rejected",
+			name:    "a number into a binary column travels as its text",
 			iceType: "binary",
 			value:   42,
-			wantErr: true,
+			want:    &proto.IcebergPayload_IceRecord_FieldValue_BytesValue{BytesValue: []byte("42")},
 		},
 		{
 			name:    "utf-8 bytes into a string column become text",

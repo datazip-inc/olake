@@ -208,12 +208,12 @@ func TestAppendValueToBuilder(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "a value that is not bytes is rejected",
+			name: "a number into a binary column travels as its text",
 			builder: func(mem memory.Allocator) array.Builder {
 				return array.NewBinaryBuilder(mem, arrow.BinaryTypes.Binary)
 			},
-			value:   int64(42),
-			wantErr: true,
+			value: int64(42),
+			want:  []byte("42"),
 		},
 		{
 			name:    "a map that cannot be marshaled is rejected",

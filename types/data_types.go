@@ -5,6 +5,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -28,6 +29,21 @@ const (
 	Binary         DataType = "binary"
 	FixedBinary    DataType = "fixed_binary(%d)"
 )
+
+// fallbackType is what an undeclared or unregistered type falls back to. It is Binary from state
+// version 8 and String below it.
+func fallbackType() DataType {
+	if utils.IsBinarySupported() {
+		return Binary
+	}
+	return String
+}
+
+// fallbackIcebergType is fallbackType's iceberg type, what ToIceberg returns for an unregistered
+// DataType.
+func fallbackIcebergType() string {
+	return destinationTypes[fallbackType()].icebergType
+}
 
 // Tree Representation of TypeWeights
 //
@@ -124,12 +140,6 @@ var destinationTypes = destinationTypesMap{
 	FixedBinary:    {"fixed[%d]", fixedBinaryNode}, // the pattern is a registry key; only an instance renders
 }
 
-var (
-	// fallbackType is what an undeclared or unregistered type falls back to
-	fallbackType        = String
-	fallbackIcebergType = destinationTypes[fallbackType].icebergType
-)
-
 type icebergToDataTypeMap map[string]DataType
 
 // get returns the DataType an iceberg type denotes.
@@ -202,7 +212,7 @@ func (d DataType) ToIceberg() string {
 	mapping, params, registered := destinationTypes.get(d)
 	switch {
 	case !registered:
-		return fallbackIcebergType
+		return fallbackIcebergType()
 	case len(params) == 0:
 		return mapping.icebergType
 	default:
@@ -214,5 +224,5 @@ func IcebergTypeToDatatype(d string) DataType {
 	if dataType, registered := icebergToDataType.get(d); registered {
 		return dataType
 	}
-	return fallbackType
+	return fallbackType()
 }

@@ -79,11 +79,11 @@ func TestBucketTransform(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "a value that is not bytes",
+			name:    "a number hashes the bytes of its text",
 			val:     42,
 			buckets: 16,
 			colType: "binary",
-			wantErr: true,
+			want:    6,
 		},
 	}
 
@@ -160,11 +160,12 @@ func TestTruncateTransform(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "a value that is not bytes",
-			val:     42,
-			width:   2,
-			colType: "binary",
-			wantErr: true,
+			name:     "a number truncates the bytes of its text",
+			val:      42,
+			width:    1,
+			colType:  "binary",
+			want:     []byte("4"),
+			wantPath: "NA==",
 		},
 	}
 
