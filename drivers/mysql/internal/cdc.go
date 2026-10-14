@@ -64,7 +64,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 // MariaDB must use its own flavor so the syncer declares GTID capability; without it the server
 // downgrades GTID events for a legacy replica and aborts with ERROR 1236 on any it cannot convert.
 func binlogFlavor(serverFlavor string) string {
-	if serverFlavor == "MariaDB" {
+	if serverFlavor == jdbc.MariaDBFlavor {
 		return mysql.MariaDBFlavor
 	}
 	return mysql.MySQLFlavor
