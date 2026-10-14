@@ -16,7 +16,6 @@ const (
 	codeMetadataStateInvalid   = "mysql.metadata_state_invalid"
 	codePortInvalid            = "mysql.port_invalid"
 	codeTableNotVisible        = "mysql.table_not_visible"
-	codeCDCUnsupported         = "mysql.cdc_unsupported"
 	codeHostMissing            = "mysql.host_missing"
 	codeHostSchemeIncluded     = "mysql.host_scheme_included"
 	codeUsernameMissing        = "mysql.username_missing"
