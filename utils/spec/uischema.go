@@ -19,6 +19,11 @@ var uiSchemaMap = map[string]string{
 }
 
 const MongoDBUISchema = `{
+    "ui:sections": [
+      {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "toggle", "fields": ["update_method"]},
+      {"id": "connection", "title": "Connection details", "fields": ["hosts", "database", "authdb", "username", "password", "replica_set", "read_preference", "srv", "chunking_strategy", "use_iam", "ssl", "additional_params"]},
+      {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "backoff_retry_count", "ssh_config"]}
+    ],
     "ui:grid": [
         { "hosts": 12, "database": 12 },
         { "authdb": 12, "username": 12 },
@@ -27,10 +32,20 @@ const MongoDBUISchema = `{
         { "max_threads": 12, "backoff_retry_count": 12 },
         { "chunking_strategy": 12, "use_iam": 12 },
         { "ssl": 12, "additional_params": 12 },
-        { "ssh_config": 12 }
+        { "update_method": 12, "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
+    },
+    "update_method": {
+        "ui:widget": "radio",
+        "ui:options": {
+            "title": false,
+            "description": false
+        },
+        "type": {
+            "ui:widget": "hidden"
+        }
     },
     "use_iam": {
         "ui:widget": "boolean"
@@ -91,6 +106,11 @@ const MongoDBUISchema = `{
 }`
 
 const PostgresUISchema = `{
+      "ui:sections": [
+        {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "toggle", "fields": ["update_method"]},
+        {"id": "connection", "title": "Connection details", "fields": ["host", "database", "schemas", "username", "password", "port", "jdbc_url_params", "ssl"]},
+        {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "retry_count", "ssh_config"]}
+      ],
       "ui:grid": [
         { "host": 12, "database": 12 },
         { "schemas": 12, "username": 12 },
@@ -137,10 +157,13 @@ const PostgresUISchema = `{
       },
       "update_method": {
         "ui:widget": "radio",
-        "ui:grid": [{ "replication_slot": 12, "initial_wait_time": 12}, { "publication": 12 }],
+        "ui:grid": [{ "replication_slot": 12, "publication": 12 }, { "initial_wait_time": 12 }],
         "ui:options": {
           "title": false,
           "description": false
+        },
+        "type": {
+          "ui:widget": "hidden"
         }
       },
       "ssh_config": {
@@ -163,6 +186,11 @@ const PostgresUISchema = `{
     }`
 
 const MySQLUISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "toggle", "fields": ["update_method"]},
+    {"id": "connection", "title": "Connection details", "fields": ["hosts", "database", "username", "password", "port", "jdbc_url_params", "ssl"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "backoff_retry_count", "ssh_config"]}
+  ],
   "ui:grid": [
     { "hosts": 12, "database": 12 },
     { "username": 12, "password": 12 },
@@ -224,6 +252,11 @@ const MySQLUISchema = `{
 }`
 
 const MSSQLUISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "toggle", "fields": ["update_method"]},
+    {"id": "connection", "title": "Connection details", "fields": ["host", "database", "username", "password", "port", "jdbc_url_params", "ssl", "manage_capture_instances", "primary_config"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "retry_count", "ssh_config"]}
+  ],
   "ui:grid": [
     { "host": 12, "database": 12 },
     { "username": 12, "password": 12 },
@@ -244,6 +277,9 @@ const MSSQLUISchema = `{
     "ui:options": {
       "title": false,
       "description": false
+    },
+    "type": {
+      "ui:widget": "hidden"
     }
   },
   "manage_capture_instances": {
@@ -282,6 +318,11 @@ const MSSQLUISchema = `{
 }`
 
 const OracleUISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "not_supported"},
+    {"id": "connection", "title": "Connection details", "fields": ["host", "connection_type", "username", "sid", "service_name", "password", "port", "jdbc_url_params", "ssl"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "backoff_retry_count", "ssh_config"]}
+  ],
   "ui:grid": [
     { "host": 12, "connection_type": 12 },
     { "username": 12, "sid": 12, "service_name": 12 },
@@ -325,6 +366,11 @@ const OracleUISchema = `{
 }`
 
 const S3UISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "not_supported"},
+    {"id": "connection", "title": "Connection details", "fields": ["bucket_name", "region", "access_key_id", "secret_access_key", "path_prefix", "endpoint", "file_pattern", "compression", "file_format", "csv", "parquet", "json", "xml"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["retry_count", "max_threads"]}
+  ],
   "ui:grid": [
     { "bucket_name": 12, "region": 12 },
     { "access_key_id": 12, "secret_access_key": 12 },
@@ -391,6 +437,11 @@ const S3UISchema = `{
 }`
 
 const KafkaUISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "not_supported"},
+    {"id": "connection", "title": "Connection details", "fields": ["bootstrap_servers", "consumer_group_id", "topic_pattern", "protocol", "use_schema_registry", "schema_registry"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["threads_equal_total_partitions", "max_threads", "backoff_retry_count"]}
+  ],
   "ui:grid": [
     { "bootstrap_servers": 24 },
     { "consumer_group_id": 12, "topic_pattern": 12 },
@@ -569,6 +620,11 @@ const IcebergUISchema = `{
 }`
 
 const DB2UISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "not_supported"},
+    {"id": "connection", "title": "Connection details", "fields": ["host", "port", "database", "username", "password", "jdbc_url_params", "ssl"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "retry_count", "ssh_config"]}
+  ],
   "ui:grid": [
     { "host": 12, "port": 12 },
     { "database": 12, "max_threads": 12 },
