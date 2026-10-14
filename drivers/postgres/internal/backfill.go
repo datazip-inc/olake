@@ -65,6 +65,7 @@ func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.Write
 	return p.splitTableIntoChunks(ctx, stream)
 }
 
+// TODO: add functional tests for splitTableIntoChunks, covering TOAST-heavy, partitioned and pre-PG 14 tables.
 func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	generateCTIDRanges := func(stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		blockSizeQuery := jdbc.PostgresBlockSizeQuery()
