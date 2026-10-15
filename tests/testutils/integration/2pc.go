@@ -31,7 +31,7 @@ func (th *TestHandler) Test2PCIntegration(t *testing.T) {
 		if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{currentTestTable}, []string{th.ColumnToExclude}); err != nil {
 			t.Fatalf("failed to enable normalization and partition regex in streams.json: %s", err)
 		}
-		t.Logf("Enabled normalization and added partition regex in %s", "test_stream.json")
+		t.Logf("Enabled normalization and added partition regex in %s", th.GetFilePath("streams.json"))
 
 		writerTypes := []struct {
 			name     string

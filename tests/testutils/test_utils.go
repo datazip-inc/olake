@@ -365,8 +365,9 @@ func EditJSONFile(path string, edit func(doc map[string]interface{}) error) erro
 	return WriteHostFile(path, out)
 }
 
-// WriteHostFile writes to the shared /testdata mount, unlinking first: the container runs as root,
-// so on Linux CI the test user cannot truncate a file a previous run left behind, only replace it.
+// WriteHostFile writes to the shared /testdata mount, unlinking first. DockerRunArgs runs the
+// container as the test user, but as root when it cannot look the user up. On Linux the test user
+// can replace a root-owned file a previous run left behind, but cannot truncate it.
 func WriteHostFile(path string, data []byte) error {
 	_ = os.Remove(path)
 	return os.WriteFile(path, data, 0600)
