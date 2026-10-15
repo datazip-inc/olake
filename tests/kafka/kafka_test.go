@@ -269,7 +269,7 @@ func TestKafkaUpsert(t *testing.T) {
 			seed:       "upsert_add",
 			dedup:      []string{"customer_id"},
 			expectFail: true,
-			wantErr:    "missing dedup keys",
+			wantErr:    "encountered null values for the dedup keys",
 		},
 		{
 			name:  "dedup_value_empty",
@@ -289,7 +289,7 @@ func TestKafkaUpsert(t *testing.T) {
 			seed:       "upsert_null",
 			dedup:      []string{"customer_id"},
 			expectFail: true,
-			wantErr:    "all dedup keys are null",
+			wantErr:    "encountered null values for the dedup keys",
 		},
 	}
 	for _, tc := range icebergTestCases {
