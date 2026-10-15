@@ -56,6 +56,11 @@ func TestMySQL2PC(t *testing.T) {
 	mysqlBaseConfig(t).Test2PCIntegration(t)
 }
 
+func TestMySQLIcebergDV(t *testing.T) {
+	t.Parallel()
+	mysqlBaseConfig(t).TestIcebergDV(t)
+}
+
 func TestMySQLPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(t, string(constants.MySQL)),

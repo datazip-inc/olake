@@ -447,3 +447,53 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestConfiguredStream_ResolveUpsertOp(t *testing.T) {
+	tests := []struct {
+		name string
+		meta StreamMetadata
+		want bool
+	}{
+		{
+			name: "append mode is not upsert",
+			meta: StreamMetadata{AppendMode: true},
+			want: false,
+		},
+		{
+			name: "false append_mode without dedup keys stays append",
+			meta: StreamMetadata{AppendMode: false},
+			want: false,
+		},
+		{
+			name: "only kafka key is upsert",
+			meta: StreamMetadata{AppendMode: false, DedupKeys: []string{"_kafka_key"}},
+			want: true,
+		},
+		{
+			name: "message column dedup is upsert",
+			meta: StreamMetadata{AppendMode: false, DedupKeys: []string{"id"}},
+			want: true,
+		},
+		{
+			name: "kafka key + column is upsert",
+			meta: StreamMetadata{AppendMode: false, DedupKeys: []string{"_kafka_key", "id"}},
+			want: true,
+		},
+		{
+			name: "zero metadata stays append",
+			meta: StreamMetadata{},
+			want: false,
+		},
+		{
+			name: "append_mode true with leftover dedup keys stays append",
+			meta: StreamMetadata{AppendMode: true, DedupKeys: []string{"id"}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{StreamMetadata: tt.meta}
+			assert.Equal(t, tt.want, s.ResolveUpsertOp())
+		})
+	}
+}

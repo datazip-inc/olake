@@ -163,7 +163,7 @@ var syncCmd = &cobra.Command{
 			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.Mix, connector.Type(), destinationConfig, len(catalog.Streams))
 			defer func() {
 				stats := pool.GetStats()
-				telemetry.TrackSyncCompleted(syncID, selectedStreamsMetadata.Mix, destinationConfig, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+				telemetry.TrackSyncCompleted(syncID, selectedStreamsMetadata.Mix, connector.Type(), destinationConfig, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 				logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 				time.Sleep(5 * time.Second)
 			}()
@@ -239,7 +239,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
-		if err := elem.GetUpdateType().Validate(); err != nil {
+		if err := elem.ValidateUpdateType(); err != nil {
 			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
 			return false
 		}

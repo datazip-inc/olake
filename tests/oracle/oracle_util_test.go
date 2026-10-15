@@ -114,9 +114,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
 				123.456789, 123.5, 123, 123, 12345,
 				'sample text', 'sample nclob',
-				TIMESTAMP '2023-01-01 12:00:00',
-				TIMESTAMP '2023-01-01 12:00:00+00:00',
-				TIMESTAMP '2023-01-01 12:00:00+05:30',
+				TIMESTAMP '2023-01-01 12:00:00.573605',
+				TIMESTAMP '2023-01-01 12:00:00.573605+00:00',
+				TIMESTAMP '2023-01-01 12:00:00.573605+05:30',
 				101
 			)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, query)
@@ -155,9 +155,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
 				123.456789, 123.5, 123, 123, 12345,
 				'sample text', 'sample nclob',
-				TIMESTAMP '2023-01-01 12:00:00',
-				TIMESTAMP '2023-01-01 12:00:00+00:00',
-				TIMESTAMP '2023-01-01 12:00:00+05:30'
+				TIMESTAMP '2023-01-01 12:00:00.573605',
+				TIMESTAMP '2023-01-01 12:00:00.573605+00:00',
+				TIMESTAMP '2023-01-01 12:00:00.573605+05:30'
 			)`, integrationTestTable)
 
 	case "update":
@@ -208,9 +208,9 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
 			123.456789, 123.5, 123, 123, 12345,
 			'sample text', 'sample nclob',
-			TIMESTAMP '2023-01-01 12:00:00',
-			TIMESTAMP '2023-01-01 12:00:00+00:00',
-			TIMESTAMP '2023-01-01 12:00:00+05:30',
+			TIMESTAMP '2023-01-01 12:00:00.573605',
+			TIMESTAMP '2023-01-01 12:00:00.573605+00:00',
+			TIMESTAMP '2023-01-01 12:00:00.573605+05:30',
 			100
 		)`, tableName, i)
 
@@ -253,9 +253,9 @@ var ExpectedOracleData = map[string]interface{}{
 	"col_smallint":         int32(123),
 	"col_clob":             "sample text",
 	"col_nclob":            "sample nclob",
-	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 }
 
 var ExpectedUpdatedOracleData = map[string]interface{}{
@@ -272,9 +272,9 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_smallint":         int32(321),
 	"col_clob":             "sample text",
 	"col_nclob":            "sample nclob",
-	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"includedcolumn":       int32(202),
 }
 

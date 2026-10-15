@@ -149,11 +149,9 @@ var (
 	// exercises the low bits would not catch a width or sign error.
 	//
 	// TS stops at whole seconds and TSMilli at whole milliseconds, which every destination
-	// carries identically. TSMicro and TSNano hold finer digits, where the destinations
-	// genuinely differ -- the legacy Iceberg writer ships timestamptz as epoch millis
-	// (toProtoFieldValue, legacy-writer/writer.go) while the Arrow writer and the Parquet
-	// destination keep micros -- so their columns are asserted against the writer that
-	// actually ran (see textWriterExpectedData and parquetWriterExpectedData).
+	// carries identically. TSMicro and TSNano hold finer digits, which every destination
+	// floors to micros, so their columns are asserted at that precision (see
+	// textWriterExpectedData and parquetWriterExpectedData).
 	seedValues = rowValues{
 		Str:   "test_string",
 		Bool:  true,
@@ -358,8 +356,8 @@ func s3TextDestinationSchema(formatSpecific map[string]string) map[string]string
 // expectedTextData is the expectation shared by the CSV and JSON variants. Absent on
 // purpose: mixed_col cycles its value per row (that is what makes it mixed) and
 // optional_col is missing from some rows, so neither has one value every row must carry;
-// ts_micro_col and ts_nano_col live in textWriterExpectedData because their synced value
-// depends on which destination writer ran (see seedValues).
+// ts_micro_col and ts_nano_col live in textWriterExpectedData, which is merged over this
+// map (see seedValues).
 func expectedTextData(v rowValues) map[string]interface{} {
 	return map[string]interface{}{
 		"str_col":   v.Str,
@@ -413,22 +411,12 @@ func expectedXMLData(v rowValues) map[string]interface{} {
 	}
 }
 
-// textWriterExpectedData is the writer-dependent slice of the CSV, JSON, and XML expectations:
-// below the millisecond the destinations part ways, the legacy Iceberg writer truncating
-// every timestamptz to epoch millis where the Arrow writer and the Parquet destination
-// keep micros. applyWriterExpectations merges it over the variant's expected data before
-// every operation, so each sync is asserted against the precision its writer actually
-// produces rather than the shared floor.
-func textWriterExpectedData(v rowValues, writer s3DestinationWriter) map[string]interface{} {
-	// Truncate mirrors the writers, which floor rather than round: UnixMilli in the
-	// legacy writer, UnixMicro in the Arrow writer and parquet-go.
-	keep := time.Microsecond
-	if writer == writerLegacy {
-		keep = time.Millisecond
-	}
+// textWriterExpectedData holds the sub-second timestamp expectations of the CSV, JSON and
+// XML variants. UnixMicro floors, matching every writer.
+func textWriterExpectedData(v rowValues) map[string]interface{} {
 	return map[string]interface{}{
-		"ts_micro_col": arrow.Timestamp(v.TSMicro.Truncate(keep).UnixMicro()),
-		"ts_nano_col":  arrow.Timestamp(v.TSNano.Truncate(keep).UnixMicro()),
+		"ts_micro_col": arrow.Timestamp(v.TSMicro.UnixMicro()),
+		"ts_nano_col":  arrow.Timestamp(v.TSNano.UnixMicro()),
 	}
 }
 
@@ -473,10 +461,8 @@ func expectedParquetData(v rowValues) map[string]interface{} {
 		"time_ms_col": int64(v.TimeOfDay.Seconds()),
 		"time_us_col": int64(v.TimeOfDay.Seconds()),
 		"time_ns_col": int64(v.TimeOfDay.Seconds()),
-		// The millisecond seed survives identically through every writer (micros and
-		// millis renderings agree at this precision), so it stays a shared expectation;
-		// the micro, nano and Int96 columns are writer-dependent and live in
-		// parquetWriterExpectedData.
+		// The micro, nano and Int96 columns carry finer digits and are asserted through
+		// parquetWriterExpectedData, which is merged over this map.
 		"ts_ms_col":  arrow.Timestamp(v.TSMilli.UnixMicro()),
 		"ts_far_col": arrow.Timestamp(farFutureTS.UnixMicro()),
 
@@ -490,18 +476,12 @@ func expectedParquetData(v rowValues) map[string]interface{} {
 	}
 }
 
-// parquetWriterExpectedData is the writer-dependent slice of the Parquet variant's
-// expectations, the same split textWriterExpectedData makes for the text variants: the
-// sub-millisecond digits these columns carry survive only where the writer keeps micros.
-func parquetWriterExpectedData(v rowValues, writer s3DestinationWriter) map[string]interface{} {
-	keep := time.Microsecond
-	if writer == writerLegacy {
-		keep = time.Millisecond
-	}
+// parquetWriterExpectedData holds the same for the Parquet variant.
+func parquetWriterExpectedData(v rowValues) map[string]interface{} {
 	return map[string]interface{}{
-		"ts_col":    arrow.Timestamp(v.TSMicro.Truncate(keep).UnixMicro()),
-		"ts_ns_col": arrow.Timestamp(v.TSNano.Truncate(keep).UnixMicro()),
-		"int96_col": arrow.Timestamp(v.TSNano.Truncate(keep).UnixMicro()),
+		"ts_col":    arrow.Timestamp(v.TSMicro.UnixMicro()),
+		"ts_ns_col": arrow.Timestamp(v.TSNano.UnixMicro()),
+		"int96_col": arrow.Timestamp(v.TSNano.UnixMicro()),
 	}
 }
 
@@ -540,11 +520,9 @@ type S3TestVariant struct {
 	// are per variant because a Parquet file can express types that CSV and JSON cannot.
 	ExpectedData        map[string]interface{}
 	ExpectedUpdatedData map[string]interface{}
-	// WriterExpectedData returns the expected values for the columns whose synced value
-	// depends on which destination writer ran (see textWriterExpectedData). Merged into
-	// ExpectedData/ExpectedUpdatedData by applyWriterExpectations; nil when every column
-	// of the variant syncs identically across destinations.
-	WriterExpectedData func(v rowValues, writer s3DestinationWriter) map[string]interface{}
+	// WriterExpectedData returns the variant's sub-second timestamp expectations, merged over
+	// the two maps above by applyWriterExpectations; nil when the variant has no such column.
+	WriterExpectedData func(v rowValues) map[string]interface{}
 	// ParquetStreaming is the parquet.streaming_enabled value every sync of the variant
 	// runs with; meaningful only when DataFormat is "parquet" (see applyParquetStreamingMode).
 	ParquetStreaming bool
@@ -657,60 +635,16 @@ func (s s3Source) removeUnder(ctx context.Context, t *testing.T, prefix string) 
 	}
 }
 
-// s3DestinationWriter identifies the destination writer a sync runs through, as far as
-// the variant can tell from its destination config.
-type s3DestinationWriter string
-
-const (
-	// TODO: arrow and legacy writers differ in timestamp precisions we need to fix the legacy writer to keep micros and then remove this distinction from the test.
-
-	// writerLegacy is the legacy Iceberg writer, which truncates timestamptz to millis.
-	writerLegacy s3DestinationWriter = "legacy"
-	// writerArrow is the Arrow Iceberg writer, which keeps micros. The Parquet
-	// destination also answers to this value: it is not observable from the config (its
-	// block just leaves arrow_writes where the Arrow block set it) and it keeps micros
-	// exactly like the Arrow writer (types.ToNewParquet pins every timestamp column to
-	// parquet.Microsecond), so it never needs telling apart.
-	writerArrow s3DestinationWriter = "arrow"
-)
-
-// currentDestinationWriter reads the live arrow_writes flag from the destination config the
-// next sync will run with, and reports which writer that is.
-func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.TestConfig) s3DestinationWriter {
-	t.Helper()
-
-	// The harness picks a writer by swapping IcebergDestinationPath between two files in its
-	// private working directory (see testIcebergWriter)
-	destPath := filepath.Join(config.HostTestDataPath, filepath.Base(config.IcebergDestinationPath))
-	data, err := os.ReadFile(destPath)
-	require.NoError(t, err, "failed to read %s", destPath)
-	var destConfig struct {
-		Writer struct {
-			ArrowWrites bool `json:"arrow_writes"`
-		} `json:"writer"`
-	}
-	require.NoError(t, json.Unmarshal(data, &destConfig), "failed to parse %s", destPath)
-
-	if destConfig.Writer.ArrowWrites {
-		return writerArrow
-	}
-	return writerLegacy
-}
-
-// applyWriterExpectations retargets the writer-dependent expected values at the writer the
-// next sync will use. The harness toggles arrow_writes in the variant's
-// iceberg_destination.json before each Iceberg writer block but asserts every block against
-// the same ExpectedData maps, so this hook -- the only variant-owned code that runs between
-// the toggle and the verification -- reads the live flag and updates the maps in place.
-func (v S3TestVariant) applyWriterExpectations(t *testing.T, config *testutils.TestConfig) {
-	t.Helper()
+// applyWriterExpectations merges the variant's sub-second timestamp expectations over its
+// ExpectedData maps. They are kept out of those maps so they win the overlap: ts_col is set
+// by both, and only this value carries the sub-second digits.
+func (v S3TestVariant) applyWriterExpectations() {
 	if v.WriterExpectedData == nil {
 		return
 	}
 
-	writer := v.currentDestinationWriter(t, config)
-	maps.Copy(v.ExpectedData, v.WriterExpectedData(seedValues, writer))
-	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
+	maps.Copy(v.ExpectedData, v.WriterExpectedData(seedValues))
+	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues))
 }
 
 // applyParquetStreamingMode pins parquet.streaming_enabled in this config's source.json
@@ -745,9 +679,8 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 		t.Helper()
 
 		// Every destination block starts by re-seeding the source through this hook, so
-		// refreshing the expectations here keeps them aligned with whichever writer the
-		// harness toggled the destination to since the last operation.
-		variant.applyWriterExpectations(t, conf)
+		// the expectations are merged here, before the first verification of the block.
+		variant.applyWriterExpectations()
 		variant.applyParquetStreamingMode(t, conf)
 
 		src := variant.source(t)

@@ -1,8 +1,12 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
-// UpdateMode iceberg update mode
+// UpdateType selects how a destination represents the removal of a row that a
+// previous sync already committed.
 type UpdateType string
 
 const (
@@ -14,21 +18,39 @@ const (
 	// row as (data file, ordinal). Producing them requires a durable
 	// identifier -> RowLocation index of every live row in the table.
 	UpdateTypePosition UpdateType = "pos"
-	// UpdateTypeDeletionVector writes Iceberg v3 deletion vectors.
-	// TODO: implement dv writing in Olake (Difficulty: Medium)
+	// UpdateTypeDeletionVector writes Iceberg v3 deletion vectors: one Puffin
+	// bitmap per data file instead of a positional delete file. Addresses rows
+	// the same way UpdateTypePosition does, so it needs the same durable index,
+	// and it requires the destination table to be format version 3.
 	UpdateTypeDeletionVector UpdateType = "dv"
 )
 
 // NeedsTableIndex reports whether the mode can only be served by maintaining a
 // TableIndex alongside the destination table.
 func (m UpdateType) NeedsTableIndex(destinationType DestinationType) bool {
-	return destinationType == Iceberg && m == UpdateTypePosition
+	return destinationType == Iceberg && (m == UpdateTypePosition || m == UpdateTypeDeletionVector)
 }
 
 func (m UpdateType) Validate() error {
-	if m == UpdateTypeEquality || m == UpdateTypePosition {
+	if slices.Contains(writableUpdateTypes, m) {
 		return nil
 	}
 
 	return fmt.Errorf("invalid update mode: %s", m)
+}
+
+// ValidateAgainst reports whether m is a delete format OLake can write and one the stream
+// still offers. Target query engines are a discover-time input that is never persisted, so
+// the list computed from them is the only record a later sync can check against. An empty
+// list means the catalog predates target query engines, so only writability is checked.
+func (m UpdateType) ValidateAgainst(available []UpdateType) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+
+	if len(available) > 0 && !slices.Contains(available, m) {
+		return fmt.Errorf("update mode %q is not readable by the target query engines; available are %v", m, available)
+	}
+
+	return nil
 }

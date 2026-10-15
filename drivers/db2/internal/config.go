@@ -3,8 +3,8 @@ package driver
 import (
 	"fmt"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 type Config struct {
@@ -64,23 +64,29 @@ func (c *Config) BuildTunnelDSN(localPort int) string {
 
 func (c *Config) Validate() error {
 	if c.Host == "" {
-		return fmt.Errorf("empty host name")
+		return errs.Precondition(errs.ConfigInvalid, codeHostMissing, fmt.Errorf("empty host name"))
 	}
 
 	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port number: must be between 1 and 65535")
+		return errs.Precondition(errs.ConfigInvalid, codePortInvalid,
+			fmt.Errorf("invalid port number: must be between 1 and 65535"))
 	}
 
 	if c.Username == "" {
-		return fmt.Errorf("username is required")
+		return errs.Precondition(errs.ConfigInvalid, codeUsernameMissing, fmt.Errorf("username is required"))
 	}
 
 	if c.Database == "" {
-		return fmt.Errorf("database name is required")
+		return errs.Precondition(errs.ConfigInvalid, codeDatabaseMissing,
+			fmt.Errorf("database name is required"))
 	}
 
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
+	}
+
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	if c.SSLConfiguration == nil {
