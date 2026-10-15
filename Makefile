@@ -21,6 +21,10 @@ local_driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1)))
 print.platforms.%:
 	@echo $(call driver_platforms,$*)
 
+# Queried by release-tool.sh, so releases get the same per-driver flags as docker.<d>.build.
+print.docker-build-args.%:
+	@echo $(DOCKER_BUILD_ARGS.$*)
+
 .PHONY: gomod golangci.install trivy gofmt pre-commit
 
 # Build a driver image locally, e.g. `make docker.postgres.build IMAGE_TAG=v1.2.3`.
@@ -154,7 +158,7 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 #                                      into every go command that compiles <d> (must
 #                                      be shell `export`s so the env survives SIP and
 #                                      reaches all commands of a pipeline)
-#   DOCKER_BUILD_ARGS.<d>              extra `docker build` flags for its image (docker.<d>.build)
+#   DOCKER_BUILD_ARGS.<d>              extra `docker build` flags for its image (docker.<d>.build, release-tool.sh)
 #   NON_CDC_DRIVERS += <d>             opt out of the 2PC suites
 # plus driver-only targets. Recipes run from the repo root. Fragments are
 # included before the driver lists below are derived and before the templates

@@ -85,7 +85,7 @@ function release() {
         -t "${image_name}:${tag_version}" \
         -t "${image_name}:${latest_tag}" \
         --build-arg DRIVER_NAME="$connector" \
-        --build-arg DRIVER_VERSION="$VERSION" . || fail "Multi-platform build failed. Exiting..."
+        --build-arg DRIVER_VERSION="$VERSION" $build_args . || fail "Multi-platform build failed. Exiting..."
     
     echo "$(chalk green "Release successful for $image_name version $tag_version")"
 }
@@ -130,6 +130,8 @@ setup_buildx
 # Release the driver. Platforms come from drivers/platforms.conf ('*' default, per-driver
 # overrides); set PLATFORMS=... in the environment to force a specific list.
 platform=$(make -s "print.platforms.$DRIVER") && [[ -n "$platform" ]] || fail "Could not resolve platforms for driver '$DRIVER'"
+# Per-driver build flags from its driver.mk (DOCKER_BUILD_ARGS.<d>), e.g. db2's GO_BUILD=target.
+build_args=$(make -s "print.docker-build-args.$DRIVER") || fail "Could not resolve build args for driver '$DRIVER'"
 
 echo "✅ Releasing driver $DRIVER for version $VERSION on branch $CURRENT_BRANCH to platforms: $platform"
 
