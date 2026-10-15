@@ -40,11 +40,11 @@ type ChangeFilter struct {
 
 // NewChangeFilter creates a filter for the given streams. schemaClient backs the
 // information_schema fallback for servers that omit binlog row metadata.
-func NewChangeFilter(schemaClient *sqlx.DB, typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
+func NewChangeFilter(schemaClient *sqlx.DB, state Binlog, typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
 	filter := ChangeFilter{
 		streams:   make(map[string]types.StreamInterface),
 		converter: typeConverter,
-		schema:    newSchemaCache(schemaClient),
+		schema:    newSchemaCache(schemaClient, state),
 	}
 	for _, stream := range streams {
 		filter.streams[fmt.Sprintf("%s.%s", stream.Namespace(), stream.Name())] = stream
@@ -73,7 +73,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
-	view, err := f.resolveColumns(ctx, e, pos)
+	view, err := f.resolveColumns(ctx, e)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ type columnView struct {
 // information_schema otherwise. Field by field, not all-or-nothing: MINIMAL logs signedness
 // and charsets while omitting names and ENUM/SET members. Type bytes and ENUM/SET detection
 // are mandatory TableMapEvent fields, so they always come from the binlog.
-func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEvent, pos mysql.Position) (*columnView, error) {
+func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEvent) (*columnView, error) {
 	tableMap := e.Table
 	n := len(tableMap.ColumnType)
 
@@ -154,7 +154,7 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 	var meta *tableMeta
 	if namesMissing || signednessMissing {
 		var err error
-		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table), pos)
+		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table), tableMap.TableID)
 		if err != nil {
 			return nil, err
 		}

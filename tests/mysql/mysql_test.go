@@ -61,6 +61,11 @@ func TestMySQLIcebergDV(t *testing.T) {
 	mysqlBaseConfig(t).TestIcebergDV(t)
 }
 
+func TestMySQLDDL(t *testing.T) {
+	t.Parallel()
+	mysqlBaseConfig(t).TestDDL(t)
+}
+
 func TestMySQLPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(t, string(constants.MySQL)),

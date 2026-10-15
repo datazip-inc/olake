@@ -23,25 +23,68 @@ var setStatementRe = regexp.MustCompile(`(?is)^\s*SET\s+STATEMENT\s+.+?\s+FOR\s+
 // code, events, servers, tablespaces and sequences. The object keyword must directly follow
 // the verb and any OR REPLACE / ALGORITHM / DEFINER / SQL SECURITY clauses, so a table named
 // `user` or `event` is never mistaken for one.
-var nonTableDDLRe = regexp.MustCompile(`(?is)^\s*(?:/\*.*?\*/\s*)*(?:create|alter|drop|rename)\s+(?:or\s+replace\s+)?` +
+var nonTableDDLRe = regexp.MustCompile(`(?is)` + leadingComments + `(?:create|alter|drop|rename)\s+(?:or\s+replace\s+)?` +
 	`(?:(?:algorithm|definer|sql\s+security)\s*=?\s*\S+\s+)*(?:aggregate\s+)?` +
 	`(?:user|role|view|trigger|procedure|function|event|server|tablespace|logfile|sequence)\b`)
+
+// tableDDLNameRe finds the table of an ALTER TABLE or CREATE TABLE the parser rejects, such as
+// one using INVISIBLE, SRID, a SPATIAL INDEX or a POINT column, so only that table is dropped.
+var tableDDLNameRe = regexp.MustCompile(`(?is)` + leadingComments +
+	`(?:alter\s+(?:online\s+|ignore\s+)?|create\s+(?:temporary\s+)?)table\s+(?:if\s+not\s+exists\s+)?` +
+	"(?:`([^`]+)`|(\\w+))(?:\\s*\\.\\s*(?:`([^`]+)`|(\\w+)))?")
+
+// unparsedTableDDL returns the table an unparseable ALTER TABLE or CREATE TABLE names, if it is one.
+func unparsedTableDDL(query string) (*ast.TableName, bool) {
+	m := tableDDLNameRe.FindStringSubmatch(query)
+	if m == nil {
+		return nil, false
+	}
+	first, second := m[1]+m[2], m[3]+m[4]
+	if second == "" {
+		return &ast.TableName{Name: ast.NewCIStr(first)}, true
+	}
+	return &ast.TableName{Schema: ast.NewCIStr(first), Name: ast.NewCIStr(second)}, true
+}
 
 // applyDDL updates the cache for one QueryEvent, in binlog order, so each cached schema keeps
 // describing its table at the reader's position. pos is the event's position and
 // defaultSchema the database in use when the statement ran.
 //
-// It never guesses: a statement it cannot parse wipes the cache, and an ALTER it cannot apply
-// drops just that table. Either way the table reloads lazily from information_schema,
-// anchored and warned about by get().
+// It never guesses: a statement it cannot parse drops the table it alters or creates, or wipes the cache
+// when that is unknown, and an ALTER it cannot apply drops just that table. Either way the
+// table reloads lazily from information_schema, anchored by get().
 func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position) {
-	query = setStatementRe.ReplaceAllString(query, "")
-	if !isDDL([]byte(query)) || nonTableDDLRe.MatchString(query) {
+	// With binlog_row_metadata=FULL every row carries its own metadata, so nothing is ever
+	// cached and there is nothing to update.
+	c.mu.RLock()
+	empty := len(c.tables) == 0
+	c.mu.RUnlock()
+	if empty {
+		return
+	}
+
+	query = setStatementRe.ReplaceAllLiteralString(query, "")
+	if !isDDL([]byte(query)) {
+		return
+	}
+	// Any DDL, a trigger or an index included, may give a table a new TableMapEvent.TableID, so
+	// the next id get sees is no sign of an unlogged change.
+	c.forgetTableIDs()
+	if nonTableDDLRe.MatchString(query) {
 		return
 	}
 
 	stmts, _, err := parser.New().ParseSQL(query)
 	if err != nil || len(stmts) != 1 {
+		// Only a single statement the parser rejects can be pinned to its table: several
+		// statements may alter several tables.
+		if name, ok := unparsedTableDDL(query); ok && err != nil {
+			logger.Warnf("cannot parse DDL, dropping cached column metadata for its table: %s", query)
+			c.mu.Lock()
+			c.dropTables(defaultSchema, query, name)
+			c.mu.Unlock()
+			return
+		}
 		logger.Warnf("cannot parse DDL, dropping all cached column metadata: %s", query)
 		c.invalidate()
 		return
@@ -64,8 +107,11 @@ func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position) 
 			c.dropTables(defaultSchema, query, stmt.Tables...)
 		}
 	case *ast.CreateTableStmt:
-		// A table created under a cached name has a new layout.
-		c.dropTables(defaultSchema, query, stmt.Table)
+		// A table created under a cached name has a new layout. IF NOT EXISTS on an existing
+		// table changes nothing, and apps that bootstrap their schema run it on every start.
+		if !stmt.IfNotExists {
+			c.dropTables(defaultSchema, query, stmt.Table)
+		}
 	case *ast.DropDatabaseStmt:
 		c.dropSchema(stmt.Name.O, query)
 	case *ast.CreateDatabaseStmt, *ast.AlterDatabaseStmt, *ast.CreateIndexStmt, *ast.DropIndexStmt, *ast.CreateViewStmt:
@@ -92,12 +138,12 @@ func (c *schemaCache) alterTable(stmt *ast.AlterTableStmt, defaultSchema string,
 		c.dropTables(defaultSchema, query, stmt.Table)
 		return
 	}
-	key, ok := c.cachedKey(schema, stmt.Table.Name.O)
+	key := schema + "." + stmt.Table.Name.O
+	meta, ok := c.tables[key]
 	if !ok {
 		return
 	}
 
-	meta := c.tables[key]
 	// An entry anchored at or after this DDL was read from information_schema later, and may
 	// already include it; applying the DDL again would corrupt the entry.
 	if meta.AnchoredAt.Compare(pos) >= 0 {
@@ -116,6 +162,7 @@ func (c *schemaCache) alterTable(stmt *ast.AlterTableStmt, defaultSchema string,
 		}
 	}
 	next.AnchoredAt = pos
+	next.TableID = 0 // the ALTER gives the table a new id, which the next row records
 	c.tables[key] = next
 	logger.Infof("applied DDL to cached column metadata for %s: %s", key, query)
 }
@@ -130,12 +177,25 @@ func (c *schemaCache) dropTables(defaultSchema, query string, names ...*ast.Tabl
 			c.tables = map[string]*tableMeta{}
 			return
 		}
-		want := schema + "." + name.Name.O
-		for key := range c.tables {
-			if strings.EqualFold(key, want) {
-				delete(c.tables, key)
-				logger.Infof("DDL dropped cached column metadata for %s: %s", key, query)
-			}
+		// Table names are case-sensitive on Linux, so only an exact match is the same table.
+		key := schema + "." + name.Name.O
+		if _, ok := c.tables[key]; ok {
+			delete(c.tables, key)
+			logger.Infof("DDL dropped cached column metadata for %s: %s", key, query)
+		}
+	}
+}
+
+// forgetTableIDs clears every entry's TableID, so get records the next one it sees instead of
+// reloading. Entries are replaced, never edited, since snapshot shares them.
+func (c *schemaCache) forgetTableIDs() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, meta := range c.tables {
+		if meta.TableID != 0 {
+			next := meta.clone()
+			next.TableID = 0
+			c.tables[key] = next
 		}
 	}
 }
@@ -143,26 +203,11 @@ func (c *schemaCache) dropTables(defaultSchema, query string, names ...*ast.Tabl
 // dropSchema forgets every cached table in a dropped database. The caller holds c.mu.
 func (c *schemaCache) dropSchema(schema, query string) {
 	for key := range c.tables {
-		if keySchema, _, _ := strings.Cut(key, "."); strings.EqualFold(keySchema, schema) {
+		if keySchema, _, _ := strings.Cut(key, "."); keySchema == schema {
 			delete(c.tables, key)
 			logger.Infof("DDL dropped cached column metadata for %s: %s", key, query)
 		}
 	}
-}
-
-// cachedKey finds the cache key for a table, ignoring case: DDL may spell a name
-// differently from the binlog's TableMapEvent. The caller holds c.mu.
-func (c *schemaCache) cachedKey(schema, table string) (string, bool) {
-	want := schema + "." + table
-	if _, ok := c.tables[want]; ok {
-		return want, true
-	}
-	for key := range c.tables {
-		if strings.EqualFold(key, want) {
-			return key, true
-		}
-	}
-	return "", false
 }
 
 // tableSchema returns the database a table name refers to: its own, or the one in use when
@@ -182,7 +227,9 @@ func (m *tableMeta) clone() *tableMeta {
 		col.SetMembers = slices.Clone(col.SetMembers)
 		cols[i] = col
 	}
-	return &tableMeta{Columns: cols, AnchoredAt: m.AnchoredAt}
+	next := *m
+	next.Columns = cols
+	return &next
 }
 
 // applyAlterSpec applies one ALTER TABLE clause. Clauses that do not change columns
@@ -202,7 +249,7 @@ func (m *tableMeta) applyAlterSpec(spec *ast.AlterTableSpec) error {
 				}
 				return fmt.Errorf("column %q already exists", def.Name.Name.O)
 			}
-			col, err := columnMetaFromDef(def)
+			col, err := columnMetaFromDef(def, m.DefaultCollationID)
 			if err != nil {
 				return err
 			}
@@ -233,7 +280,7 @@ func (m *tableMeta) applyAlterSpec(spec *ast.AlterTableSpec) error {
 			}
 			return fmt.Errorf("unknown column %q", old.Name.O)
 		}
-		col, err := columnMetaFromDef(def)
+		col, err := columnMetaFromDef(def, m.DefaultCollationID)
 		if err != nil {
 			return err
 		}
@@ -260,36 +307,41 @@ func (m *tableMeta) applyAlterSpec(spec *ast.AlterTableSpec) error {
 	return nil
 }
 
-// convertCharset applies CONVERT TO CHARACTER SET, which re-encodes every character column.
-// Other table options, DEFAULT CHARSET included, leave existing columns as they are.
+// convertCharset applies a table's charset options. CONVERT TO re-encodes every character
+// column and sets the table default; DEFAULT CHARSET and COLLATE change only the default,
+// which columns added later take.
 func (m *tableMeta) convertCharset(opts []*ast.TableOption) error {
 	var cs, collate string
-	var convert bool
+	var convert, change bool
 	for _, opt := range opts {
-		switch {
-		case opt.Tp == ast.TableOptionCharset && opt.UintValue == ast.TableOptionCharsetWithConvertTo:
+		switch opt.Tp {
+		case ast.TableOptionCharset:
 			if opt.Default {
-				return fmt.Errorf("CONVERT TO CHARACTER SET DEFAULT needs the database default, which is not cached")
+				return fmt.Errorf("CHARACTER SET DEFAULT needs the database default, which is not cached")
 			}
-			convert, cs = true, opt.StrValue
-		case opt.Tp == ast.TableOptionCollate:
-			collate = opt.StrValue
+			change, cs = true, opt.StrValue
+			convert = convert || opt.UintValue == ast.TableOptionCharsetWithConvertTo
+		case ast.TableOptionCollate:
+			change, collate = true, opt.StrValue
 		}
 	}
-	if !convert {
+	if !change {
 		return nil
 	}
 
-	id, err := collationID(cs, collate, false)
+	id, err := collationID(cs, collate, false, 0)
 	if err != nil {
 		return err
 	}
-	if id == binaryCollationID {
+	if convert && id == binaryCollationID {
 		return fmt.Errorf("CONVERT TO CHARACTER SET binary changes column types, which is not supported")
 	}
-	for i := range m.Columns {
-		if c := m.Columns[i].CollationID; c != 0 && c != binaryCollationID {
-			m.Columns[i].CollationID = id
+	m.DefaultCollationID = id
+	if convert {
+		for i := range m.Columns {
+			if c := m.Columns[i].CollationID; c != 0 && c != binaryCollationID {
+				m.Columns[i].CollationID = id
+			}
 		}
 	}
 	return nil
@@ -297,7 +349,7 @@ func (m *tableMeta) convertCharset(opts []*ast.TableOption) error {
 
 // columnMetaFromDef builds one column's decoding info from its definition in a DDL statement,
 // matching what columnMetaFrom derives from information_schema.
-func columnMetaFromDef(def *ast.ColumnDef) (columnMeta, error) {
+func columnMetaFromDef(def *ast.ColumnDef, tableDefault uint64) (columnMeta, error) {
 	ft := def.Tp
 	col := columnMeta{
 		Name: def.Name.Name.O,
@@ -307,11 +359,7 @@ func columnMetaFromDef(def *ast.ColumnDef) (columnMeta, error) {
 
 	var collate string
 	for _, opt := range def.Options {
-		switch opt.Tp {
-		case ast.ColumnOptionGenerated:
-			// Whether a generated column appears in the row image has not been verified.
-			return columnMeta{}, fmt.Errorf("generated column %q is not supported", col.Name)
-		case ast.ColumnOptionCollate:
+		if opt.Tp == ast.ColumnOptionCollate {
 			collate = opt.StrValue
 		}
 	}
@@ -323,7 +371,7 @@ func columnMetaFromDef(def *ast.ColumnDef) (columnMeta, error) {
 		col.SetMembers = slices.Clone(ft.GetElems())
 	case tidbmysql.TypeString, tidbmysql.TypeVarchar, tidbmysql.TypeVarString,
 		tidbmysql.TypeTinyBlob, tidbmysql.TypeBlob, tidbmysql.TypeMediumBlob, tidbmysql.TypeLongBlob:
-		id, err := collationID(ft.GetCharset(), collate, tidbmysql.HasBinaryFlag(ft.GetFlag()))
+		id, err := collationID(ft.GetCharset(), collate, tidbmysql.HasBinaryFlag(ft.GetFlag()), tableDefault)
 		if err != nil {
 			return columnMeta{}, fmt.Errorf("column %q: %w", col.Name, err)
 		}
@@ -335,15 +383,26 @@ func columnMetaFromDef(def *ast.ColumnDef) (columnMeta, error) {
 // collationID resolves a character column's collation as MySQL does: an explicit COLLATE
 // wins, then the charset's _bin collation for the BINARY attribute, then the charset's
 // default. Only the charset matters for decoding, so any collation of the right charset works.
-// With no charset the table default applies, which is not cached, so that is an error.
-func collationID(cs, collate string, binaryAttr bool) (uint64, error) {
+// With no charset the table default applies; it is an error only when that is unknown.
+func collationID(cs, collate string, binaryAttr bool, tableDefault uint64) (uint64, error) {
+	if cs == "" && collate == "" && tableDefault != 0 {
+		// No charset or collation given: the column takes the table default.
+		if !binaryAttr {
+			return tableDefault, nil
+		}
+		coll, err := charset.GetCollationByID(int(tableDefault)) //nolint:gosec // collation IDs are small
+		if err != nil {
+			return 0, fmt.Errorf("unknown table collation %d", tableDefault)
+		}
+		cs = coll.CharsetName
+	}
 	if strings.EqualFold(cs, charset.CharsetBin) {
 		return binaryCollationID, nil
 	}
 	if collate == "" {
 		switch {
 		case cs == "":
-			return 0, fmt.Errorf("no character set given and the table default is not cached")
+			return 0, fmt.Errorf("no character set given and the table default is unknown")
 		case binaryAttr:
 			collate = cs + "_bin"
 		default:

@@ -59,14 +59,15 @@ func NewConnection(_ context.Context, config *Config, state Binlog, streams []ty
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
 		CurrentPos:      state.Position,
 		initialWaitTime: config.InitialWaitTime,
-		changeFilter:    NewChangeFilter(config.SchemaClient, typeConverter, streams...),
+		changeFilter:    NewChangeFilter(config.SchemaClient, state, typeConverter, streams...),
 	}
-	conn.changeFilter.schema.seed(state.Schemas, state.Position)
 	return conn, nil
 }
 
 func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestBinlogPos mysql.Position, callback abstract.CDCMsgFn) error {
-	if latestBinlogPos.Name == "" || latestBinlogPos.Pos == 0 {
+	// A caller-given stop is a recovery run, which must end exactly there.
+	recovery := latestBinlogPos.Name != "" && latestBinlogPos.Pos != 0
+	if !recovery {
 		var err error
 		latestBinlogPos, err = GetCurrentBinlogPosition(ctx, client)
 		if err != nil {
@@ -94,8 +95,11 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 				return nil
 			}
 
-			// if the current position has reached or passed the latest binlog position, stop the syncer
-			if c.CurrentPos.Compare(latestBinlogPos) >= 0 {
+			// Stop once past the latest binlog position. Outside recovery, first read on past every
+			// cached schema's anchor, which is the server head when that table was loaded, so State
+			// can save it: the next run resumes here and drops schemas anchored later.
+			if c.CurrentPos.Compare(latestBinlogPos) >= 0 &&
+				(recovery || c.CurrentPos.Compare(c.changeFilter.schema.maxAnchor()) >= 0) {
 				logger.Infof("Reached the configured latest binlog position %s:%d; stopping CDC sync", c.CurrentPos.Name, c.CurrentPos.Pos)
 				return nil
 			}
@@ -144,7 +148,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 
 // State is the position to resume from, with the column metadata valid at it
 func (c *Connection) State() Binlog {
-	return Binlog{Position: c.CurrentPos, Schemas: c.changeFilter.schema.snapshot()}
+	return Binlog{Position: c.CurrentPos, Schemas: c.changeFilter.schema.snapshot(c.CurrentPos)}
 }
 
 // Cleanup terminates the binlog syncer.
