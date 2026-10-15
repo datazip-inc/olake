@@ -42,8 +42,8 @@
     "note": "first release carrying the driver"
   },
   "kafka": {
-    "min_baseline": "v0.3.16",
-    "note": "v0.3.12 added decoder.UseNumber() but the flattener only learned json.Number in v0.3.16; pre-v0.3.12 numbers all typed double against today's catalog"
+    "min_baseline": "v0.7.1",
+    "note": "v0.7.0's own sync can hang into the 10m timeout: of its 2 partition readers one commits and the other never finishes, on either side (runs 37278054644, 38566536616), so it says nothing about the candidate; the v0.3.16 json.Number fix sits below this floor"
   },
   "db2": {
     "min_baseline": "v0.3.14",
