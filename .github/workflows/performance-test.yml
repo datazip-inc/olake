@@ -4,9 +4,8 @@ on:
   push:
     branches:
     - "staging"
-    paths:
-    - '**/*.go'
-    - '**/*.java'
+    # temp: scratch branch for the perf A/B; no paths filter so a pom-only push still runs
+    - "temp-pf"
 
 permissions:
   actions: read
