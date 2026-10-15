@@ -213,7 +213,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 					} else {
 						dedupKeysErr := fmt.Errorf("encountered null values for the dedup keys, at least one of configured dedupe keys should be a non null value. dedup_keys: %v", dedupKeys)
 						return false, errs.Precondition(errs.CDCPreconditionFailed, "kafka.null_dedup_keys",
-							fmt.Errorf("%w: stream[%s], paritition=%d, offset=%d: %w",
+							fmt.Errorf("%w: stream[%s], partition=%d, offset=%d: %w",
 								constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, dedupKeysErr))
 					}
 				} else {
