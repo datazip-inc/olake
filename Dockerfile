@@ -1,13 +1,14 @@
 ARG GO_BUILD=cross
 
-FROM golang:1.26.9-bookworm AS makefiles
+FROM --platform=$BUILDPLATFORM golang:1.26.9-bookworm AS go-cross
+FROM golang:1.26.9-bookworm AS go-target
+
+FROM go-cross AS makefiles
 WORKDIR /home/app
 COPY . .
 RUN mkdir /out && cp --parents Makefile $(find drivers -maxdepth 2 -name driver.mk) /out
 
 # Build Stage
-FROM --platform=$BUILDPLATFORM golang:1.26.9-bookworm AS go-cross
-FROM golang:1.26.9-bookworm AS go-target
 FROM go-${GO_BUILD} AS builder
 
 WORKDIR /home/app
