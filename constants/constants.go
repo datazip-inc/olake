@@ -33,6 +33,13 @@ const (
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
+	// RecommendedCDCLogRetention is the change-log retention (binlog, oplog) recommended so a
+	// paused sync can resume without a full resync.
+	RecommendedCDCLogRetention = 7 * 24 * time.Hour
+	// UpdateMethodCDC and UpdateMethodStandalone are the "type" values of the update_method
+	// config object, which is how a source selects CDC.
+	UpdateMethodCDC        = "CDC"
+	UpdateMethodStandalone = "Standalone"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// TableIndexRequired is set by a source that reads rows back through the destination's

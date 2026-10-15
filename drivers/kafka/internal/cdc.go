@@ -166,7 +166,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 				extraColumns := map[string]any{
 					constants.OlakeID: olakeID,
 				}
-				logger.Warnf("appending with offset/partition - olake_id for topic=%s partition=%d offset=%d", record.Message.Topic, record.Message.Partition, record.Message.Offset)
+				logger.Warnf("encountered either missing or null value for kafka key, appending with OlakeID(offset/partition) for topic=%s partition=%d offset=%d", record.Message.Topic, record.Message.Partition, record.Message.Offset)
 				return processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead))
 			}
 
@@ -211,9 +211,10 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 							return false, err
 						}
 					} else {
+						dedupKeysErr := fmt.Errorf("encountered null values for the dedup keys, at least one of configured dedupe keys should be a non null value. dedup_keys: %v", dedupKeys)
 						return false, errs.Precondition(errs.CDCPreconditionFailed, "kafka.null_dedup_keys",
-							fmt.Errorf("%w: stream[%s], paritition=%d, offset=%d: %w",
-								constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, err))
+							fmt.Errorf("%w: stream[%s], partition=%d, offset=%d: %w",
+								constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, dedupKeysErr))
 					}
 				} else {
 					extraColumns := map[string]any{
