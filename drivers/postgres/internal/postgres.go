@@ -10,6 +10,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -71,6 +72,8 @@ const (
 
 type Postgres struct {
 	client     *sqlx.DB
+	version    int // server_version_num of the connected server (e.g. 140005), read in Setup
+	sizer      ctidSizer
 	sshClient  *ssh.Client
 	config     *Config // postgres driver connection config
 	CDCSupport bool    // indicates if the Postgres instance supports CDC
@@ -135,6 +138,12 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 	p.client = pgClient
+	p.version, err = serverVersionNum(ctx, pgClient)
+	if err != nil {
+		return fmt.Errorf("failed to detect postgres server version: %w", err)
+	}
+	p.sizer = newCTIDSizer(p.version)
+	logger.Infof("Connected to Postgres server_version_num=%d", p.version)
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
 	if found {
@@ -161,6 +170,13 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		logger.Info("Standard Replication is selected")
 	}
 	return nil
+}
+
+// serverVersionNum returns the server's server_version_num, e.g. 140005 for PG 14.5.
+func serverVersionNum(ctx context.Context, db *sqlx.DB) (int, error) {
+	var version int
+	err := db.QueryRowContext(ctx, jdbc.PostgresServerVersionNum()).Scan(&version)
+	return version, err
 }
 
 func (p *Postgres) StateType() types.StateType {
