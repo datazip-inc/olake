@@ -22,6 +22,12 @@ jobs:
       - name: Run All Unit Tests
         run: make test.unit
 
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   java-unit-tests:
     name: Run Java Unit Tests
     runs-on: ubuntu-latest
