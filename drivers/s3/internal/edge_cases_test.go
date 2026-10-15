@@ -391,7 +391,7 @@ func TestThreadCountEdgeCases(t *testing.T) {
 		{"default threads (0)", 0, true},
 		{"single thread", 1, true},
 		{"many threads", 100, true},
-		{"negative threads", -1, true}, // Should be normalized to default
+		{"negative threads", -1, false},
 	}
 
 	for _, tt := range tests {
