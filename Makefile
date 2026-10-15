@@ -33,7 +33,7 @@ DOCKER_BUILD ?= docker build
 .PHONY: $(addsuffix .build,$(addprefix docker.,$(DRIVERS)))
 $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
 	$(DOCKER_BUILD) $(addprefix --platform ,$(call local_driver_platforms,$*)) \
-		--build-arg DRIVER_NAME=$* \
+		--build-arg DRIVER_NAME=$* $(DOCKER_BUILD_ARGS.$*) \
 		-t olake/source-$*:$(IMAGE_TAG) .
 
 gomod:
@@ -154,6 +154,7 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 #                                      into every go command that compiles <d> (must
 #                                      be shell `export`s so the env survives SIP and
 #                                      reaches all commands of a pipeline)
+#   DOCKER_BUILD_ARGS.<d>              extra `docker build` flags for its image (docker.<d>.build)
 #   NON_CDC_DRIVERS += <d>             opt out of the 2PC suites
 # plus driver-only targets. Recipes run from the repo root. Fragments are
 # included before the driver lists below are derived and before the templates

@@ -1,14 +1,19 @@
+ARG GO_BUILD=cross
+
 FROM golang:1.26.9-bookworm AS makefiles
 WORKDIR /home/app
 COPY . .
 RUN mkdir /out && cp --parents Makefile $(find drivers -maxdepth 2 -name driver.mk) /out
 
 # Build Stage
-FROM golang:1.26.9-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.9-bookworm AS go-cross
+FROM golang:1.26.9-bookworm AS go-target
+FROM go-${GO_BUILD} AS builder
 
 WORKDIR /home/app
 
 ARG DRIVER_NAME=olake
+ARG TARGETARCH
 
 # prepare the driver
 # OVERLAY_DIR tells it to stage runtime files for this image instead of onto a host (copied onto / below).
@@ -20,7 +25,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    make dev.${DRIVER_NAME}.build OVERLAY_DIR=/runtime-overlay
+    GOARCH=${TARGETARCH} make dev.${DRIVER_NAME}.build OVERLAY_DIR=/runtime-overlay
 
 FROM eclipse-temurin:17-jre-noble AS runtime-base
 
