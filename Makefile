@@ -107,7 +107,7 @@ WAIT_SLEEP := 5
 WAIT_RETRIES.spark := 60
 PROBE.minio = curl -f http://localhost:9000/minio/health/live
 PROBE.spark = docker exec spark-iceberg grep -q ':3A9A' /proc/net/tcp6
-PROBE.azurite = curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:11000/devstoreaccount1?comp=list | grep -qE '^(200|403)'
+PROBE.azurite = curl -s --max-time 5 -o /dev/null -w '%{http_code}' 'http://127.0.0.1:11000/devstoreaccount1?comp=list' | grep -qE '^(200|403)'
 
 
 # Optional per-service recovery hooks: wait_ready runs RECOVER.<name> after
