@@ -1979,7 +1979,7 @@ func (cfg *IntegrationTest) TestSync(t *testing.T) {
 	// test azure parquet destination
 	t.Run("Azurite", func(t *testing.T) {
 		if err := cfg.testAzureBlob(ctx, t, currentTestTable); err != nil {
-			t.Fatalf("Azurite test failed: %v", err)
+			t.Fatalf("Parquet Azurite test failed: %v", err)
 		}
 	})
 

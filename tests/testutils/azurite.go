@@ -3,6 +3,7 @@ package testutils
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -45,7 +46,7 @@ func loadAzureDest(t *testing.T, cfg *TestConfig) azureDestWriter {
 	return doc.Writer
 }
 
-// newAzuriteClient creates a new azurite client.
+// newAzuriteClient returns a process-wide Azurite blob client (shared-key).
 func newAzuriteClient(dest azureDestWriter) (*azblob.Client, error) {
 	azuriteClientOnce.Do(func() {
 		cred, err := azblob.NewSharedKeyCredential(dest.AccountName, dest.AccountKey)
@@ -53,7 +54,6 @@ func newAzuriteClient(dest azureDestWriter) (*azblob.Client, error) {
 			azuriteErr = fmt.Errorf("failed to create azurite client: %w", err)
 			return
 		}
-
 		azuriteClient, azuriteErr = azblob.NewClientWithSharedKeyCredential(dest.Endpoint, cred, nil)
 		if azuriteErr != nil {
 			azuriteErr = fmt.Errorf("failed to create azurite client: %w", azuriteErr)
@@ -62,16 +62,15 @@ func newAzuriteClient(dest azureDestWriter) (*azblob.Client, error) {
 	return azuriteClient, azuriteErr
 }
 
-// requireAzurite creates the azurite container and returns the client
+// requireAzurite creates the dest container. HTTP errors from a live Azurite fail the test;
 func requireAzurite(t *testing.T, dest azureDestWriter) *azblob.Client {
 	t.Helper()
 	client, err := newAzuriteClient(dest)
 	require.NoError(t, err)
 	_, err = client.CreateContainer(context.Background(), dest.ContainerName, nil)
 	if err != nil && !bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
-		// A reachable azurite that answers with an HTTP error (auth, permissions, naming)
-		// is a misconfiguration and must fail; only transport-level failures skip.
-		if _, ok := err.(*azcore.ResponseError); ok {
+		var respErr *azcore.ResponseError
+		if errors.As(err, &respErr) {
 			require.NoError(t, err, "azurite reachable but CreateContainer failed")
 		}
 		t.Skipf("azurite not running on :11000: %v", err)
@@ -102,13 +101,15 @@ func (cfg *IntegrationTest) testAzureBlob(ctx context.Context, t *testing.T, tes
 
 	require.NoError(t, updateSelectedStreams(cfg.TestConfig, cfg.Namespace, "", "", []string{testTable}, cfg.ColumnToExclude))
 	syncMode := Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "strict_cdc", "full_refresh").(string)
-
 	require.NoError(t, updateStreamConfig(cfg.TestConfig, cfg.Namespace, testTable, syncMode, ""))
 
 	dest := loadAzureDest(t, cfg.TestConfig)
-	requireAzurite(t, dest)
+	client := requireAzurite(t, dest)
+	prefix := azureParquetPrefix(dest.Path, cfg.DestinationDB, testTable)
+	if err := deleteAzureParquetPrefix(ctx, client, dest.ContainerName, prefix); err != nil {
+		return fmt.Errorf("failed to reset azurite prefix %s: %w", prefix, err)
+	}
 
-	// Full load (no --state) with a small buffer so rolled files hug the threshold
 	code, out, err := runOlake(ctx, t, cfg.TestConfig, syncArgs(*cfg.TestConfig, false, "parquet-azure")...)
 	require.NoError(t, err)
 	require.Zerof(t, code, "sync failed:\n%s", out)
@@ -117,16 +118,14 @@ func (cfg *IntegrationTest) testAzureBlob(ctx context.Context, t *testing.T, tes
 	return nil
 }
 
-// verifyAzureParquetSync verifies the parquet sync by listing the objects and verifying the rows
 func (cfg *IntegrationTest) verifyAzureParquetSync(t *testing.T, table string) {
 	t.Helper()
 	ctx := t.Context()
 
 	dest := loadAzureDest(t, cfg.TestConfig)
-	client, err := newAzuriteClient(dest)
-	require.NoError(t, err)
-
+	client := requireAzurite(t, dest)
 	prefix := azureParquetPrefix(dest.Path, cfg.DestinationDB, table)
+
 	objects, err := listParquetObjectsAzureClient(ctx, client, dest, cfg.DestinationDB, table)
 	require.NoError(t, err)
 	require.NotEmpty(t, objects, "no parquet blobs under %s", prefix)
@@ -166,4 +165,27 @@ func listParquetObjectsAzureClient(ctx context.Context, client *azblob.Client, d
 		}
 	}
 	return objects, nil
+}
+
+// deleteAzureParquetPrefix removes every blob under prefix
+func deleteAzureParquetPrefix(ctx context.Context, client *azblob.Client, containerName, prefix string) error {
+	pager := client.NewListBlobsFlatPager(containerName, &container.ListBlobsFlatOptions{
+		Prefix: &prefix,
+	})
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, item := range page.Segment.BlobItems {
+			if item.Name == nil {
+				continue
+			}
+			_, err := client.DeleteBlob(ctx, containerName, *item.Name, nil)
+			if err != nil && !bloberror.HasCode(err, bloberror.BlobNotFound) {
+				return fmt.Errorf("delete azurite blob %s: %w", *item.Name, err)
+			}
+		}
+	}
+	return nil
 }
