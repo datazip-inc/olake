@@ -384,9 +384,8 @@ test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .s
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
 # like <module>/... prefix-matches into sibling modules.
-UNIT_TEST_FLAGS ?= -coverprofile=coverage.out -covermode=atomic
 test.unit: $(addprefix prepare.,$(DRIVERS))
-	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 $(UNIT_TEST_FLAGS) -skip '^Test.*(Discover|Sync|2PC|Performance|Rebalance)$$'
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -coverprofile=coverage.out
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
