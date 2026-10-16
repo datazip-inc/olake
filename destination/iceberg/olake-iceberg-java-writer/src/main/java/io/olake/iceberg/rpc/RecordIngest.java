@@ -11382,6 +11382,17 @@ public final class RecordIngest {
          */
         boolean getBoolValue();
 
+        /**
+         * <code>bytes bytes_value = 7;</code>
+         * @return Whether the bytesValue field is set.
+         */
+        boolean hasBytesValue();
+        /**
+         * <code>bytes bytes_value = 7;</code>
+         * @return The bytesValue.
+         */
+        com.google.protobuf.ByteString getBytesValue();
+
         io.olake.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.ValueCase getValueCase();
       }
       /**
@@ -11431,6 +11442,7 @@ public final class RecordIngest {
           FLOAT_VALUE(4),
           DOUBLE_VALUE(5),
           BOOL_VALUE(6),
+          BYTES_VALUE(7),
           VALUE_NOT_SET(0);
           private final int value;
           private ValueCase(int value) {
@@ -11454,6 +11466,7 @@ public final class RecordIngest {
               case 4: return FLOAT_VALUE;
               case 5: return DOUBLE_VALUE;
               case 6: return BOOL_VALUE;
+              case 7: return BYTES_VALUE;
               case 0: return VALUE_NOT_SET;
               default: return null;
             }
@@ -11626,6 +11639,27 @@ public final class RecordIngest {
           return false;
         }
 
+        public static final int BYTES_VALUE_FIELD_NUMBER = 7;
+        /**
+         * <code>bytes bytes_value = 7;</code>
+         * @return Whether the bytesValue field is set.
+         */
+        @java.lang.Override
+        public boolean hasBytesValue() {
+          return valueCase_ == 7;
+        }
+        /**
+         * <code>bytes bytes_value = 7;</code>
+         * @return The bytesValue.
+         */
+        @java.lang.Override
+        public com.google.protobuf.ByteString getBytesValue() {
+          if (valueCase_ == 7) {
+            return (com.google.protobuf.ByteString) value_;
+          }
+          return com.google.protobuf.ByteString.EMPTY;
+        }
+
         private byte memoizedIsInitialized = -1;
         @java.lang.Override
         public final boolean isInitialized() {
@@ -11663,6 +11697,10 @@ public final class RecordIngest {
             output.writeBool(
                 6, (boolean)((java.lang.Boolean) value_));
           }
+          if (valueCase_ == 7) {
+            output.writeBytes(
+                7, (com.google.protobuf.ByteString) value_);
+          }
           getUnknownFields().writeTo(output);
         }
 
@@ -11699,6 +11737,11 @@ public final class RecordIngest {
             size += com.google.protobuf.CodedOutputStream
               .computeBoolSize(
                   6, (boolean)((java.lang.Boolean) value_));
+          }
+          if (valueCase_ == 7) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeBytesSize(
+                  7, (com.google.protobuf.ByteString) value_);
           }
           size += getUnknownFields().getSerializedSize();
           memoizedSize = size;
@@ -11743,6 +11786,10 @@ public final class RecordIngest {
               if (getBoolValue()
                   != other.getBoolValue()) return false;
               break;
+            case 7:
+              if (!getBytesValue()
+                  .equals(other.getBytesValue())) return false;
+              break;
             case 0:
             default:
           }
@@ -11785,6 +11832,10 @@ public final class RecordIngest {
               hash = (37 * hash) + BOOL_VALUE_FIELD_NUMBER;
               hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
                   getBoolValue());
+              break;
+            case 7:
+              hash = (37 * hash) + BYTES_VALUE_FIELD_NUMBER;
+              hash = (53 * hash) + getBytesValue().hashCode();
               break;
             case 0:
             default:
@@ -12034,6 +12085,10 @@ public final class RecordIngest {
                 setBoolValue(other.getBoolValue());
                 break;
               }
+              case BYTES_VALUE: {
+                setBytesValue(other.getBytesValue());
+                break;
+              }
               case VALUE_NOT_SET: {
                 break;
               }
@@ -12095,6 +12150,11 @@ public final class RecordIngest {
                     valueCase_ = 6;
                     break;
                   } // case 48
+                  case 58: {
+                    value_ = input.readBytes();
+                    valueCase_ = 7;
+                    break;
+                  } // case 58
                   default: {
                     if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                       done = true; // was an endgroup tag
@@ -12423,6 +12483,48 @@ public final class RecordIngest {
            */
           public Builder clearBoolValue() {
             if (valueCase_ == 6) {
+              valueCase_ = 0;
+              value_ = null;
+              onChanged();
+            }
+            return this;
+          }
+
+          /**
+           * <code>bytes bytes_value = 7;</code>
+           * @return Whether the bytesValue field is set.
+           */
+          public boolean hasBytesValue() {
+            return valueCase_ == 7;
+          }
+          /**
+           * <code>bytes bytes_value = 7;</code>
+           * @return The bytesValue.
+           */
+          public com.google.protobuf.ByteString getBytesValue() {
+            if (valueCase_ == 7) {
+              return (com.google.protobuf.ByteString) value_;
+            }
+            return com.google.protobuf.ByteString.EMPTY;
+          }
+          /**
+           * <code>bytes bytes_value = 7;</code>
+           * @param value The bytesValue to set.
+           * @return This builder for chaining.
+           */
+          public Builder setBytesValue(com.google.protobuf.ByteString value) {
+            if (value == null) { throw new NullPointerException(); }
+            valueCase_ = 7;
+            value_ = value;
+            onChanged();
+            return this;
+          }
+          /**
+           * <code>bytes bytes_value = 7;</code>
+           * @return This builder for chaining.
+           */
+          public Builder clearBytesValue() {
+            if (valueCase_ == 7) {
               valueCase_ = 0;
               value_ = null;
               onChanged();
@@ -23650,71 +23752,72 @@ java.lang.String defaultValue) {
       "\030\001 \001(\t\022;\n\006ranges\030\002 \003(\0132+.io.olake.iceber" +
       "g.rpc.FilePositionMap.Range\032G\n\005Range\022\027\n\017" +
       "batch_start_idx\030\001 \001(\005\022\026\n\016start_position\030" +
-      "\002 \001(\003\022\r\n\005count\030\003 \001(\005\"\206\n\n\014ArrowPayload\022<\n" +
+      "\002 \001(\003\022\r\n\005count\030\003 \001(\005\"\235\n\n\014ArrowPayload\022<\n" +
       "\004type\030\001 \001(\0162..io.olake.iceberg.rpc.Arrow" +
       "Payload.PayloadType\022=\n\010metadata\030\002 \001(\0132+." +
       "io.olake.iceberg.rpc.ArrowPayload.Metada" +
-      "ta\032\310\002\n\014FileMetadata\022\021\n\tfile_type\030\001 \001(\t\022\021" +
+      "ta\032\337\002\n\014FileMetadata\022\021\n\tfile_type\030\001 \001(\t\022\021" +
       "\n\tfile_path\030\002 \001(\t\022\024\n\014record_count\030\003 \001(\003\022" +
       "X\n\020partition_values\030\005 \003(\0132>.io.olake.ice" +
       "berg.rpc.ArrowPayload.FileMetadata.Parti" +
-      "tionValue\032\241\001\n\016PartitionValue\022\023\n\tint_valu" +
+      "tionValue\032\270\001\n\016PartitionValue\022\023\n\tint_valu" +
       "e\030\001 \001(\005H\000\022\024\n\nlong_value\030\002 \001(\003H\000\022\026\n\014strin" +
       "g_value\030\003 \001(\tH\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026" +
       "\n\014double_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001" +
-      "(\010H\000B\007\n\005value\0329\n\021FileUploadRequest\022\021\n\tfi" +
-      "le_data\030\001 \001(\014\022\021\n\tfile_path\030\002 \001(\t\032\363\001\n\023Del" +
-      "etionVectorBatch\022M\n\007entries\030\001 \003(\0132<.io.o" +
-      "lake.iceberg.rpc.ArrowPayload.DeletionVe" +
-      "ctorBatch.Entry\032\214\001\n\005Entry\022\026\n\016data_file_p" +
-      "ath\030\001 \001(\t\022\021\n\tpositions\030\002 \003(\003\022X\n\020partitio" +
-      "n_values\030\003 \003(\0132>.io.olake.iceberg.rpc.Ar" +
-      "rowPayload.FileMetadata.PartitionValue\032\217" +
-      "\003\n\010Metadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\t" +
-      "thread_id\030\002 \001(\t\022F\n\rfile_metadata\030\003 \003(\0132/" +
-      ".io.olake.iceberg.rpc.ArrowPayload.FileM" +
-      "etadata\022N\n\013file_upload\030\004 \001(\01324.io.olake." +
-      "iceberg.rpc.ArrowPayload.FileUploadReque" +
-      "stH\000\210\001\001\022\017\n\007payload\030\006 \001(\t\022\035\n\020base_snapsho" +
-      "t_id\030\007 \001(\003H\001\210\001\001\022U\n\020deletion_vectors\030\010 \001(" +
-      "\01326.io.olake.iceberg.rpc.ArrowPayload.De" +
-      "letionVectorBatchH\002\210\001\001B\016\n\014_file_uploadB\023" +
-      "\n\021_base_snapshot_idB\023\n\021_deletion_vectors" +
-      "\"k\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGI" +
-      "STER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FIL" +
-      "EPATH\020\003\022\024\n\020DELETION_VECTORS\020\004\"\335\001\n\023ArrowI" +
-      "ngestResponse\022\016\n\006result\030\001 \001(\t\022U\n\016iceberg" +
-      "Schemas\030\002 \003(\0132=.io.olake.iceberg.rpc.Arr" +
-      "owIngestResponse.IcebergSchemasEntry\022\030\n\013" +
-      "snapshot_id\030\003 \001(\003H\000\210\001\001\0325\n\023IcebergSchemas" +
-      "Entry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n" +
-      "\014_snapshot_id\"^\n\025TableIndexScanRequest\022\021" +
-      "\n\tthread_id\030\001 \001(\t\022\035\n\020from_snapshot_id\030\002 " +
-      "\001(\003H\000\210\001\001B\023\n\021_from_snapshot_id\"\254\001\n\023TableI" +
-      "ndexScanBatch\022@\n\007entries\030\001 \003(\0132/.io.olak" +
-      "e.iceberg.rpc.TableIndexScanBatch.Entry\022" +
-      "\023\n\013snapshot_id\030\002 \001(\003\032>\n\005Entry\022\020\n\010olake_i" +
-      "d\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\020\n\010position\030\003" +
-      " \001(\003\"x\n\035MigrateEqualityDeletesRequest\022\021\n" +
-      "\tthread_id\030\001 \001(\t\022D\n\013target_mode\030\002 \001(\0162/." +
-      "io.olake.iceberg.rpc.IcebergPayload.Dele" +
-      "teMode\"y\n\036MigrateEqualityDeletesResponse" +
-      "\022\023\n\013snapshot_id\030\001 \001(\003\022\036\n\026rewritten_delet" +
-      "e_files\030\002 \001(\003\022\"\n\032positional_deletes_writ" +
-      "ten\030\003 \001(\0032v\n\023RecordIngestService\022_\n\013Send" +
-      "Records\022$.io.olake.iceberg.rpc.IcebergPa" +
-      "yload\032*.io.olake.iceberg.rpc.RecordInges" +
-      "tResponse2q\n\022ArrowIngestService\022[\n\nIcebe" +
-      "rgAPI\022\".io.olake.iceberg.rpc.ArrowPayloa" +
-      "d\032).io.olake.iceberg.rpc.ArrowIngestResp" +
-      "onse2\213\002\n\021TableIndexService\022p\n\024ScanTableF" +
-      "orIndexing\022+.io.olake.iceberg.rpc.TableI" +
-      "ndexScanRequest\032).io.olake.iceberg.rpc.T" +
-      "ableIndexScanBatch0\001\022\203\001\n\026MigrateEquality" +
-      "Deletes\0223.io.olake.iceberg.rpc.MigrateEq" +
-      "ualityDeletesRequest\0324.io.olake.iceberg." +
-      "rpc.MigrateEqualityDeletesResponseB\035B\014Re" +
-      "cordIngestZ\riceberg/protob\006proto3"
+      "(\010H\000\022\025\n\013bytes_value\030\007 \001(\014H\000B\007\n\005value\0329\n\021" +
+      "FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\t" +
+      "file_path\030\002 \001(\t\032\363\001\n\023DeletionVectorBatch\022" +
+      "M\n\007entries\030\001 \003(\0132<.io.olake.iceberg.rpc." +
+      "ArrowPayload.DeletionVectorBatch.Entry\032\214" +
+      "\001\n\005Entry\022\026\n\016data_file_path\030\001 \001(\t\022\021\n\tposi" +
+      "tions\030\002 \003(\003\022X\n\020partition_values\030\003 \003(\0132>." +
+      "io.olake.iceberg.rpc.ArrowPayload.FileMe" +
+      "tadata.PartitionValue\032\217\003\n\010Metadata\022\027\n\017de" +
+      "st_table_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022F" +
+      "\n\rfile_metadata\030\003 \003(\0132/.io.olake.iceberg" +
+      ".rpc.ArrowPayload.FileMetadata\022N\n\013file_u" +
+      "pload\030\004 \001(\01324.io.olake.iceberg.rpc.Arrow" +
+      "Payload.FileUploadRequestH\000\210\001\001\022\017\n\007payloa" +
+      "d\030\006 \001(\t\022\035\n\020base_snapshot_id\030\007 \001(\003H\001\210\001\001\022U" +
+      "\n\020deletion_vectors\030\010 \001(\01326.io.olake.iceb" +
+      "erg.rpc.ArrowPayload.DeletionVectorBatch" +
+      "H\002\210\001\001B\016\n\014_file_uploadB\023\n\021_base_snapshot_" +
+      "idB\023\n\021_deletion_vectors\"k\n\013PayloadType\022\017" +
+      "\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT\020\001" +
+      "\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\022\024\n\020DELETI" +
+      "ON_VECTORS\020\004\"\335\001\n\023ArrowIngestResponse\022\016\n\006" +
+      "result\030\001 \001(\t\022U\n\016icebergSchemas\030\002 \003(\0132=.i" +
+      "o.olake.iceberg.rpc.ArrowIngestResponse." +
+      "IcebergSchemasEntry\022\030\n\013snapshot_id\030\003 \001(\003" +
+      "H\000\210\001\001\0325\n\023IcebergSchemasEntry\022\013\n\003key\030\001 \001(" +
+      "\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n\014_snapshot_id\"^\n\025" +
+      "TableIndexScanRequest\022\021\n\tthread_id\030\001 \001(\t" +
+      "\022\035\n\020from_snapshot_id\030\002 \001(\003H\000\210\001\001B\023\n\021_from" +
+      "_snapshot_id\"\254\001\n\023TableIndexScanBatch\022@\n\007" +
+      "entries\030\001 \003(\0132/.io.olake.iceberg.rpc.Tab" +
+      "leIndexScanBatch.Entry\022\023\n\013snapshot_id\030\002 " +
+      "\001(\003\032>\n\005Entry\022\020\n\010olake_id\030\001 \001(\t\022\021\n\tfile_p" +
+      "ath\030\002 \001(\t\022\020\n\010position\030\003 \001(\003\"x\n\035MigrateEq" +
+      "ualityDeletesRequest\022\021\n\tthread_id\030\001 \001(\t\022" +
+      "D\n\013target_mode\030\002 \001(\0162/.io.olake.iceberg." +
+      "rpc.IcebergPayload.DeleteMode\"y\n\036Migrate" +
+      "EqualityDeletesResponse\022\023\n\013snapshot_id\030\001" +
+      " \001(\003\022\036\n\026rewritten_delete_files\030\002 \001(\003\022\"\n\032" +
+      "positional_deletes_written\030\003 \001(\0032v\n\023Reco" +
+      "rdIngestService\022_\n\013SendRecords\022$.io.olak" +
+      "e.iceberg.rpc.IcebergPayload\032*.io.olake." +
+      "iceberg.rpc.RecordIngestResponse2q\n\022Arro" +
+      "wIngestService\022[\n\nIcebergAPI\022\".io.olake." +
+      "iceberg.rpc.ArrowPayload\032).io.olake.iceb" +
+      "erg.rpc.ArrowIngestResponse2\213\002\n\021TableInd" +
+      "exService\022p\n\024ScanTableForIndexing\022+.io.o" +
+      "lake.iceberg.rpc.TableIndexScanRequest\032)" +
+      ".io.olake.iceberg.rpc.TableIndexScanBatc" +
+      "h0\001\022\203\001\n\026MigrateEqualityDeletes\0223.io.olak" +
+      "e.iceberg.rpc.MigrateEqualityDeletesRequ" +
+      "est\0324.io.olake.iceberg.rpc.MigrateEquali" +
+      "tyDeletesResponseB\035B\014RecordIngestZ\ricebe" +
+      "rg/protob\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -23791,7 +23894,7 @@ java.lang.String defaultValue) {
     internal_static_io_olake_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_olake_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor,
-        new java.lang.String[] { "IntValue", "LongValue", "StringValue", "FloatValue", "DoubleValue", "BoolValue", "Value", });
+        new java.lang.String[] { "IntValue", "LongValue", "StringValue", "FloatValue", "DoubleValue", "BoolValue", "BytesValue", "Value", });
     internal_static_io_olake_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor =
       internal_static_io_olake_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_olake_iceberg_rpc_ArrowPayload_FileUploadRequest_fieldAccessorTable = new
