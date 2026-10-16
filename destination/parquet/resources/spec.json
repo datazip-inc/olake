@@ -78,11 +78,18 @@
                 "storage_type": {
                   "const": "Azure"
                 },
-                "azure_storage_account_key": {
+                "azure_auth_type": {
                   "type": "string",
-                  "title": "Azure Storage Account Key",
-                  "description": "The Azure storage account key for authenticating Azure requests, typically a 40+ character string",
-                  "format": "password"
+                  "title": "Azure Auth Type",
+                  "description": "How OLake authenticates to Azure Blob. Service principal and managed identity use DefaultAzureCredential on the process (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET); they are not dest JSON fields",
+                  "enum": [
+                    "shared-key",
+                    "sas-token",
+                    "connection-string",
+                    "service-principal",
+                    "managed-identity"
+                  ],
+                  "default": "shared-key"
                 },
                 "azure_storage_account_name": {
                   "type": "string",
@@ -94,17 +101,90 @@
                   "title": "Azure Storage Container Name",
                   "description": "The name of an existing Azure storage container with appropriate access permissions to store output files"
                 },
-                "azure_path":{
+                "azure_path": {
                   "type": "string",
                   "title": "Azure Path",
                   "description": "Specify the Azure path where data files will be written, typically starting with a '/' (e.g., '/data')"
+                },
+                "azure_endpoint": {
+                  "type": "string",
+                  "title": "Azure Endpoint",
+                  "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/. Use http://host:port/account for Azurite"
                 }
               },
               "required": [
-                "azure_storage_account_key",
+                "azure_auth_type",
                 "azure_storage_account_name",
                 "azure_container_name"
-              ]
+              ],
+              "dependencies": {
+                "azure_auth_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "azure_auth_type": {
+                          "const": "shared-key"
+                        },
+                        "azure_storage_account_key": {
+                          "type": "string",
+                          "title": "Azure Storage Account Key",
+                          "description": "The Azure storage account key for authenticating Azure requests",
+                          "format": "password"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_key"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "azure_auth_type": {
+                          "const": "sas-token"
+                        },
+                        "azure_sas_token": {
+                          "type": "string",
+                          "title": "Azure SAS Token",
+                          "description": "User-supplied SAS query string. Expiry is defined on the token",
+                          "format": "password"
+                        }
+                      },
+                      "required": [
+                        "azure_sas_token"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "azure_auth_type": {
+                          "const": "connection-string"
+                        },
+                        "azure_connection_string": {
+                          "type": "string",
+                          "title": "Azure Connection String",
+                          "description": "Storage account connection string (AccountName, AccountKey, EndpointSuffix)",
+                          "format": "password"
+                        }
+                      },
+                      "required": [
+                        "azure_connection_string"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "azure_auth_type": {
+                          "const": "service-principal"
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "azure_auth_type": {
+                          "const": "managed-identity"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
             }
           ]
         }

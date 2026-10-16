@@ -75,24 +75,26 @@ func (p *Parquet) initStore() error {
 	}
 	store, err := newObjectStore(p.config)
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return fmt.Errorf("failed to create object store: %w", err)
 	}
 	p.store = store
 	return nil
 }
 
 func newObjectStore(cfg *Config) (ObjectStore, error) {
-	switch cfg.storageKind() {
-	case storageTypeAzure:
-		cfg.AzurePath = strings.Trim(cfg.AzurePath, "/")
+	switch {
+	case cfg.usingAzure():
 		return azure.New(azure.Config{
-			AccountName:   cfg.AzureStorageAccountName,
-			AccountKey:    cfg.AzureStorageAccountKey,
-			ContainerName: cfg.AzureContainerName,
-			Path:          cfg.AzurePath,
-			Endpoint:      cfg.AzureEndpoint,
+			AuthType:                 cfg.AzureAuthType,
+			AccountName:              cfg.AzureStorageAccountName,
+			AccessKey:                cfg.AzureStorageAccountKey,
+			Container:                cfg.AzureContainerName,
+			Prefix:                   cfg.AzurePath,
+			ServiceURL:               cfg.AzureEndpoint,
+			SharedAccessKeySignature: cfg.AzureSASToken,
+			ConnectionString:         cfg.AzureConnectionString,
 		})
-	case storageTypeS3:
+	case cfg.usingS3():
 		cfg.Prefix = strings.Trim(cfg.Prefix, "/")
 		return s3.New(s3.Config{
 			Bucket:     cfg.Bucket,
@@ -327,7 +329,7 @@ func (p *Parquet) Check(ctx context.Context) error {
 	case p.store != nil:
 		testKey := p.store.ObjectKey(path.Join("olake_writer_test", utils.TimestampedFileName(".txt")))
 		if err := p.store.Put(ctx, testKey, []byte("write test")); err != nil {
-			return fmt.Errorf("failed to write test file to S3: %w", err)
+			return fmt.Errorf("failed to write test file to %s: %w", p.store.Kind(), err)
 		}
 		p.config.Path = os.TempDir()
 		logger.Infof("Thread[%s]: %s writer configuration found", p.options.ThreadID, p.store.Kind())

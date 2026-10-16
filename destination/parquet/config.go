@@ -3,6 +3,7 @@ package parquet
 import (
 	"fmt"
 
+	"github.com/datazip-inc/olake/destination/parquet/azure"
 	"github.com/datazip-inc/olake/utils"
 )
 
@@ -33,6 +34,9 @@ type Config struct {
 	AzureContainerName      string `json:"azure_container_name,omitempty"`
 	AzurePath               string `json:"azure_path,omitempty"`
 	AzureEndpoint           string `json:"azure_endpoint,omitempty"`
+	AzureAuthType           string `json:"azure_auth_type,omitempty"`
+	AzureSASToken           string `json:"azure_sas_token,omitempty"`
+	AzureConnectionString   string `json:"azure_connection_string,omitempty"`
 
 	MaxFileSizeMB float64 `json:"max_file_size_mb,omitempty" validate:"gte=0"`
 }
@@ -42,23 +46,16 @@ func (c *Config) usingAzure() bool {
 }
 
 func (c *Config) usingS3() bool {
-	return c.storageKind() == storageTypeS3
+	return c.storageKind() == storageTypeS3 && c.Bucket != "" && c.Region != ""
 }
 
+// storageKind is Azure only when storage_type is Azure. Anything else is S3
 func (c *Config) storageKind() string {
 	switch c.StorageType {
-	case storageTypeAzure, storageTypeS3:
+	case storageTypeAzure:
 		return c.StorageType
-	case "":
-		if c.AzureStorageAccountName != "" || c.AzureStorageAccountKey != "" || c.AzureContainerName != "" {
-			return storageTypeAzure
-		}
-		if c.Bucket != "" || c.Region != "" {
-			return storageTypeS3
-		}
-		return ""
 	default:
-		return c.StorageType
+		return storageTypeS3
 	}
 }
 
@@ -68,24 +65,40 @@ func (c *Config) Validate() error {
 	}
 
 	switch c.StorageType {
-	case "", storageTypeS3, storageTypeAzure:
+	case storageTypeAzure:
+		return c.validateAzureAuthenticationType()
+	case "", storageTypeS3:
+		return nil
 	default:
 		return fmt.Errorf("storage_type must be %q or %q", storageTypeS3, storageTypeAzure)
 	}
+}
 
-	kind := c.storageKind()
-	switch kind {
-	case storageTypeAzure:
-		if (c.AzureStorageAccountName == "") != (c.AzureStorageAccountKey == "") {
-			return fmt.Errorf("azure_storage_account_name and azure_storage_account_key must both be set together")
+func (c *Config) validateAzureAuthenticationType() error {
+	if c.AzureStorageAccountName == "" || c.AzureContainerName == "" {
+		return fmt.Errorf("azure_storage_account_name and azure_container_name are required")
+	}
+
+	switch c.AzureAuthType {
+	case azure.AuthSharedKey:
+		if c.AzureStorageAccountKey == "" {
+			return fmt.Errorf("azure_storage_account_key is required for %s", azure.AuthSharedKey)
 		}
-		if c.AzureStorageAccountName == "" || c.AzureStorageAccountKey == "" || c.AzureContainerName == "" {
-			return fmt.Errorf("azure_storage_account_name, azure_storage_account_key, and azure_container_name are required when storage_type is Azure")
+	case azure.AuthSASToken:
+		if c.AzureSASToken == "" {
+			return fmt.Errorf("azure_sas_token is required for %s", azure.AuthSASToken)
 		}
-	case storageTypeS3:
-		if c.Bucket == "" || c.Region == "" {
-			return fmt.Errorf("s3_bucket and s3_region must both be set together")
+	case azure.AuthConnectionString:
+		if c.AzureConnectionString == "" {
+			return fmt.Errorf("azure_connection_string is required for %s", azure.AuthConnectionString)
 		}
+	case azure.AuthServicePrincipal, azure.AuthManagedIdentity:
+		// Token client in azure.New. SP: AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET.
+		// MI: identity on the host; optional AZURE_CLIENT_ID for user-assigned.
+	default:
+		return fmt.Errorf("azure_auth_type must be %q, %q, %q, %q, or %q",
+			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString,
+			azure.AuthServicePrincipal, azure.AuthManagedIdentity)
 	}
 	return nil
 }
