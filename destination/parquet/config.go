@@ -75,24 +75,27 @@ func (c *Config) Validate() error {
 }
 
 func (c *Config) validateAzureAuthenticationType() error {
-	if c.AzureStorageAccountName == "" || c.AzureContainerName == "" {
-		return fmt.Errorf("azure_storage_account_name and azure_container_name are required")
+	if c.AzureContainerName == "" {
+		return fmt.Errorf("azure_container_name is required")
 	}
 
 	switch c.AzureAuthType {
 	case azure.AuthSharedKey:
-		if c.AzureStorageAccountKey == "" {
-			return fmt.Errorf("azure_storage_account_key is required for %s", azure.AuthSharedKey)
+		if c.AzureStorageAccountKey == "" || c.AzureStorageAccountName == "" {
+			return fmt.Errorf("azure_storage_account_key and azure_storage_account_name are required for %s", azure.AuthSharedKey)
 		}
 	case azure.AuthSASToken:
-		if c.AzureSASToken == "" {
-			return fmt.Errorf("azure_sas_token is required for %s", azure.AuthSASToken)
+		if c.AzureSASToken == "" || c.AzureStorageAccountName == "" {
+			return fmt.Errorf("azure_sas_token and azure_storage_account_name are required for %s", azure.AuthSASToken)
 		}
 	case azure.AuthConnectionString:
 		if c.AzureConnectionString == "" {
 			return fmt.Errorf("azure_connection_string is required for %s", azure.AuthConnectionString)
 		}
 	case azure.AuthServicePrincipal, azure.AuthManagedIdentity:
+		if c.AzureStorageAccountName == "" {
+			return fmt.Errorf("azure_storage_account_name is required")
+		}
 		// Token client in azure.New. SP: AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET.
 		// MI: identity on the host; optional AZURE_CLIENT_ID for user-assigned.
 	default:
