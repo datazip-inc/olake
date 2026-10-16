@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
@@ -55,7 +56,7 @@ func newAzuriteClient(dest azureDestWriter) (*azblob.Client, error) {
 
 		azuriteClient, azuriteErr = azblob.NewClientWithSharedKeyCredential(dest.Endpoint, cred, nil)
 		if azuriteErr != nil {
-			azuriteErr = fmt.Errorf("failed to create azurite client: %w", err)
+			azuriteErr = fmt.Errorf("failed to create azurite client: %w", azuriteErr)
 		}
 	})
 	return azuriteClient, azuriteErr
@@ -68,6 +69,11 @@ func requireAzurite(t *testing.T, dest azureDestWriter) *azblob.Client {
 	require.NoError(t, err)
 	_, err = client.CreateContainer(context.Background(), dest.ContainerName, nil)
 	if err != nil && !bloberror.HasCode(err, bloberror.ContainerAlreadyExists) {
+		// A reachable azurite that answers with an HTTP error (auth, permissions, naming)
+		// is a misconfiguration and must fail; only transport-level failures skip.
+		if _, ok := err.(*azcore.ResponseError); ok {
+			require.NoError(t, err, "azurite reachable but CreateContainer failed")
+		}
 		t.Skipf("azurite not running on :11000: %v", err)
 	}
 	return client
