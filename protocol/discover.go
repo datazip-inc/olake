@@ -108,11 +108,16 @@ func resolveUpdateTypeConstraints() error {
 		return errs.Precondition(errs.ConfigInvalid, codeDestinationConfigInvalid, err)
 	}
 
-	constraints := types.UpdateTypeConstraints{Engines: engines, Catalog: catalogType}
-	// Only upsert needs a delete format; append writes none, so the job stays valid and
-	// streams default to append.
-	if len(constraints.Available()) == 0 {
-		logger.Warnf("No delete format is readable by all of the selected query engines %v and writable to destination catalog %q; streams will default to append mode",
+	constraints := types.UpdateTypeConstraints{
+		Engines:    engines,
+		Catalog:    catalogType,
+		AppendOnly: types.DestinationIsAppendOnly(destinationConfig),
+	}
+	// Only upsert needs a delete format and append writes none, so the job stays valid: each
+	// stream gets an empty available_update_types for the UI to report. Expected, so silent,
+	// for an append-only destination.
+	if !constraints.AppendOnly && len(constraints.Available()) == 0 {
+		logger.Warnf("No delete format is readable by all of the selected query engines %v and writable to destination catalog %q; upsert streams need append mode to sync",
 			engines, catalogType)
 	}
 

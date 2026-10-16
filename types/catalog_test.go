@@ -1184,7 +1184,7 @@ func TestCatalogS3JSONSerialization(t *testing.T) {
 			Schema:    &TypeSchema{Properties: sync.Map{}},
 		},
 	}
-	catalog := GetWrappedCatalog(streams, "s3", nil)
+	catalog := GetWrappedCatalog(streams, "s3", UpdateTypeConstraints{})
 
 	// Verify the default catalog contains AppendMode: true
 	assert.True(t, catalog.SelectedStreams["namespace1"][0].AppendMode, "S3 stream should default to AppendMode: true")

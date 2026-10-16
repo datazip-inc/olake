@@ -132,8 +132,9 @@ func TestMergeUpdateTypeClearsCatalogUnsupportedValue(t *testing.T) {
 	assert.Equal(t, "", metadata.UpdateType)
 }
 
-// With no delete format left, streams must default to append or the catalog fails sync.
-func TestGetWrappedCatalogDefaultsToAppendWhenNothingQualifies(t *testing.T) {
+// With no delete format left, streams stay upsert with an empty list: the UI reports the
+// missing intersection and the user picks append.
+func TestGetWrappedCatalogKeepsUpsertWhenNothingQualifies(t *testing.T) {
 	streams := []*Stream{{
 		Name: "users", Namespace: "public", Schema: NewTypeSchema(),
 		DefaultStreamProperties: &DefaultStreamProperties{},
@@ -145,9 +146,10 @@ func TestGetWrappedCatalogDefaultsToAppendWhenNothingQualifies(t *testing.T) {
 	})
 
 	selected := catalog.SelectedStreams["public"][0]
-	assert.True(t, selected.AppendMode)
+	assert.False(t, selected.AppendMode)
 	assert.Equal(t, "", selected.UpdateType)
-	assert.True(t, streams[0].DefaultStreamProperties.AppendMode)
+	assert.False(t, streams[0].DefaultStreamProperties.AppendMode)
+	assert.Equal(t, UpdateType(""), streams[0].DefaultStreamProperties.UpdateType)
 	assert.Equal(t, []UpdateType{}, streams[0].AvailableUpdateTypes)
 }
 
@@ -197,4 +199,40 @@ func TestValidateUpdateTypeWithNothingAvailable(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// Parquet writes no delete files: streams get an empty list like "no intersection", but with
+// append mode set, which is how the UI tells the two apart.
+func TestGetWrappedCatalogAppendOnlyDestination(t *testing.T) {
+	streams := []*Stream{{
+		Name: "users", Namespace: "public", Schema: NewTypeSchema(),
+		DefaultStreamProperties: &DefaultStreamProperties{},
+	}}
+
+	// Engines that would otherwise allow every format must not widen an append-only destination.
+	catalog := GetWrappedCatalog(streams, "postgres", UpdateTypeConstraints{
+		Engines: []QueryEngine{QueryEngineSpark}, AppendOnly: true,
+	})
+
+	selected := catalog.SelectedStreams["public"][0]
+	assert.True(t, selected.AppendMode)
+	assert.Equal(t, "", selected.UpdateType)
+	assert.True(t, streams[0].DefaultStreamProperties.AppendMode)
+	assert.Equal(t, []UpdateType{}, streams[0].AvailableUpdateTypes)
+}
+
+// A stream configured as upsert before the job pointed at Parquet is moved to append.
+func TestMergeUpdateTypeForcesAppendOnAppendOnlyDestination(t *testing.T) {
+	metadata := &StreamMetadata{StreamName: "users", UpdateType: string(UpdateTypePosition)}
+
+	mergeUpdateType(metadata, "public.users", UpdateTypeConstraints{AppendOnly: true})
+
+	assert.True(t, metadata.AppendMode)
+	assert.Equal(t, "", metadata.UpdateType)
+}
+
+func TestDestinationIsAppendOnly(t *testing.T) {
+	assert.False(t, DestinationIsAppendOnly(nil))
+	assert.True(t, DestinationIsAppendOnly(&WriterConfig{Type: Parquet}))
+	assert.False(t, DestinationIsAppendOnly(&WriterConfig{Type: Iceberg}))
 }

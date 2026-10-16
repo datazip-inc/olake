@@ -97,12 +97,18 @@ func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 type UpdateTypeConstraints struct {
 	Engines []QueryEngine
 	Catalog string
+	// AppendOnly marks a destination that writes no delete files (Parquet): streams can only
+	// append, so no delete format applies.
+	AppendOnly bool
 }
 
 // Available returns the writable delete formats every engine can read and the catalog can
 // apply, cheapest first. No constraints leaves every writable format.
 func (c UpdateTypeConstraints) Available() []UpdateType {
 	available := make([]UpdateType, 0, len(writableUpdateTypes))
+	if c.AppendOnly {
+		return available
+	}
 	for _, updateType := range writableUpdateTypes {
 		if readableByAll(c.Engines, updateType) && supportedByCatalog(c.Catalog, updateType) {
 			available = append(available, updateType)

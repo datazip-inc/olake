@@ -59,6 +59,15 @@ func TestResolveUpdateTypeConstraints(t *testing.T) {
 			},
 		},
 		{
+			// Parquet writes no delete files, so it constrains streams to append.
+			name:        "parquet destination is append only",
+			destination: `{"type":"PARQUET","writer":{}}`,
+			expected: types.UpdateTypeConstraints{
+				Engines:    []types.QueryEngine{},
+				AppendOnly: true,
+			},
+		},
+		{
 			name:        "malformed destination fails the run",
 			destination: `{"type":"ICEBERG","writer":`,
 			wantErr:     true,

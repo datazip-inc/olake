@@ -111,6 +111,8 @@ func GetWrappedCatalog(streams []*Stream, driver string, constraints UpdateTypeC
 	// destination can apply.
 	// With none available, streams stay upsert with a blank type and an empty list, which
 	// the UI reports as no intersection; sync rejects them until the user switches to append.
+	// An append-only destination also yields an empty list but sets append mode, which is how
+	// the UI tells "append only" apart from "no intersection".
 	available := constraints.Available()
 	updateType := PreferredUpdateType(available)
 
@@ -127,6 +129,7 @@ func GetWrappedCatalog(streams []*Stream, driver string, constraints UpdateTypeC
 		stream.AvailableUpdateTypes = available
 		if stream.DefaultStreamProperties != nil {
 			stream.DefaultStreamProperties.UpdateType = updateType
+			stream.DefaultStreamProperties.AppendMode = stream.DefaultStreamProperties.AppendMode || constraints.AppendOnly
 		}
 
 		// Create ConfiguredStream and append to Streams
@@ -142,7 +145,7 @@ func GetWrappedCatalog(streams []*Stream, driver string, constraints UpdateTypeC
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:      stream.Name,
-			AppendMode:      IsDriverAppendOnly(driver),
+			AppendMode:      IsDriverAppendOnly(driver) || constraints.AppendOnly,
 			Normalization:   IsDriverRelational(driver),
 			UpdateType:      string(updateType),
 			SelectedColumns: selectedCols,
@@ -235,6 +238,11 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, constraints UpdateTypeConstr
 // recreate, so the user must pick the new one explicitly, and a blank update_type fails
 // validation until they do.
 func mergeUpdateType(metadata *StreamMetadata, streamID string, constraints UpdateTypeConstraints) {
+	// An append-only destination cannot apply upserts, so append is the only mode it allows.
+	if constraints.AppendOnly {
+		metadata.AppendMode = true
+	}
+
 	// A blank value predates update_type and always meant equality (see
 	// ConfiguredStream.GetUpdateType). Record it, so blank is left to mean "needs a choice".
 	if metadata.UpdateType == "" {

@@ -41,6 +41,12 @@ var icebergCatalogs = []CatalogSpec{
 	{Catalog: "horizon", Supports: []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}},
 }
 
+// DestinationIsAppendOnly reports whether the destination writes no delete files, so every
+// stream it receives must append.
+func DestinationIsAppendOnly(config *WriterConfig) bool {
+	return config != nil && config.Type == Parquet
+}
+
 // CatalogTypeFromConfig returns the destination's catalog_type, or "" for a destination that
 // writes no delete files. Read raw because iceberg's config validation folds REST-family
 // catalogs into "rest". Unknown catalogs are rejected rather than left unconstrained.
