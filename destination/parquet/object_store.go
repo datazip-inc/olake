@@ -1,0 +1,37 @@
+package parquet
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/datazip-inc/olake/destination/parquet/azure"
+	"github.com/datazip-inc/olake/destination/parquet/s3"
+)
+
+func newObjectStore(cfg *Config) (objectStore, error) {
+	switch {
+	case cfg.usingAzure():
+		return azure.New(azure.Config{
+			AuthType:                 cfg.AzureAuthType,
+			AccountName:              cfg.AzureStorageAccountName,
+			AccessKey:                cfg.AzureStorageAccountKey,
+			Container:                cfg.AzureContainerName,
+			Prefix:                   cfg.AzurePath,
+			ServiceURL:               cfg.AzureEndpoint,
+			SharedAccessKeySignature: cfg.AzureSASToken,
+			ConnectionString:         cfg.AzureConnectionString,
+		})
+	case cfg.usingS3():
+		cfg.Prefix = strings.Trim(cfg.Prefix, "/")
+		return s3.New(s3.Config{
+			Bucket:     cfg.Bucket,
+			Region:     cfg.Region,
+			AccessKey:  cfg.AccessKey,
+			SecretKey:  cfg.SecretKey,
+			Prefix:     cfg.Prefix,
+			S3Endpoint: cfg.S3Endpoint,
+		})
+	default:
+		return nil, fmt.Errorf("no object store configured")
+	}
+}
