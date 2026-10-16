@@ -128,30 +128,48 @@ func TestConfigValidateStore(t *testing.T) {
 			}(),
 		},
 		{
-			name: "azure requires account name and container",
+			name: "azure requires container",
 			cfg: &Config{
 				StorageType:   storageTypeAzure,
 				AzureAuthType: azure.AuthSharedKey,
 			},
-			wantErr: "azure_storage_account_name and azure_container_name are required",
+			wantErr: "azure_container_name is required",
 		},
 		{
-			name: "azure shared key requires account key",
+			name: "azure shared key requires account name and key",
 			cfg: func() *Config {
 				c := azureCfg
 				c.AzureAuthType = azure.AuthSharedKey
 				return &c
 			}(),
-			wantErr: "azure_storage_account_key is required for shared-key",
+			wantErr: "azure_storage_account_key and azure_storage_account_name are required for shared-key",
 		},
 		{
-			name: "azure sas requires token",
+			name: "azure sas requires token and account name",
 			cfg: func() *Config {
 				c := azureCfg
 				c.AzureAuthType = azure.AuthSASToken
 				return &c
 			}(),
-			wantErr: "azure_sas_token is required for sas-token",
+			wantErr: "azure_sas_token and azure_storage_account_name are required for sas-token",
+		},
+		{
+			name: "azure token auth requires account name",
+			cfg: &Config{
+				StorageType:        storageTypeAzure,
+				AzureAuthType:      azure.AuthManagedIdentity,
+				AzureContainerName: "mycontainer",
+			},
+			wantErr: "azure_storage_account_name is required",
+		},
+		{
+			name: "azure connection string does not require account name",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "AccountName=myaccount;AccountKey=key",
+			},
 		},
 		{
 			name: "azure connection string requires connection string",
