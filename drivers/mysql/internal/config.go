@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 )
@@ -115,14 +114,12 @@ func (c *Config) Validate() error {
 		c.Database = "mysql"
 	}
 
-	// Set default number of threads if not provided
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	// Set default retry count if not provided
-	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	// Validate SSL configuration if provided
