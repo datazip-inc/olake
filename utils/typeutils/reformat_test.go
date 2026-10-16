@@ -1098,6 +1098,101 @@ func TestReformatDate(t *testing.T) {
 	}
 }
 
+// TestReformatDateInt8Slice covers the []int8 branch of ReformatDate, where a driver hands the date
+// text back as signed chars. A byte with the high bit set has to reach the parser unchanged, and the
+// parse error quotes the string it was handed, which is how these cases observe what got through.
+func TestReformatDateInt8Slice(t *testing.T) {
+	tests := []struct {
+		name            string
+		v               []int8
+		isTimestampInDB bool
+		expected        time.Time
+		expectedErr     error
+		errContains     []string
+	}{
+		{
+			name:            "date",
+			v:               []int8{'2', '0', '2', '3', '-', '1', '0', '-', '0', '5'},
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:            "datetime",
+			v:               []int8{'2', '0', '2', '3', '-', '1', '0', '-', '0', '5', ' ', '1', '2', ':', '3', '0', ':', '4', '5'},
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.UTC),
+		},
+		{
+			name:            "empty slice",
+			v:               []int8{},
+			isTimestampInDB: true,
+			expected:        time.Time{},
+			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
+		},
+		{
+			name:            "nil slice",
+			v:               nil,
+			isTimestampInDB: true,
+			expected:        time.Time{},
+			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
+		},
+
+		{
+			// dropping -1 leaves a date that parses cleanly, clamping it quotes a different byte
+			name:            "trailing 0xff",
+			v:               []int8{'2', '0', '2', '3', '-', '1', '0', '-', '0', '5', -1},
+			isTimestampInDB: false,
+			expected:        time.Time{},
+			errContains:     []string{`\xff`},
+		},
+		{
+			name:            "consecutive high bit bytes",
+			v:               []int8{'2', '0', '2', '3', '-', '1', '0', '-', '0', '5', -61, -87},
+			isTimestampInDB: false,
+			expected:        time.Time{},
+			errContains:     []string{`\xc3\xa9`},
+		},
+		{
+			name:            "int8 extremes",
+			v:               []int8{'2', '0', '2', '3', '-', '1', '0', '-', '0', '5', -128, 127},
+			isTimestampInDB: false,
+			expected:        time.Time{},
+			errContains:     []string{`\x80`, "\x7f"},
+		},
+		{
+			// a timestamp column swallows the parse failure and falls back to epoch
+			name:            "trailing 0xff on a timestamp column",
+			v:               []int8{'2', '0', '2', '3', '-', '1', '0', '-', '0', '5', -1},
+			isTimestampInDB: true,
+			expected:        time.Unix(0, 0).UTC(),
+		},
+	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			result, err := ReformatDate(tc.v, tc.isTimestampInDB)
+
+			switch {
+			case tc.expectedErr != nil:
+				assert.Equal(t, tc.expectedErr, err)
+			case len(tc.errContains) > 0:
+				if assert.Error(t, err) {
+					for _, want := range tc.errContains {
+						assert.Contains(t, err.Error(), want)
+					}
+				}
+			default:
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 // TestParseStringTimestamp tests the parseStringTimestamp function
 func TestParseStringTimestamp(t *testing.T) {
 	tests := []struct {

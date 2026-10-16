@@ -14,7 +14,7 @@ import (
 // mysqlPointWKB builds what MySQL returns for a geometry column: a 4-byte SRID
 // prefix followed by little-endian WKB.
 func mysqlPointWKB(x, y float64) []byte {
-	b := make([]byte, 4)
+	b := []byte{0, 0, 0, 0}
 	b = append(b, 1) // little-endian byte order marker
 	b = binary.LittleEndian.AppendUint32(b, 1)
 	b = binary.LittleEndian.AppendUint64(b, math.Float64bits(x))

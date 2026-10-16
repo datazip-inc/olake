@@ -61,7 +61,7 @@ func (p *Postgres) checkReplicationPrivilege(ctx context.Context) (string, bool,
 		err := p.client.QueryRowContext(ctx, jdbc.PostgresRDSReplicationRoleQuery()).Scan(&granted)
 		var pgErr *pgconn.PgError
 		// undefined_object: the rds_replication role exists only on RDS/Aurora
-		if err != nil && !(errors.As(err, &pgErr) && pgErr.Code == pgUndefinedObject) {
+		if err != nil && (!errors.As(err, &pgErr) || pgErr.Code != pgUndefinedObject) {
 			return "", false, err
 		}
 	}

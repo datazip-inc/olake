@@ -60,7 +60,7 @@ var RootCmd = &cobra.Command{
 		// An S3 job without --config or --destination (spec) has no folder to derive: filepath.Dir("not-set")
 		// would give ".", so keep the TempDir defaults, where ResolveS3Paths downloads the telemetry files.
 		noPathFlag := configPath == "not-set" && destinationConfigPath == "not-set"
-		if s3Err == nil && !noSave && !(s3.IsS3Job() && noPathFlag) {
+		if s3Err == nil && !noSave && (!s3.IsS3Job() || !noPathFlag) {
 			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
 			streamsPathEnv := utils.Ternary(streamsPath == "", filepath.Join(configFolder, "streams.json"), streamsPath).(string)
 			differencePathEnv := utils.Ternary(streamsPath != "", filepath.Join(filepath.Dir(streamsPath), "difference_streams.json"), filepath.Join(configFolder, "difference_streams.json")).(string)
