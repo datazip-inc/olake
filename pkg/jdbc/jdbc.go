@@ -575,6 +575,16 @@ func MySQLCDCColumnMetadataQuery() string {
 	`
 }
 
+// MySQLCDCTableCollationQuery returns the query for a table's default collation, which a
+// column added later without a charset or collation takes.
+func MySQLCDCTableCollationQuery() string {
+	return `
+		SELECT COALESCE(TABLE_COLLATION, '')
+		FROM INFORMATION_SCHEMA.TABLES
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+	`
+}
+
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
 func MySQLTableColumnsQuery() string {
 	return `
