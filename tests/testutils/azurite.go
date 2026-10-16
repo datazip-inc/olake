@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -25,6 +27,12 @@ type azureDestWriter struct {
 	Endpoint      string `json:"azure_endpoint"`
 }
 
+var (
+	azuriteClientOnce sync.Once
+	azuriteClient     *azblob.Client
+	azuriteErr        error
+)
+
 func loadAzureDest(t *testing.T, cfg *TestConfig) azureDestWriter {
 	t.Helper()
 	var doc struct {
@@ -38,11 +46,19 @@ func loadAzureDest(t *testing.T, cfg *TestConfig) azureDestWriter {
 
 // newAzuriteClient creates a new azurite client.
 func newAzuriteClient(dest azureDestWriter) (*azblob.Client, error) {
-	cred, err := azblob.NewSharedKeyCredential(dest.AccountName, dest.AccountKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create azurite client: %w", err)
-	}
-	return azblob.NewClientWithSharedKeyCredential(dest.Endpoint, cred, nil)
+	azuriteClientOnce.Do(func() {
+		cred, err := azblob.NewSharedKeyCredential(dest.AccountName, dest.AccountKey)
+		if err != nil {
+			azuriteErr = fmt.Errorf("failed to create azurite client: %w", err)
+			return
+		}
+
+		azuriteClient, azuriteErr = azblob.NewClientWithSharedKeyCredential(dest.Endpoint, cred, nil)
+		if azuriteErr != nil {
+			azuriteErr = fmt.Errorf("failed to create azurite client: %w", err)
+		}
+	})
+	return azuriteClient, azuriteErr
 }
 
 // requireAzurite creates the azurite container and returns the client
@@ -60,10 +76,7 @@ func requireAzurite(t *testing.T, dest azureDestWriter) *azblob.Client {
 // azureParquetPrefix returns the prefix of the parquet objects
 func azureParquetPrefix(azurePath, destDB, table string) string {
 	azurePath = strings.Trim(azurePath, "/")
-	if azurePath == "" {
-		return fmt.Sprintf("%s/%s/", destDB, table)
-	}
-	return fmt.Sprintf("%s/%s/%s/", azurePath, destDB, table)
+	return path.Join(azurePath, destDB, table) + "/"
 }
 
 // testAzureBlob tests the parquet sync by seeding the catalog, executing the query, and verifying the rows
@@ -82,10 +95,8 @@ func (cfg *IntegrationTest) testAzureBlob(ctx context.Context, t *testing.T, tes
 	}
 
 	require.NoError(t, updateSelectedStreams(cfg.TestConfig, cfg.Namespace, "", "", []string{testTable}, cfg.ColumnToExclude))
-	syncMode := "full_refresh"
-	if cfg.TestConfig.Driver == string(constants.Kafka) {
-		syncMode = "strict_cdc"
-	}
+	syncMode := Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "strict_cdc", "full_refresh").(string)
+
 	require.NoError(t, updateStreamConfig(cfg.TestConfig, cfg.Namespace, testTable, syncMode, ""))
 
 	dest := loadAzureDest(t, cfg.TestConfig)

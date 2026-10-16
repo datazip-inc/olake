@@ -167,6 +167,7 @@ func (a *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 	}
 
 	// Copy a blob from a URL to another blob
+	// Large blobs need asynchronous copy. StartCopyFromURL returns immediately, but the copy operation may take time to complete
 	dst := a.blobClient(dstKey)
 	srcURL := a.blobClient(srcKey).URL()
 

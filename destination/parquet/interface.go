@@ -17,7 +17,7 @@ import (
 // DeletePrefix is used to delete objects with a prefix.
 // IsNotFound is used to check if an object is not found.
 // IsRateLimitError is used to check if an error is a throttle response.
-type ObjectStore interface {
+type objectStore interface {
 	Kind() string
 	ObjectKey(relativePath string) string
 	Put(ctx context.Context, key string, data []byte) error

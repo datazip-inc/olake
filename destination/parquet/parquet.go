@@ -16,8 +16,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
-	"github.com/datazip-inc/olake/destination/parquet/azure"
-	"github.com/datazip-inc/olake/destination/parquet/s3"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -45,7 +43,7 @@ type Parquet struct {
 	basePath         string                     // construct with streamNamespace/streamName
 	partitionedFiles map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
 
-	store ObjectStore // S3 or Azure Blob Storage
+	store objectStore // S3 or Azure Blob Storage
 
 	tempDir string
 	schema  typeutils.Fields
@@ -79,34 +77,6 @@ func (p *Parquet) initStore() error {
 	}
 	p.store = store
 	return nil
-}
-
-func newObjectStore(cfg *Config) (ObjectStore, error) {
-	switch {
-	case cfg.usingAzure():
-		return azure.New(azure.Config{
-			AuthType:                 cfg.AzureAuthType,
-			AccountName:              cfg.AzureStorageAccountName,
-			AccessKey:                cfg.AzureStorageAccountKey,
-			Container:                cfg.AzureContainerName,
-			Prefix:                   cfg.AzurePath,
-			ServiceURL:               cfg.AzureEndpoint,
-			SharedAccessKeySignature: cfg.AzureSASToken,
-			ConnectionString:         cfg.AzureConnectionString,
-		})
-	case cfg.usingS3():
-		cfg.Prefix = strings.Trim(cfg.Prefix, "/")
-		return s3.New(s3.Config{
-			Bucket:     cfg.Bucket,
-			Region:     cfg.Region,
-			AccessKey:  cfg.AccessKey,
-			SecretKey:  cfg.SecretKey,
-			Prefix:     cfg.Prefix,
-			S3Endpoint: cfg.S3Endpoint,
-		})
-	default:
-		return nil, fmt.Errorf("no object store configured")
-	}
 }
 
 func (p *Parquet) createNewPartitionFile(basePath string) error {

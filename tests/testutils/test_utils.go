@@ -446,7 +446,7 @@ func driverOrCommonConfig(fixturesPath, testsDir, file string) string {
 		return p
 	}
 	if _, err := os.Stat(p); os.IsNotExist(err) {
-		if file == "parquet_destination.json" || file == "parquet_azure_destination.json" {
+		if file == "parquet_s3_destination.json" || file == "parquet_azure_destination.json" {
 			return filepath.Join(testsDir, "..", "testdata", "parquet", file)
 		}
 		return filepath.Join(testsDir, "..", "testdata", file)
@@ -483,7 +483,7 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 	fixturePath := func(file string) string { return filepath.Join(fixturesPath, file) }
 	hostPath := func(file string) string { return filepath.Join(workDir, file) }
 	containerPath := func(file string) string { return path.Join(containerTestDataDir, file) }
-	for _, file := range []string{"source.json", "iceberg_destination.json", "parquet_destination.json", "parquet_azure_destination.json"} {
+	for _, file := range []string{"source.json", "iceberg_destination.json", "parquet_s3_destination.json", "parquet_azure_destination.json"} {
 		require.NoError(t, copyFile(driverOrCommonConfig(fixturesPath, pwd, file), hostPath(file)), "failed to seed the test working directory")
 	}
 
@@ -514,7 +514,7 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 		SourcePath:                  containerPath("source.json"),
 		CatalogPath:                 containerPath("streams.json"),
 		IcebergDestinationPath:      containerPath("iceberg_destination.json"),
-		ParquetDestinationPath:      containerPath("parquet_destination.json"),
+		ParquetDestinationPath:      containerPath("parquet_s3_destination.json"),
 		AzureParquetDestinationPath: containerPath("parquet_azure_destination.json"),
 		StatePath:                   containerPath("state.json"),
 	}
