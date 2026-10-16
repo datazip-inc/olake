@@ -3,6 +3,9 @@ name: Unit Tests
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     name: Run Unit Tests
