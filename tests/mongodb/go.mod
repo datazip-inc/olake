@@ -5,7 +5,7 @@ go 1.26.9
 require (
 	github.com/apache/arrow-go/v18 v18.2.0
 	github.com/datazip-inc/olake/tests/testutils v0.0.0-00010101000000-000000000000
-	go.mongodb.org/mongo-driver v1.17.3
+	go.mongodb.org/mongo-driver v1.17.7
 )
 
 require (
