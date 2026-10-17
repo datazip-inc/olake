@@ -134,9 +134,17 @@ func dockerExitResult(out []byte, err error, what string) (int, []byte, error) {
 	return -1, out, fmt.Errorf("docker run (%s) failed to execute: %w", what, err)
 }
 
+// catalogArgs points olake at the config's catalog files.
+func catalogArgs(config TestConfig) []string {
+	if config.StreamsV1 {
+		return []string{"--catalog", config.CatalogPath}
+	}
+	return []string{"--available-streams", config.AvailableStreamsPath, "--selected-streams", config.SelectedStreamsPath}
+}
+
 // syncArgs builds the `olake sync ...` argument vector run against the driver image.
 func syncArgs(config TestConfig, useState bool, destinationType string, flags ...string) []string {
-	args := []string{"sync", "--config", config.SourcePath, "--catalog", config.CatalogPath}
+	args := append([]string{"sync", "--config", config.SourcePath}, catalogArgs(config)...)
 	switch destinationType {
 	case "iceberg":
 		args = append(args, "--destination", config.IcebergDestinationPath)

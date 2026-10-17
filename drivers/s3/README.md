@@ -159,7 +159,7 @@ Each stream is seeded with a plain file and, for CSV and JSON, a gzipped one: th
 
 Source and destination share one MinIO (`localhost:9000`): it is defined in this driver's `docker-compose.yml` (the s3 source reads from it) and `include`d by the Iceberg destination stack (which uses it as the warehouse store), so there is a single instance. The s3 formats share the `olake-s3-test` source bucket, isolated by per-format folder prefixes, and everything lands in the `s3_olake_s3_test_s3` database as one table per format.
 
-`testdata/<format>/` holds the committed `source.json`, `iceberg_destination.json`, `parquet_destination.json` and `test_streams.json` (the expected discover output). Note the sync flips `arrow_writes` in `iceberg_destination.json` to cover both writers, leaving the file modified after a run.
+`testdata/<format>/` holds the committed `source.json`, `iceberg_destination.json`, `parquet_destination.json`, plus the expected discover output: `test_available_streams.json` and `test_selected_streams.json`, and `test_streams.json` for the streams v1 suites. Note the sync flips `arrow_writes` in `iceberg_destination.json` to cover both writers, leaving the file modified after a run.
 
 ```sh
 # simplest: auto-provisions the destination stack + Iceberg JAR, then runs the suite (from repo root)

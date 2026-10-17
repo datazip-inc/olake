@@ -44,12 +44,17 @@ func TestPostgresDiscover(t *testing.T) {
 	postgresBaseConfig(t).TestDiscover(t)
 }
 
-func TestPostgresSync(t *testing.T) {
-	t.Parallel()
+// postgresSyncConfig adds to postgresBaseConfig what the sync suites verify after the update sync.
+func postgresSyncConfig(t *testing.T) *testutils.IntegrationTest {
 	cfg := postgresBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
-	cfg.TestSync(t)
+	return cfg
+}
+
+func TestPostgresSync(t *testing.T) {
+	t.Parallel()
+	postgresSyncConfig(t).TestSync(t)
 }
 
 func TestPostgres2PC(t *testing.T) {

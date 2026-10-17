@@ -149,12 +149,12 @@ func TestUpdateTypeValidateAgainst(t *testing.T) {
 }
 
 func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
-	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema()}}
+	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema(), DefaultStreamProperties: &DefaultStreamProperties{}}}
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
-	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineSnowflake})
+	catalog := GetWrappedCatalog(streams, []QueryEngine{QueryEngineSpark, QueryEngineSnowflake})
 
-	assert.Equal(t, string(UpdateTypePosition), catalog.SelectedStreams["public"][0].UpdateType)
+	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
 
 // The engines themselves are an input, never a field: only the list they produce is written.
@@ -164,7 +164,7 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineDuckDB})
+	catalog := GetWrappedCatalog(streams, []QueryEngine{QueryEngineSpark, QueryEngineDuckDB})
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	assert.NotContains(t, string(serialized), "target_query_engines")
@@ -173,43 +173,48 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 func TestMergeUpdateType(t *testing.T) {
 	testCases := []struct {
 		name     string
-		existing string
+		existing *string
 		engines  []QueryEngine
-		expected string
+		expected *string
 	}{
 		{
+			// Omitted follows the stream default, which discover already derives from the engines.
+			name: "omitted stays omitted", existing: nil,
+			engines: []QueryEngine{QueryEngineSnowflake}, expected: nil,
+		},
+		{
 			// Legacy blank always meant equality; recording it keeps blank for "needs a choice".
-			name: "no engines records a legacy blank as equality", existing: "", engines: nil, expected: "eq",
+			name: "no engines records a legacy blank as equality", existing: new(""), engines: nil, expected: new("eq"),
 		},
 		{
-			name: "no engines leaves a set value alone", existing: "dv", engines: nil, expected: "dv",
+			name: "no engines leaves a set value alone", existing: new("dv"), engines: nil, expected: new("dv"),
 		},
 		{
-			name: "readable value is kept", existing: "pos",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: "pos",
+			name: "readable value is kept", existing: new("pos"),
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: new("pos"),
 		},
 		{
 			// The stream was configured before Snowflake joined the target engines.
-			name: "unreadable value is cleared", existing: "eq",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: "",
+			name: "unreadable value is cleared", existing: new("eq"),
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: new(""),
 		},
 		{
-			name: "legacy blank readable as equality", existing: "",
-			engines: []QueryEngine{QueryEngineSpark}, expected: "eq",
+			name: "legacy blank readable as equality", existing: new(""),
+			engines: []QueryEngine{QueryEngineSpark}, expected: new("eq"),
 		},
 		{
 			// Blank meant equality, which Snowflake cannot read.
-			name: "legacy blank unreadable as equality is cleared", existing: "",
-			engines: []QueryEngine{QueryEngineSnowflake}, expected: "",
+			name: "legacy blank unreadable as equality is cleared", existing: new(""),
+			engines: []QueryEngine{QueryEngineSnowflake}, expected: new(""),
 		},
 		{
-			name: "readable deletion vector is kept", existing: "dv",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineTrino}, expected: "dv",
+			name: "readable deletion vector is kept", existing: new("dv"),
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineTrino}, expected: new("dv"),
 		},
 		{
 			// Athena reads equality, but the switch must be the user's choice, not a silent fallback.
-			name: "unreadable deletion vector is cleared", existing: "dv",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineAthena}, expected: "",
+			name: "unreadable deletion vector is cleared", existing: new("dv"),
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineAthena}, expected: new(""),
 		},
 	}
 

@@ -2,7 +2,6 @@ package testutils
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -96,7 +95,7 @@ func dvSelectedEntry(table, updateType, partitionRegex string) map[string]interf
 	}
 }
 
-// dvCatalogDoc builds a whole streams.json selecting both dv tables under CDC, in the given
+// dvCatalogDoc builds a whole catalog selecting both dv tables under CDC, in the given
 // update_type, with DVPartTable's stream carrying a partition_regex (identity on `status`) and
 // DVUnpartTable's carrying none. Written directly rather than derived from a discover run or a
 // checked-in fixture, since the shape needed here (two narrow, purpose-built tables) has nothing
@@ -138,11 +137,7 @@ func (cfg *IntegrationTest) prepareDVSync(ctx context.Context, t *testing.T, upd
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-seed")
 
 	doc := dvCatalogDoc(cfg.Namespace, cfg.DestinationDB, updateType)
-	raw, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to build dv catalog: %w", err)
-	}
-	if err := writeHostFile(cfg.TestConfig.HostCatalogPath, raw); err != nil {
+	if err := cfg.TestConfig.catalog().write(doc); err != nil {
 		return fmt.Errorf("failed to write dv catalog: %w", err)
 	}
 

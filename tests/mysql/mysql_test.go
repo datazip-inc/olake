@@ -43,12 +43,17 @@ func TestMySQLDiscover(t *testing.T) {
 	mysqlBaseConfig(t).TestDiscover(t)
 }
 
-func TestMySQLSync(t *testing.T) {
-	t.Parallel()
+// mysqlSyncConfig adds to mysqlBaseConfig what the sync suites verify after the update sync.
+func mysqlSyncConfig(t *testing.T) *testutils.IntegrationTest {
 	cfg := mysqlBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
-	cfg.TestSync(t)
+	return cfg
+}
+
+func TestMySQLSync(t *testing.T) {
+	t.Parallel()
+	mysqlSyncConfig(t).TestSync(t)
 }
 
 func TestMySQL2PC(t *testing.T) {

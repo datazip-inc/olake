@@ -42,12 +42,17 @@ func TestOracleDiscover(t *testing.T) {
 	oracleBaseConfig(t).TestDiscover(t)
 }
 
-func TestOracleSync(t *testing.T) {
-	t.Parallel()
+// oracleSyncConfig adds to oracleBaseConfig what the sync suites verify after the update sync.
+func oracleSyncConfig(t *testing.T) *testutils.IntegrationTest {
 	cfg := oracleBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedOracleData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedOracleToDestinationSchema
-	cfg.TestSync(t)
+	return cfg
+}
+
+func TestOracleSync(t *testing.T) {
+	t.Parallel()
+	oracleSyncConfig(t).TestSync(t)
 }
 
 func TestOracle2PC(t *testing.T) {
