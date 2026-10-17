@@ -44,10 +44,18 @@ func TestPostgresDiscover(t *testing.T) {
 	postgresBaseConfig(t).TestDiscover(t)
 }
 
+func TestPostgresUnchangedToastRecovery(t *testing.T) {
+	t.Parallel()
+	cfg := postgresBaseConfig(t)
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+	cfg.TestUnchangedToastRecovery(t)
+}
+
 func TestPostgresSync(t *testing.T) {
 	t.Parallel()
 	cfg := postgresBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.ExpectedCDCUpdatedData = ExpectedCDCUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
 	cfg.TestSync(t)
 }

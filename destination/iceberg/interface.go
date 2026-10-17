@@ -13,4 +13,8 @@ type Writer interface {
 	// Abort discards whatever the writer staged outside Iceberg, for the paths
 	// that give up before Close can commit.
 	Abort()
+	// EnsureReadable closes any file in paths the Go side still has open, without
+	// committing it, so its rows can be read (an open file has no footer). Files written
+	// by Java are closed by Java itself when ReadRows asks for them.
+	EnsureReadable(ctx context.Context, paths []string) error
 }

@@ -42,6 +42,9 @@ const (
 	UpdateMethodStandalone = "Standalone"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
+	// TableIndexRequired is set by a source that reads rows back through the destination's
+	// table index (Postgres preserve_toast_values), so only update types that keep the index are offered.
+	TableIndexRequired = "TABLE_INDEX_REQUIRED"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
 	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
@@ -79,6 +82,10 @@ const (
 	DefaultCacheSize          = 128 * 1024 * 1024 // 128 MB default block cache
 	DefaultMemTableSize       = 64 * 1024 * 1024  // 64 MB default memtable
 	DefaultMaxOpenFiles       = 1000
+
+	// UnavailableValue is written for a column the source could not send
+	// (Postgres unchanged TOAST when the replica identity is not FULL).
+	UnavailableValue = "__olake_unavailable_value__"
 )
 
 // DriverType identifies a source/destination driver.

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"maps"
 	"testing"
 	"time"
 
@@ -71,6 +72,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				col_numeric NUMERIC,
 				col_real REAL,
 				col_text TEXT,
+				col_toast TEXT,
 				col_timestamp TIMESTAMP,
 				col_timestamptz TIMESTAMPTZ,
 				col_uuid UUID,
@@ -84,7 +86,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				-- schema-scoped and collides when concurrent suites create their tables at once.
 				UNIQUE (col_bigserial),
 				excludedColumn INT NULL
-			)`, integrationTestTable)
+			);
+			-- Kept out of line without compression, so an UPDATE that leaves col_toast unchanged does not resend it (unchanged TOAST).
+			ALTER TABLE %s ALTER COLUMN col_toast SET STORAGE EXTERNAL`, integrationTestTable, integrationTestTable)
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
@@ -322,7 +326,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			col_character_varying, col_date, col_decimal,
 			col_double_precision, col_float4, col_int, col_int2, col_integer,
 			col_interval, col_json, col_jsonb, col_name, col_numeric,
-			col_real, col_text, col_timestamp, col_timestamptz,
+			col_real, col_text, col_toast, col_timestamp, col_timestamptz,
 			col_uuid, col_varbit, col_xml,
 			col_point, col_polygon, col_circle,
 			excludedColumn
@@ -331,7 +335,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			'varchar_val', '2023-01-01', 123.45,
 			123.456789, 123.45, 123, 123, 12345, '1 hour', '{"key": "value"}',
 			'{"key": "value"}', 'test_name', 123.45, 123.45,
-			'sample text', '2023-01-01 12:00:00.573605',
+			'sample text', repeat('t', %d), '2023-01-01 12:00:00.573605',
 			'2023-01-01 12:00:00.573605+00',
 			'123e4567-e89b-12d3-a456-426614174000', B'101010',
 			'<tag>value</tag>',
@@ -339,7 +343,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
 			'<(5,5),3.5>'::circle,
 			100
-		)`, tableName, i)
+		)`, tableName, i, testutils.ToastValueLength)
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data")
@@ -433,6 +437,14 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"col_circle":            "<(10,10),5.5>",
 	"includedcolumn":        int32(202),
 }
+
+// ExpectedCDCUpdatedData is the CDC update's row: "update" leaves col_toast unchanged, so Postgres
+// leaves it out of the change and OLake writes its placeholder (preserve_toast_values is off).
+var ExpectedCDCUpdatedData = func() map[string]interface{} {
+	data := maps.Clone(ExpectedUpdatedData)
+	data["col_toast"] = "__olake_unavailable_value__"
+	return data
+}()
 
 var PostgresToDestinationSchema = map[string]string{
 	"col_bigint":            "bigint",

@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"github.com/spf13/viper"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -166,6 +167,8 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		}
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
+		// preserve_toast_values reads rows back through the destination's table index
+		viper.Set(constants.TableIndexRequired, cdc.PreserveToastValues)
 	} else {
 		logger.Info("Standard Replication is selected")
 	}

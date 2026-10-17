@@ -134,6 +134,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		Tables:              types.NewSet(streams...),
 		TLSConfig:           tlsConfig,
 		Publication:         p.cdcConfig.Publication,
+		PreserveToastValues: p.cdcConfig.PreserveToastValues,
 	}, nil
 }
 

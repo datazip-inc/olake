@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
@@ -19,6 +20,10 @@ var icebergTableIndexTestDrivers = []constants.DriverType{constants.Postgres}
 
 // seedRowCount is the number of filter-passing rows inserted by ExecuteQuery("add").
 const seedRowCount int64 = 5
+
+// ToastValueLength is the length of the col_toast value ExecuteQuery("add") seeds in Postgres.
+// Stored out of line, an UPDATE that leaves it unchanged does not resend it (unchanged TOAST).
+const ToastValueLength = 4000
 
 // hasIcebergTableIndexTest reports whether the driver participates in Iceberg row-index tests.
 func hasIcebergTableIndexTest(driver string) bool {
@@ -255,6 +260,67 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 	}
 
 	return nil
+}
+
+// TestUnchangedToastRecovery checks, with preserve_toast_values on, that pos and dv refill a col_toast the CDC
+// update left out. TestDiscover checks what discover offers with the option on.
+func (cfg *IntegrationTest) TestUnchangedToastRecovery(t *testing.T) {
+	cfg.IsolateSuite(t, "toast")
+	ctx := t.Context()
+	testTable := TestTableName(cfg.TestConfig)
+
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "create-slot")
+	defer cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop-slot")
+
+	seedCatalogFromTestStreams(t, cfg.TestConfig, testTable)
+	require.NoError(t, enablePreserveToastValues(cfg.TestConfig), "failed enabling preserve_toast_values")
+
+	toastValue := strings.Repeat("t", ToastValueLength)
+	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, cfg.DestinationDB, testTable)
+	testCases := []struct {
+		updateType   string
+		deleteFormat string // what the update's delete is written as, proving the sync ran under updateType
+	}{
+		{updateType: "pos", deleteFormat: "PARQUET"},
+		{updateType: "dv", deleteFormat: "PUFFIN"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.updateType, func(t *testing.T) {
+			require.NoError(t, cfg.prepareTableIndexSync(ctx, t, testTable))
+			require.NoError(t, updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, tc.updateType))
+			defer dropIcebergTable(t, testTable, cfg.DestinationDB)
+
+			require.NoError(t, cfg.runSyncAndVerify(ctx, t, testTable, false, "iceberg", "", "r",
+				map[string]interface{}{"col_toast": toastValue}, false))
+
+			// the update does not touch col_toast, so Postgres leaves it out of the change
+			cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "evolve-schema")
+			require.NoError(t, cfg.runSyncAndVerify(ctx, t, testTable, true, "iceberg", "update", "u",
+				map[string]interface{}{"col_toast": toastValue}, true))
+
+			require.Positive(t, countDeleteFilesByFormat(ctx, t, getSparkSession(ctx, t), fullTableName, 1, tc.deleteFormat),
+				"expected a %s positional delete from the %s update", tc.deleteFormat, tc.updateType)
+		})
+	}
+
+	if keepTestData() {
+		t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
+		return
+	}
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
+}
+
+// enablePreserveToastValues turns preserve_toast_values on in the config's own copy of source.json.
+func enablePreserveToastValues(c *TestConfig) error {
+	return editJSONFile(c.HostSourcePath, func(doc map[string]interface{}) error {
+		updateMethod, ok := doc["update_method"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("no update_method object in source config")
+		}
+		updateMethod["preserve_toast_values"] = true
+		return nil
+	})
 }
 
 // TestIcebergPosIncremental syncs incrementally into a pos-mode stream, which keeps a table index. Rows must keep

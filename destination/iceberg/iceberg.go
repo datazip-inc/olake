@@ -33,6 +33,7 @@ type Iceberg struct {
 	server        *serverInstance          // shared Java server instance (per-process singleton)
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
+	toast         *toastResolver           // recovers values the source could not send; nil unless the stream keeps a row index (pos or dv)
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
 	// It defines when to complete the Java writer and when schema evolution is required.
@@ -143,13 +144,22 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		return schema, nil, err
 	}
 
+	// nil in equality mode; shared by the writer, which buffers this thread's row locations
+	// in it, and the toast resolver, which looks rows up in it
+	indexThread := types.NewStreamIndexThread(options.TableIndex)
 	if i.config.UseArrowWrites {
-		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode)
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode, indexThread)
 		if err != nil {
 			return nil, nil, destination.WriteFailure(fmt.Errorf("failed to create arrow writer: %w", err))
 		}
 	} else {
-		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode)
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode, indexThread)
+	}
+
+	// Recovery needs the row's previous location, which only an upsert thread with a
+	// stream index has. Backfill and equality mode keep the placeholder.
+	if indexThread != nil && upsertMode {
+		i.toast = newToastResolver(options.ThreadID, i.stream, i.writer, indexThread, i.server.tableIndexClient)
 	}
 
 	return schema, &metadataState, nil
@@ -179,6 +189,10 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error)
 			}
 		}
 	}()
+
+	if i.toast != nil {
+		i.toast.Close()
+	}
 
 	select {
 	case <-ctx.Done():
@@ -261,6 +275,14 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+	// Resolve first, so schema detection, filters, partition values and the JSON row
+	// (normalization off) all see the recovered values.
+	if i.toast != nil {
+		if err := i.toast.Resolve(ctx, records); err != nil {
+			return false, nil, nil, fmt.Errorf("failed to recover unavailable column values: %w", err)
+		}
+	}
+
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
 	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {

@@ -62,6 +62,10 @@ func getDefaultWriterProps() []parquet.WriterProperty {
 
 		// iceberg writes root name as "table" in parquet's meta
 		parquet.WithRootName("table"),
+
+		// Page index: lets a reader fetch the page holding one row instead of the whole
+		// column. parquet-java writes it by default; query engines use it to skip pages.
+		parquet.WithPageIndexEnabled(true),
 	}
 }
 
