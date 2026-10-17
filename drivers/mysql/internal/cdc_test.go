@@ -10,11 +10,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/types"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMySQL_StreamChanges(t *testing.T) {
@@ -109,6 +111,8 @@ func TestMySQL_GTIDRecovery(t *testing.T) {
 		{"all streams committed before state save", end, ""},
 		{"conflicting committed boundaries", sid + ":1-4", "disagree"},
 		{"incomparable histories", sid + ":1:3", "different transaction histories"},
+		// Both destinations are ahead of source state, but neither contains the other.
+		{"incomparable committed boundaries", sid + ":1-2:4", "invalid metadata for stream["},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -192,6 +196,65 @@ func TestMySQL_MigrationRecovery(t *testing.T) {
 			if !reflect.DeepEqual(m.state.GetGlobal().State, want) {
 				t.Fatalf("got state %+v, want %+v", m.state.GetGlobal(), want)
 			}
+		})
+	}
+}
+
+func TestBinlogFlavor(t *testing.T) {
+	tests := []struct {
+		name         string
+		serverFlavor string
+		expected     string
+	}{
+		{name: "MariaDB server uses the mariadb replication flavor", serverFlavor: "MariaDB", expected: mysql.MariaDBFlavor},
+		{name: "MySQL server keeps the mysql replication flavor", serverFlavor: "MySQL", expected: mysql.MySQLFlavor},
+		{name: "unrecognized flavor falls back to mysql", serverFlavor: "", expected: mysql.MySQLFlavor},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := binlogFlavor(tt.serverFlavor); got != tt.expected {
+				t.Errorf("binlogFlavor(%q) = %q, want %q", tt.serverFlavor, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMySQL_PreCDC(t *testing.T) {
+	previousPath := viper.Get(constants.StatePath)
+	viper.Set(constants.StatePath, filepath.Join(t.TempDir(), "state.json"))
+	t.Cleanup(func() { viper.Set(constants.StatePath, previousPath) })
+	gtid := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:1-3"
+	tests := []struct {
+		name, version, mode, query string
+		wantGTID                   bool
+	}{
+		{"MySQL 8.0 GTIDs", "8.0.36", "ON", "SHOW MASTER STATUS", true},
+		{"MySQL 8.4 GTIDs", "8.4.2", "ON", "SHOW BINARY LOG STATUS", true},
+		{"MySQL 5.7 file position", "5.7.44", "OFF", "SHOW MASTER STATUS", false},
+		{"MariaDB file position", "10.11.9-MariaDB", "", "SHOW MASTER STATUS", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, mock := newMockMySQL(t)
+			m.state = &types.State{RWMutex: &sync.RWMutex{}}
+			mock.ExpectQuery("SELECT @@version").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow(tt.version))
+			want := binlog.Binlog{Position: mysql.Position{Name: "bin.000001", Pos: 200}}
+			columns := []string{"File", "Position", "Binlog_Do_DB", "Binlog_Ignore_DB"}
+			rows := sqlmock.NewRows(columns).AddRow("bin.000001", 200, "", "")
+			if tt.mode != "" {
+				mock.ExpectQuery("SELECT @@server_uuid, @@gtid_mode").WillReturnRows(sqlmock.NewRows([]string{"uuid", "mode"}).AddRow("server-a", tt.mode))
+				rows = sqlmock.NewRows(append(columns, "Executed_Gtid_Set")).AddRow("bin.000001", 200, "", "", gtid)
+				want.ServerUUID = "server-a"
+			}
+			if tt.wantGTID {
+				want.GTIDSet = &gtid
+			}
+			mock.ExpectQuery(tt.query).WillReturnRows(rows)
+			require.NoError(t, m.PreCDC(context.Background(), nil))
+			state := m.state.GetGlobal().State.(MySQLGlobalState)
+			require.Equal(t, want, state.State)
+			require.NotZero(t, state.ServerID)
 		})
 	}
 }

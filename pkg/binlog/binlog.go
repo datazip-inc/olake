@@ -2,6 +2,7 @@ package binlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -159,7 +160,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 		var err error
 		latestState, err = GetCurrentBinlogState(ctx, client)
 		if err != nil {
-			return fmt.Errorf("failed to get current binlog position: %w", err)
+			return fmt.Errorf("failed to get current binlog state: %w", err)
 		}
 		if c.gtidSet == nil {
 			if err := c.Checkpoint().ValidateServerUUID(latestState.ServerUUID); err != nil {
@@ -353,6 +354,19 @@ func (c *Connection) Cleanup() {
 	c.syncer.Close()
 }
 
+// ErrNoBinlogPosition means the server reported no binlog position, i.e. binary logging is off.
+var ErrNoBinlogPosition = errors.New("no binlog position available")
+
+// GetCurrentBinlogPosition retrieves the current binlog position from MySQL.
+func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Position, error) {
+	flavor, major, minor, err := jdbc.MySQLVersion(ctx, client)
+	if err != nil {
+		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %w", err)
+	}
+	state, err := readBinlogStatus(ctx, client, flavor, major, minor)
+	return state.Position, err
+}
+
 // GetCurrentBinlogState reads the position and its server identity on the same SQL session.
 func GetCurrentBinlogState(ctx context.Context, client *sqlx.DB) (Binlog, error) {
 	conn, err := client.Connx(ctx)
@@ -368,25 +382,40 @@ func GetCurrentBinlogState(ctx context.Context, client *sqlx.DB) (Binlog, error)
 	if err != nil {
 		return Binlog{}, fmt.Errorf("failed to get MySQL version: %w", err)
 	}
-	var state Binlog
-	var gtidMode string
+	var serverUUID, gtidMode string
 	if mysqlFlavor == "MySQL" {
-		if err := conn.QueryRowContext(ctx, "SELECT @@server_uuid, @@gtid_mode").Scan(&state.ServerUUID, &gtidMode); err != nil {
+		if err := conn.QueryRowContext(ctx, "SELECT @@server_uuid, @@gtid_mode").Scan(&serverUUID, &gtidMode); err != nil {
 			return Binlog{}, fmt.Errorf("failed to get MySQL server UUID: %w", err)
 		}
 	}
 
+	state, err := readBinlogStatus(ctx, conn, mysqlFlavor, majorVersion, minorVersion)
+	if err != nil {
+		return Binlog{}, err
+	}
+	state.ServerUUID = serverUUID
+	if gtidMode != "ON" {
+		state.GTIDSet = nil
+	}
+	return state, nil
+}
+
+func readBinlogStatus(ctx context.Context, conn sqlx.QueryerContext, mysqlFlavor string, majorVersion, minorVersion int) (Binlog, error) {
 	// Use the appropriate query based on the MySQL version
 	query := utils.Ternary(mysqlFlavor == "MySQL" && (majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4)), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
-	rows, err := conn.QueryContext(ctx, query)
+	rows, err := conn.QueryxContext(ctx, query)
 	if err != nil {
 		return Binlog{}, fmt.Errorf("failed to get master status: %w", err)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		return Binlog{}, fmt.Errorf("no binlog position available")
+		// Next is also false when reading the row failed; only an empty result means binlog is off
+		if err := rows.Err(); err != nil {
+			return Binlog{}, fmt.Errorf("failed to read master status: %w", err)
+		}
+		return Binlog{}, errs.Precondition(errs.CDCPreconditionFailed, "mysql.binlog_disabled", ErrNoBinlogPosition)
 	}
 
 	var file string
@@ -407,8 +436,8 @@ func GetCurrentBinlogState(ctx context.Context, client *sqlx.DB) (Binlog, error)
 		return Binlog{}, fmt.Errorf("unsupported database flavor: %s", mysqlFlavor)
 	}
 
-	state.Position = mysql.Position{Name: file, Pos: position}
-	if gtidMode == "ON" {
+	state := Binlog{Position: mysql.Position{Name: file, Pos: position}}
+	if mysqlFlavor == "MySQL" {
 		state.GTIDSet = &executeGtidSet
 	}
 	return state, nil
