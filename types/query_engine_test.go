@@ -104,7 +104,7 @@ func TestAvailableUpdateTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, AvailableUpdateTypes(tc.engines))
+			assert.Equal(t, tc.expected, UpdateTypeConstraints{Engines: tc.engines}.Available())
 		})
 	}
 }
@@ -152,7 +152,7 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema()}}
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
-	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineSnowflake})
+	catalog := GetWrappedCatalog(streams, "postgres", UpdateTypeConstraints{Engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}})
 
 	assert.Equal(t, string(UpdateTypePosition), catalog.SelectedStreams["public"][0].UpdateType)
 }
@@ -164,7 +164,7 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineDuckDB})
+	catalog := GetWrappedCatalog(streams, "postgres", UpdateTypeConstraints{Engines: []QueryEngine{QueryEngineSpark, QueryEngineDuckDB}})
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	assert.NotContains(t, string(serialized), "target_query_engines")
@@ -216,7 +216,7 @@ func TestMergeUpdateType(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			metadata := &StreamMetadata{StreamName: "users", UpdateType: tc.existing}
-			mergeUpdateType(metadata, "public.users", tc.engines)
+			mergeUpdateType(metadata, "public.users", UpdateTypeConstraints{Engines: tc.engines})
 			assert.Equal(t, tc.expected, metadata.UpdateType)
 		})
 	}
