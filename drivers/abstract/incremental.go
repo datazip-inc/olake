@@ -92,7 +92,14 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			var mtState any
 			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, &mtState, nil)
 
+			// threadID is derived from the cursor, which moves only when records are read. Committing
+			// metadata state for a record-less sync would store state whose ID equals the next sync's
+			// threadID, which the recovery check below treats as a failed state update, stalling the stream.
+			recordsRead := false
 			defer func() {
+				if !recordsRead {
+					return
+				}
 				mtStateMap := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}
 				if secondaryCursor != "" {
 					mtStateMap[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
@@ -135,6 +142,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 			// No retry logic here - retry happens at Read level
 			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any, sourceBytes int64) error {
+				recordsRead = true
 				maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 				olakeColumns := map[string]any{
 					constants.OlakeID:        utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...),
