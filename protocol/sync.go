@@ -60,11 +60,6 @@ var syncCmd = &cobra.Command{
 			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		}
 
-		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
-			return err
-		}
-
 		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// Initialize state
@@ -80,6 +75,12 @@ var syncCmd = &cobra.Command{
 		}
 		// set state version to global variable to use throughout olake cli instance
 		constants.LoadedStateVersion = state.Version
+
+		// must stay after LoadedStateVersion is set: catalog decoding applies its state-version checks
+		catalog = &types.Catalog{}
+		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
+			return err
+		}
 
 		state.RWMutex = &sync.RWMutex{}
 
