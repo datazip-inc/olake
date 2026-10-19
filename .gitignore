@@ -5,8 +5,6 @@ test
 !destination/iceberg/olake-iceberg-java-writer/src/test/
 .DS_Store
 __debug_bin*
-go.sum
-go.work.sum
 */**/examples
 */**/olake-table-index
 olake-data/

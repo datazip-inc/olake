@@ -41,13 +41,29 @@ docker.all.build: $(addsuffix .build,$(addprefix docker.,$(DRIVERS)))
 
 gomod:
 	find . -name go.mod -execdir go mod tidy \;
+	go list -m all
+	cd tests && go list -m all
 
 golangci.install:
 	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
+# Shared dependency check used by both lint targets. `go mod tidy -diff` reports
+# drift without changing files; make gomod applies module and workspace updates.
+define check_go_mod_tidy
+	@for m in $(2); do \
+		dir="$(1)$$m"; \
+		label="$(if $(3),$(3)$$m,$${m#$(CURDIR)/})"; \
+		if ! (cd "$$dir" && go mod tidy -diff); then \
+			echo "go.mod/go.sum not tidy in $$label: run make gomod and commit the result"; \
+			exit 1; \
+		fi; \
+	done
+endef
+
 # One golangci-lint run over every product module in go.work. Relative patterns on purpose: an
 # absolute <dir>/... for the root module sweeps into tests/, while ./... stays module-scoped.
 olake.lint: golangci.install prepare.all
+	$(call check_go_mod_tidy,,$(ROOT_MODULES),)
 	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) $(GOPATH)/bin/golangci-lint run $(patsubst $(CURDIR)%,.%/...,$(ROOT_MODULES))
 
 trivy:
@@ -64,6 +80,7 @@ pre-commit:
 	git config core.hooksPath .githooks
 
 test.lint: golangci.install prepare.all
+	$(call check_go_mod_tidy,tests/,$(TEST_MODULES),tests/)
 	cd tests && $(foreach m,$(TEST_MODULES),($(GO_ENV.$(m)) $(GOPATH)/bin/golangci-lint run ./$(m)/...) &&) true
 
 # Mirrors CI's "Go Build and Lint" workflow
