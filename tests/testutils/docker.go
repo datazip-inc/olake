@@ -127,7 +127,11 @@ func buildImageFromCommit(t *testing.T, cfg *TestConfig, commitID string) error 
 		if err := run("build the iceberg writer jar", "make", "-C", worktree, "iceberg.jar"); err != nil {
 			return err
 		}
-		return run("build the image", "docker", "build", "--build-arg", "DRIVER_NAME="+cfg.Driver, "-t", imageTag, worktree)
+		args := []string{"build", "--build-arg", "DRIVER_NAME=" + cfg.Driver, "-t", imageTag}
+		if cfg.ImagePlatform != "" {
+			args = append(args, "--platform", cfg.ImagePlatform)
+		}
+		return run("build the image", "docker", append(args, worktree)...)
 	})
 }
 
@@ -262,7 +266,8 @@ func RunSync(ctx context.Context, t *testing.T, cfg *TestConfig, destinationFile
 	return nil
 }
 
-// WaitForSyncProgress blocks until the running sync has reported its first records in stats.json.
+// WaitForSyncProgress blocks until the running sync has reported its first records in stats.json,
+// or until ctx ends, which the caller checks since a sync that finishes first is not a failure.
 // A driver uses it to time an event at a point where the sync is demonstrably mid-flight, rather
 // than guessing with a sleep.
 func WaitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {

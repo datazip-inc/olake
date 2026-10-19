@@ -145,7 +145,9 @@ func (th *TestHandler) IcebergWriter(
 ) error {
 	// Writer variants are separate config files, so no suite ever edits one in place; SyncArgs
 	// hands whichever is named here to --destination.
+	previous := th.icebergDestination
 	th.icebergDestination = testutils.Ternary(useArrowWriter, icebergArrowDestinationFile, icebergDestinationFile).(string)
+	defer func() { th.icebergDestination = previous }()
 
 	return testFunc(ctx, t, testTable)
 }
