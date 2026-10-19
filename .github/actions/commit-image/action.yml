@@ -1,0 +1,65 @@
+name: Commit driver images
+description: >
+  Makes the driver images for an arbitrary commit available locally, caching them in a container
+  registry so the first run that needs a commit builds them and every run after pulls. Tagged with
+  the abbreviated sha, which is what the test harness resolves a commit id to and the ref it looks
+  up -- it then finds the image present and skips its own build.
+
+inputs:
+  drivers:
+    description: Space separated drivers to build images for.
+    required: true
+  sha:
+    description: Commit to build. Empty is a no-op, for events that have no commit to compare against.
+    required: false
+    default: ''
+  cache-repo:
+    description: Registry repository the cached images live under, e.g. ghcr.io/owner/repo.
+    required: true
+  registry:
+    description: Registry to authenticate against.
+    required: false
+    default: ghcr.io
+  username:
+    description: Registry user.
+    required: true
+  token:
+    description: Registry token. A read-only one still pulls; publishing is skipped.
+    required: true
+  max-parallel:
+    description: >
+      How many images to build at once. Each is a full Go compile, and the job that calls this
+      usually has its own builds running beside it.
+    required: false
+    default: '3'
+  path:
+    required: false
+    default: tests/.commit-image-src
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the commit
+      if: inputs.sha != ''
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.sha }}
+        path: ${{ inputs.path }}
+
+    - name: Log in to the cache registry
+      if: inputs.sha != ''
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.token }}
+
+    - name: Pull or build the commit's images
+      shell: bash
+      env:
+        DRIVERS: ${{ inputs.drivers }}
+        SHA: ${{ inputs.sha }}
+        SRC: ${{ inputs.path }}
+        CACHE_REPO: ${{ inputs.cache-repo }}
+        MAX_PARALLEL: ${{ inputs.max-parallel }}
+      run: ${{ github.action_path }}/build-images-from-commit.sh
