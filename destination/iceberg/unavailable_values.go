@@ -20,11 +20,14 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// toastResolver fills columns Postgres left out of an UPDATE (unchanged TOAST) with the
-// value from the row's previous version: from carry if this sync wrote the row, else read
-// from the destination at the location the row index (pos or dv) gives.
-type toastResolver struct {
-	writer Writer
+// unavailableValuesResolver fills columns the source could not send (Postgres unchanged TOAST)
+// with the value from the row's previous version: from carry if this sync wrote the row,
+// else read from the destination at the location the row index (pos or dv) gives.
+type unavailableValuesResolver struct {
+	// openFiles uploads data files the writer still has open on the Go side (arrow), so
+	// their rows can be read; nil for the legacy writer, whose files Java closes itself
+	// when ReadRows asks for them.
+	openFiles openFileWriter
 	// index locates a row's newest version: this thread's uncommitted writes first, then
 	// the committed index.
 	index *types.StreamIndexThread
@@ -50,6 +53,9 @@ const (
 	// carryEntryOverhead approximates the memory cost of one carried row.
 	carryEntryOverhead = int64(96)
 )
+
+// unavailableJSON is the placeholder as the stored JSON row (normalization off) holds it.
+const unavailableJSON = `"` + constants.UnavailableValue + `"`
 
 // carryUsage is the carry memory held by all threads of this process. The budget is shared
 // so that N streams cannot use N times maxCarryBytes.
@@ -79,28 +85,40 @@ type pendingRead struct {
 	columns []string
 }
 
-func newToastResolver(threadID string, stream types.StreamInterface, writer Writer, index *types.StreamIndexThread, reader proto.TableIndexServiceClient) *toastResolver {
-	return &toastResolver{
-		writer:   writer,
-		index:    index,
-		reader:   reader,
-		threadID: threadID,
-		stream:   stream,
-		tracked:  make(map[string]struct{}),
-		carry:    make(map[string]*carryRow),
+// openFileWriter is a writer that holds data files open on the Go side.
+type openFileWriter interface {
+	// EnsureReadable closes any file in paths the writer still has open, without
+	// committing it, so its rows can be read (an open file has no footer).
+	EnsureReadable(ctx context.Context, paths []string) error
+}
+
+func newUnavailableValuesResolver(threadID string, stream types.StreamInterface, writer Writer, index *types.StreamIndexThread, reader proto.TableIndexServiceClient) *unavailableValuesResolver {
+	openFiles, _ := writer.(openFileWriter)
+	return &unavailableValuesResolver{
+		openFiles: openFiles,
+		index:     index,
+		reader:    reader,
+		threadID:  threadID,
+		stream:    stream,
+		tracked:   make(map[string]struct{}),
+		carry:     make(map[string]*carryRow),
 	}
 }
 
 // Resolve fills every unavailable value in the batch it can recover. The rest keep
 // constants.UnavailableValue, as before this feature.
-func (r *toastResolver) Resolve(ctx context.Context, records []types.RawRecord) error {
-	if !r.track(records) {
+func (r *unavailableValuesResolver) Resolve(ctx context.Context, records []types.RawRecord) error {
+	marked := r.track(records)
+	// Once a column is tracked, every later batch is processed so carry stays up to date, even batches with no marker.
+	if len(r.tracked) == 0 {
 		return nil
 	}
 	r.batch++
 
-	if err := r.readMissing(ctx, records); err != nil {
-		return err
+	if marked {
+		if err := r.readMissing(ctx, records); err != nil {
+			return err
+		}
 	}
 
 	// Records are applied in order on top of carry, which now holds each row's state from
@@ -144,7 +162,7 @@ func (r *toastResolver) Resolve(ctx context.Context, records []types.RawRecord) 
 // readMissing reads from the destination the values carry cannot answer and adds them to
 // carry. Only a row's first record in the batch can need a read: every later record of the
 // row is answered by what the earlier ones wrote.
-func (r *toastResolver) readMissing(ctx context.Context, records []types.RawRecord) error {
+func (r *unavailableValuesResolver) readMissing(ctx context.Context, records []types.RawRecord) error {
 	seen := make(map[string]struct{})
 	reads := make(map[types.RowLocation]*pendingRead)
 
@@ -194,24 +212,24 @@ func (r *toastResolver) readMissing(ctx context.Context, records []types.RawReco
 	return r.read(ctx, reads)
 }
 
-// track adds this batch's marked columns to r.tracked and reports whether there is work.
-// Once a column is tracked, every later batch is processed so carry stays up to date,
-// even batches with no marker.
-func (r *toastResolver) track(records []types.RawRecord) bool {
+// track adds this batch's marked columns to r.tracked and reports whether the batch has any.
+func (r *unavailableValuesResolver) track(records []types.RawRecord) bool {
+	marked := false
 	for idx := range records {
 		for _, column := range records[idx].UnavailableColumns {
 			r.tracked[column] = struct{}{}
+			marked = true
 		}
 	}
 
-	return len(r.tracked) > 0
+	return marked
 }
 
 // readColumns is what to read of one stored row: _op_type, to spot a soft-deleted row (an
 // UPDATE can move a row onto a key deleted in an earlier sync), then the destination columns
 // holding the wanted source columns. Without normalization that is the one column holding
 // the whole row as JSON.
-func (r *toastResolver) readColumns(columns []string) []string {
+func (r *unavailableValuesResolver) readColumns(columns []string) []string {
 	if !r.stream.NormalizationEnabled() {
 		return []string{constants.OpType, constants.StringifiedData}
 	}
@@ -226,7 +244,7 @@ func (r *toastResolver) readColumns(columns []string) []string {
 
 // read reads the pending rows in one streamed call and adds their values to carry. Values
 // that cannot be read are left out, so the record keeps the placeholder.
-func (r *toastResolver) read(ctx context.Context, reads map[types.RowLocation]*pendingRead) error {
+func (r *unavailableValuesResolver) read(ctx context.Context, reads map[types.RowLocation]*pendingRead) error {
 	rows := make(map[string][]*proto.ReadRowsRequest_Row) // data file -> rows to read in it
 	for location, pending := range reads {
 		rows[location.FilePath] = append(rows[location.FilePath], &proto.ReadRowsRequest_Row{
@@ -238,8 +256,10 @@ func (r *toastResolver) read(ctx context.Context, reads map[types.RowLocation]*p
 	paths := slices.Sorted(maps.Keys(rows))
 	// a file still being written has no footer and cannot be read: the arrow writer uploads
 	// its own here, Java closes the legacy writer's before serving ReadRows
-	if err := r.writer.EnsureReadable(ctx, paths); err != nil {
-		return err
+	if r.openFiles != nil {
+		if err := r.openFiles.EnsureReadable(ctx, paths); err != nil {
+			return err
+		}
 	}
 
 	request := &proto.ReadRowsRequest{ThreadId: r.threadID}
@@ -278,9 +298,6 @@ func (r *toastResolver) read(ctx context.Context, reads map[types.RowLocation]*p
 				return fmt.Errorf("failed to read row %d of %s: %w", row.GetPosition(), row.GetFilePath(), err)
 			}
 			for column, value := range values {
-				if isUnavailable(value) {
-					continue // the stored version has the placeholder too
-				}
 				r.remember(pending.olakeID, column, value)
 				r.fromTable++
 			}
@@ -289,15 +306,18 @@ func (r *toastResolver) read(ctx context.Context, reads map[types.RowLocation]*p
 }
 
 // rowValues picks the wanted source columns out of one stored row, keyed by destination
-// column. A column the data file does not carry is left out, so the record keeps the
-// placeholder. Without normalization the row is one JSON document, parsed once, and each
-// column's raw JSON is returned.
-func (r *toastResolver) rowValues(stored map[string]*proto.IcebergPayload_IceRecord_FieldValue, columns []string) (map[string]any, error) {
+// column. A column the data file does not carry, that is NULL there, or that holds the
+// placeholder is left out, so the record keeps the placeholder: a value the source could not
+// send is never NULL (Postgres keeps only non-NULL values out of line), so a stored NULL was
+// written without the value, for example while the column was deselected. Without
+// normalization the row is one JSON document, parsed once, and each column's raw JSON is
+// returned.
+func (r *unavailableValuesResolver) rowValues(stored map[string]*proto.IcebergPayload_IceRecord_FieldValue, columns []string) (map[string]any, error) {
 	values := make(map[string]any, len(columns))
 	if r.stream.NormalizationEnabled() {
 		for _, column := range columns {
-			if value, present := stored[r.stream.ResolveColumnName(column)]; present {
-				values[column] = fieldValue(value)
+			if value := fieldValue(stored[r.stream.ResolveColumnName(column)]); value != nil && !isUnavailable(value) {
+				values[column] = value
 			}
 		}
 		return values, nil
@@ -309,8 +329,7 @@ func (r *toastResolver) rowValues(stored map[string]*proto.IcebergPayload_IceRec
 		return nil, fmt.Errorf("failed to parse stored row: %s", err)
 	}
 	for _, column := range columns {
-		// a key missing from the stored row keeps the placeholder rather than become NULL
-		if raw, present := row[column]; present {
+		if raw, present := row[column]; present && string(raw) != "null" && string(raw) != unavailableJSON {
 			values[column] = raw
 		}
 	}
@@ -319,7 +338,7 @@ func (r *toastResolver) rowValues(stored map[string]*proto.IcebergPayload_IceRec
 }
 
 // remember stores the newest value this thread wrote for a row's column.
-func (r *toastResolver) remember(olakeID, column string, value any) {
+func (r *unavailableValuesResolver) remember(olakeID, column string, value any) {
 	row := r.carry[olakeID]
 	if row == nil || row.deleted {
 		if row == nil {
@@ -336,7 +355,7 @@ func (r *toastResolver) remember(olakeID, column string, value any) {
 }
 
 // tombstone marks a row deleted and releases the values it carried.
-func (r *toastResolver) tombstone(olakeID string) {
+func (r *unavailableValuesResolver) tombstone(olakeID string) {
 	if row := r.carry[olakeID]; row != nil {
 		for _, value := range row.values {
 			r.account(-valueSize(value))
@@ -349,7 +368,7 @@ func (r *toastResolver) tombstone(olakeID string) {
 }
 
 // account adds delta carried bytes to this thread and to the process total.
-func (r *toastResolver) account(delta int64) {
+func (r *unavailableValuesResolver) account(delta int64) {
 	r.carryBytes += delta
 	carryUsage.Add(delta)
 }
@@ -359,7 +378,7 @@ func (r *toastResolver) account(delta int64) {
 // row, so its next change reads it back. Old rows go first because they sit in data files
 // already closed, which costs just a read; a recent row may sit in a file still open, which
 // the read would have to close early. Halving keeps trims rare.
-func (r *toastResolver) trim() {
+func (r *unavailableValuesResolver) trim() {
 	if carryUsage.Load() <= maxCarryBytes {
 		return
 	}
@@ -380,16 +399,11 @@ func (r *toastResolver) trim() {
 	logger.Debugf("Thread[%s]: dropped %d of %d carried row(s), %d bytes left", r.threadID, dropped, dropped+len(r.carry), r.carryBytes)
 }
 
-// drop releases everything this thread carries.
-func (r *toastResolver) drop() {
+// Close releases this thread's carry and logs what it recovered.
+func (r *unavailableValuesResolver) Close() {
 	carryUsage.Add(-r.carryBytes)
 	r.carryBytes = 0
 	r.carry = make(map[string]*carryRow)
-}
-
-// Close releases this thread's carry and logs what it recovered.
-func (r *toastResolver) Close() {
-	r.drop()
 
 	if r.recovered+r.unresolved == 0 {
 		return

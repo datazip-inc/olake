@@ -151,14 +151,14 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 	return output
 }
 
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string, engines []QueryEngine) {
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string, engines []QueryEngine, indexRequired bool) {
 	message := Message{
 		Type:    CatalogMessage,
-		Catalog: GetWrappedCatalog(streams, driver, engines),
+		Catalog: GetWrappedCatalog(streams, driver, engines, indexRequired),
 	}
 	logger.Info(message)
 	// write catalog to the specified file
-	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog, engines)
+	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog, engines, indexRequired)
 
 	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
 	if err != nil {

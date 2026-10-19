@@ -35,13 +35,6 @@ func New(options *destination.Options, schema map[string]string, stream types.St
 	}
 }
 
-// EnsureReadable has nothing to do: Java writes the data files and knows which are still
-// open, so ReadRows closes those itself. Tracking them here would go stale whenever Java
-// rolls a file on its own.
-func (w *LegacyWriter) EnsureReadable(context.Context, []string) error {
-	return nil
-}
-
 func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) error {
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(w.schema))
 	for field, dType := range w.schema {

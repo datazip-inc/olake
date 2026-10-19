@@ -72,7 +72,7 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, connector.Type(), queryEngines)
+		types.LogCatalog(streams, catalog, connector.Type(), queryEngines, connector.RequiresTableIndex())
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -98,7 +98,7 @@ func resolveTargetQueryEngines() error {
 
 	// An empty intersection cannot be written at all, so fail here rather than emitting a
 	// catalog whose streams offer no delete format.
-	if len(engines) > 0 && len(types.AvailableUpdateTypes(engines)) == 0 {
+	if len(engines) > 0 && len(types.AvailableUpdateTypes(engines, false)) == 0 {
 		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid,
 			fmt.Errorf("no delete format is readable by all of the selected query engines %v", engines))
 	}

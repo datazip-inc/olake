@@ -2,34 +2,42 @@ package io.olake.iceberg.tableIndex;
 
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PrimitiveIterator;
 import java.util.Set;
 import java.util.stream.IntStream;
 
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.SeekableInputStream;
 import org.apache.iceberg.parquet.ParquetSchemaUtil;
 import org.apache.parquet.ParquetReadOptions;
+import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.page.PageReadStore;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.convert.GroupRecordConverter;
 import org.apache.parquet.filter2.compat.FilterCompat;
 import org.apache.parquet.hadoop.ParquetFileReader;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
-import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
+import org.apache.parquet.hadoop.metadata.ColumnPath;
 import org.apache.parquet.internal.column.columnindex.OffsetIndex;
+import org.apache.parquet.internal.filter2.columnindex.ColumnIndexStore;
+import org.apache.parquet.internal.filter2.columnindex.ColumnIndexStore.MissingOffsetIndexException;
 import org.apache.parquet.internal.filter2.columnindex.RowRanges;
 import org.apache.parquet.io.ColumnIOFactory;
 import org.apache.parquet.io.DelegatingSeekableInputStream;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.io.RecordReader;
+import org.apache.parquet.schema.LogicalTypeAnnotation.StringLogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
 
+import io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue;
+import io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch;
 import io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest;
 
 /**
@@ -41,35 +49,23 @@ public final class RowReader {
   private RowReader() {
   }
 
-  /**
-   * One row's projected values by column name. A column the data file does not carry is left
-   * out, which is not the same as a stored NULL (a null value).
-   */
-  public static final class Row {
-    public final long position;
-    public final Map<String, Object> values;
-
-    private Row(long position, Map<String, Object> values) {
-      this.position = position;
-      this.values = values;
-    }
-  }
-
   /** Receives rows as they are read, so neither side holds a whole file's values. */
   public interface RowConsumer {
-    void accept(String filePath, Row row) throws Exception;
+    void accept(ReadRowsBatch.Row row) throws Exception;
   }
 
   /**
    * Reads the given rows of one data file, each with its own columns, and hands each row to
-   * {@code consumer}. {@code rows} are in ascending position order.
+   * {@code consumer} with the values of those columns. A column the data file does not carry
+   * is left out, which is not the same as a stored NULL (an unset value).
+   * {@code rows} are in ascending position order.
    *
    * <p>The file is projected to every column some row wants, since Parquet reads a set of
    * rows across all projected columns; each row is still returned with only its own.
    */
   public static void read(Table table, String filePath, List<ReadRowsRequest.Row> rows, RowConsumer consumer)
       throws Exception {
-    Set<String> columns = new LinkedHashSet<>();
+    Set<String> columns = new HashSet<>();
     rows.forEach(row -> columns.addAll(row.getColumnsList()));
 
     InputFile inputFile = table.io().newInputFile(filePath);
@@ -80,16 +76,18 @@ public final class RowReader {
       MessageType fileSchema = reader.getFooter().getFileMetaData().getSchema();
       // Matched by Iceberg field id, as Iceberg readers do; a column the file was written
       // without is left out.
-      MessageType projection = ParquetSchemaUtil.pruneColumns(fileSchema, table.schema().select(columns));
+      Schema selected = table.schema().select(columns);
+      MessageType projection = ParquetSchemaUtil.pruneColumns(fileSchema, selected);
       reader.setRequestedSchema(projection);
+      Map<String, Integer> slots = slots(selected, projection);
 
-      ColumnIOFactory columnIOFactory = new ColumnIOFactory();
+      MessageColumnIO columnIO = new ColumnIOFactory().getColumnIO(projection, fileSchema, true);
+      List<BlockMetaData> blocks = reader.getRowGroups();
       int cursor = 0; // index in rows of the next row to read
       long firstRowOfBlock = 0; // file position of the current row group's first row
 
-      for (int blockIndex = 0; blockIndex < reader.getRowGroups().size() && cursor < rows.size(); blockIndex++) {
-        BlockMetaData block = reader.getRowGroups().get(blockIndex);
-        long rowsInBlock = block.getRowCount();
+      for (int blockIndex = 0; blockIndex < blocks.size() && cursor < rows.size(); blockIndex++) {
+        long rowsInBlock = blocks.get(blockIndex).getRowCount();
 
         // the rows from cursor on that fall in this row group
         int blockStart = cursor;
@@ -98,8 +96,8 @@ public final class RowReader {
         }
         if (cursor > blockStart) {
           List<ReadRowsRequest.Row> wanted = rows.subList(blockStart, cursor);
-          PageReadStore pages = readPages(reader, blockIndex, block, projection, wanted, firstRowOfBlock, rowsInBlock);
-          emit(columnIOFactory, projection, fileSchema, pages, wanted, firstRowOfBlock, filePath, consumer);
+          PageReadStore pages = readPages(reader, blockIndex, projection, wanted, firstRowOfBlock, rowsInBlock);
+          emit(columnIO, projection, slots, pages, wanted, firstRowOfBlock, filePath, consumer);
         }
 
         firstRowOfBlock += rowsInBlock;
@@ -113,16 +111,16 @@ public final class RowReader {
    * such as _op_type, whose one page spans thousands of rows, does not pull in every page of
    * a wide column around the wanted rows.
    */
-  private static PageReadStore readPages(ParquetFileReader reader, int blockIndex, BlockMetaData block,
-      MessageType projection, List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, long rowsInBlock)
-      throws IOException {
+  private static PageReadStore readPages(ParquetFileReader reader, int blockIndex, MessageType projection,
+      List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, long rowsInBlock) throws IOException {
+    // The reader caches this store and readFilteredRowGroup reuses it, so each offset index is fetched from storage once.
+    ColumnIndexStore indexes = reader.getColumnIndexStore(blockIndex);
     RowRanges ranges = null;
-    for (ColumnChunkMetaData chunk : block.getColumns()) {
-      if (!projection.containsPath(chunk.getPath().toArray())) {
-        continue;
-      }
-      OffsetIndex offsetIndex = reader.readOffsetIndex(chunk);
-      if (offsetIndex == null) {
+    for (ColumnDescriptor column : projection.getColumns()) {
+      OffsetIndex offsetIndex;
+      try {
+        offsetIndex = indexes.getOffsetIndex(ColumnPath.get(column.getPath()));
+      } catch (MissingOffsetIndexException e) {
         return reader.readRowGroup(blockIndex);
       }
       RowRanges columnRanges = RowRanges.create(rowsInBlock,
@@ -151,11 +149,23 @@ public final class RowReader {
     return pages.build().iterator();
   }
 
+  /**
+   * Where each table column sits in the projection, by field id. The file may store a column
+   * under another name: Iceberg's Parquet writer escapes characters such as a space, so the
+   * table's "big doc" is "big_x20doc" in the file.
+   */
+  private static Map<String, Integer> slots(Schema selected, MessageType projection) {
+    Map<String, Integer> slots = new HashMap<>();
+    for (int slot = 0; slot < projection.getFieldCount(); slot++) {
+      slots.put(selected.findField(projection.getType(slot).getId().intValue()).name(), slot);
+    }
+    return slots;
+  }
+
   /** Walks the rows read and emits the wanted ones. */
-  private static void emit(ColumnIOFactory columnIOFactory, MessageType projection, MessageType fileSchema,
+  private static void emit(MessageColumnIO columnIO, MessageType projection, Map<String, Integer> slots,
       PageReadStore pages, List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, String filePath,
       RowConsumer consumer) throws Exception {
-    MessageColumnIO columnIO = columnIOFactory.getColumnIO(projection, fileSchema, true);
     RecordReader<Group> records = columnIO.getRecordReader(pages, new GroupRecordConverter(projection), FilterCompat.NOOP);
     PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes().orElse(null);
 
@@ -168,30 +178,37 @@ public final class RowReader {
         continue;
       }
 
-      List<String> rowColumns = wanted.get(cursor).getColumnsList();
-      Map<String, Object> values = new HashMap<>(rowColumns.size());
-      for (String column : rowColumns) {
-        if (projection.containsField(column)) {
-          values.put(column, value(group, projection.getFieldIndex(column)));
+      ReadRowsBatch.Row.Builder row = ReadRowsBatch.Row.newBuilder().setFilePath(filePath).setPosition(position);
+      for (String column : wanted.get(cursor).getColumnsList()) {
+        Integer slot = slots.get(column);
+        if (slot != null) {
+          row.putValues(column, value(group, slot));
         }
       }
-      consumer.accept(filePath, new Row(position, values));
+      consumer.accept(row.build());
       cursor++;
     }
   }
 
   /**
-   * Reads one field of a row, or null when the column is null in that row. The columns read
-   * are text (Postgres text, json, arrays and the like, _op_type, the stored row) or numeric
-   * stored as double.
+   * Reads one field of a row, unset when the column is null in that row. Only text and double
+   * columns are read: a value the source could not send is text (Postgres text, json, arrays
+   * and the like) or numeric stored as double, and _op_type and the stored row are text.
    */
-  private static Object value(Group group, int slot) {
+  private static FieldValue value(Group group, int slot) {
     if (group.getFieldRepetitionCount(slot) == 0) {
-      return null;
+      return FieldValue.getDefaultInstance();
     }
-    return group.getType().getType(slot).asPrimitiveType().getPrimitiveTypeName() == PrimitiveTypeName.DOUBLE
-        ? group.getDouble(slot, 0)
-        : group.getString(slot, 0);
+
+    PrimitiveType type = group.getType().getType(slot).asPrimitiveType();
+    if (type.getPrimitiveTypeName() == PrimitiveTypeName.DOUBLE) {
+      return FieldValue.newBuilder().setDoubleValue(group.getDouble(slot, 0)).build();
+    }
+    if (type.getLogicalTypeAnnotation() instanceof StringLogicalTypeAnnotation) {
+      return FieldValue.newBuilder().setStringValue(group.getString(slot, 0)).build();
+    }
+    throw new IllegalArgumentException("cannot read back column " + type.getName() + " of type " + type
+        + ": only string and double columns are supported");
   }
 
   /**

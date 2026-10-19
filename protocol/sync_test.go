@@ -31,6 +31,7 @@ type stream struct {
 	filter      *types.FilterConfig // only read when normalized, so it can be made invalid
 	updateType  string              // selected_streams update_type; blank as legacy catalogs leave it
 	available   []types.UpdateType  // stream's available_update_types; empty on legacy catalogs
+	appendMode  bool
 }
 
 // catalogOf builds the two halves classifyStreams reads: the configured streams and the
@@ -44,7 +45,7 @@ func catalogOf(streams ...stream) *types.Catalog {
 		if s.unselected {
 			continue
 		}
-		metadata := types.StreamMetadata{StreamName: s.name, Normalization: s.normalized, FilterConfig: s.filter, UpdateType: s.updateType}
+		metadata := types.StreamMetadata{StreamName: s.name, Normalization: s.normalized, FilterConfig: s.filter, UpdateType: s.updateType, AppendMode: s.appendMode}
 		if s.partitioned {
 			metadata.PartitionRegex = "/{now,year}"
 		}
@@ -58,10 +59,11 @@ func catalogOf(streams ...stream) *types.Catalog {
 // past the skip branches: a stream that is not synced must not appear in any of them.
 func TestClassifyStreamsMix(t *testing.T) {
 	testCases := []struct {
-		name         string
-		streams      []stream
-		expectedMix  types.StreamMix
-		expectedCode string // non-empty: no stream survives, so the run fails with this code
+		name          string
+		streams       []stream
+		indexRequired bool // the source reads rows back through the table index (Postgres preserve_toast_values)
+		expectedMix   types.StreamMix
+		expectedCode  string // non-empty: the run fails with this code
 	}{
 		// each mode lands in its own counter, and an unknown mode falls to full refresh
 		{
@@ -137,6 +139,32 @@ func TestClassifyStreamsMix(t *testing.T) {
 			},
 			expectedMix: types.StreamMix{CDC: 2, Selected: 2, StreamWithPosUpdateType: 1},
 		},
+		// an eq CDC stream could never recover the values the source leaves out, so the run fails
+		// instead of skipping it; a blank update type is legacy eq
+		{
+			name:          "index required fails the run for an eq cdc stream",
+			streams:       []stream{{name: "a", mode: types.CDC, updateType: "pos"}, {name: "b", mode: types.CDC, updateType: "eq"}},
+			indexRequired: true,
+			expectedCode:  codeUpdateTypeWithoutIndex,
+		},
+		{
+			name:          "index required fails the run for a legacy blank update type",
+			streams:       []stream{{name: "a", mode: types.STRICTCDC}},
+			indexRequired: true,
+			expectedCode:  codeUpdateTypeWithoutIndex,
+		},
+		// only CDC leaves values out, and an append-mode stream writes no deletes
+		{
+			name: "index required leaves non-cdc and append-mode eq streams alone",
+			streams: []stream{
+				{name: "a", mode: types.CDC, updateType: "dv"},
+				{name: "b", mode: types.FULLREFRESH, updateType: "eq"},
+				{name: "c", mode: types.INCREMENTAL, updateType: "eq"},
+				{name: "d", mode: types.CDC, updateType: "eq", appendMode: true},
+			},
+			indexRequired: true,
+			expectedMix:   types.StreamMix{CDC: 2, FullRefresh: 1, Incremental: 1, Selected: 4},
+		},
 		// with nothing left to sync there is no mix to report, and the run fails before the
 		// sync events are sent rather than reporting a run of zero streams
 		{
@@ -150,7 +178,7 @@ func TestClassifyStreamsMix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			discardStrayLogs(t)
 
-			got, err := classifyStreams(catalogOf(tc.streams...), nil, &types.State{})
+			got, err := classifyStreams(catalogOf(tc.streams...), nil, &types.State{}, tc.indexRequired)
 			if tc.expectedCode != "" {
 				require.Error(t, err)
 				assert.Nil(t, got)

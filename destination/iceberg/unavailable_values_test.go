@@ -22,7 +22,7 @@ import (
 // placeholder is what the source writes for a column it could not send.
 const placeholder = constants.UnavailableValue
 
-// testWriter stands in for the Iceberg writer and its stream index: it answers where a row
+// testWriter stands in for the arrow writer and its stream index: it answers where a row
 // lives, records the files the resolver asks to make readable, and fails on demand.
 type testWriter struct {
 	locations map[string]types.RowLocation
@@ -31,11 +31,6 @@ type testWriter struct {
 	lookups   int
 	flushes   [][]string
 }
-
-func (w *testWriter) Write(context.Context, []types.RawRecord) error        { return nil }
-func (w *testWriter) EvolveSchema(context.Context, map[string]string) error { return nil }
-func (w *testWriter) Close(context.Context, any) error                      { return nil }
-func (w *testWriter) Abort()                                                {}
 
 func (w *testWriter) Lookup(olakeID string) (types.RowLocation, bool, error) {
 	w.lookups++
@@ -149,19 +144,19 @@ func testConfiguredStream(normalized bool) *types.ConfiguredStream {
 	return &types.ConfiguredStream{StreamMetadata: types.StreamMetadata{Normalization: normalized, UseSourceColumnNames: true}}
 }
 
-func testResolver(t *testing.T, normalized bool, writer *testWriter, reader *testReader) *toastResolver {
+func testResolver(t *testing.T, normalized bool, writer *testWriter, reader *testReader) *unavailableValuesResolver {
 	t.Helper()
 
-	resolver := &toastResolver{
-		writer:   writer,
-		index:    types.NewStreamIndexThread(testIndex{writer: writer}),
-		reader:   reader,
-		threadID: "test-thread",
-		stream:   testConfiguredStream(normalized),
-		tracked:  make(map[string]struct{}),
-		carry:    make(map[string]*carryRow),
+	resolver := &unavailableValuesResolver{
+		openFiles: writer,
+		index:     types.NewStreamIndexThread(testIndex{writer: writer}),
+		reader:    reader,
+		threadID:  "test-thread",
+		stream:    testConfiguredStream(normalized),
+		tracked:   make(map[string]struct{}),
+		carry:     make(map[string]*carryRow),
 	}
-	t.Cleanup(resolver.drop)
+	t.Cleanup(resolver.Close)
 
 	return resolver
 }
@@ -421,6 +416,19 @@ func TestResolve(t *testing.T) {
 			expectedLookups:    1,
 			expectedUnresolved: 1,
 		},
+		// the stored row was written while the column was deselected, so it holds NULL; a
+		// value the source could not send is never NULL, so the placeholder is kept
+		{
+			name:      "a stored NULL is not read as the row's value",
+			locations: committed,
+			table:     testTable{{"a.parquet", 0, "payload"}: nil},
+			steps: []resolveStep{{
+				records:  []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")},
+				expected: []map[string]any{{"payload": placeholder}},
+			}},
+			expectedLookups:    1,
+			expectedUnresolved: 1,
+		},
 		// the first read finds a file that predates the column; the failure must not be
 		// remembered, so the next change reads again
 		{
@@ -598,6 +606,46 @@ func TestResolveReadRequest(t *testing.T) {
 	}
 }
 
+func TestResolveOpenFiles(t *testing.T) {
+	testCases := []struct {
+		name            string
+		writer          func(files *testWriter) Writer
+		expectedFlushes [][]string
+	}{
+		// the arrow writer holds data files open on the Go side, so it is asked to close them
+		{
+			name: "arrow writer closes the files to read",
+			writer: func(files *testWriter) Writer {
+				return struct {
+					Writer
+					*testWriter
+				}{testWriter: files}
+			},
+			expectedFlushes: [][]string{{"a.parquet"}},
+		},
+		// the legacy writer's files are closed by Java when ReadRows asks for them
+		{
+			name:   "legacy writer leaves open files to Java",
+			writer: func(*testWriter) Writer { return struct{ Writer }{} },
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			files := &testWriter{locations: map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}}}
+			resolver := newUnavailableValuesResolver("test-thread", testConfiguredStream(true), tc.writer(files),
+				types.NewStreamIndexThread(testIndex{writer: files}), &testReader{table: testTable{{"a.parquet", 0, "payload"}: "stored"}})
+			t.Cleanup(resolver.Close)
+			records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")}
+
+			require.NoError(t, resolver.Resolve(context.Background(), records))
+
+			assert.Equal(t, "stored", records[0].Data["payload"])
+			assert.Equal(t, tc.expectedFlushes, files.flushes, "files made readable")
+		})
+	}
+}
+
 func TestResolveErrors(t *testing.T) {
 	failure := errors.New("boom")
 
@@ -737,7 +785,7 @@ func TestResolveTrimDropsLeastRecentRowsFirst(t *testing.T) {
 	assert.LessOrEqual(t, carryUsage.Load(), maxCarryBytes/2)
 }
 
-func TestToastResolverCloseReleasesBudget(t *testing.T) {
+func TestUnavailableValuesResolverCloseReleasesBudget(t *testing.T) {
 	before := carryUsage.Load()
 	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
 
@@ -796,11 +844,13 @@ func TestRowValuesWithoutNormalization(t *testing.T) {
 		},
 		// the stored row predates the column: keep the placeholder rather than invent a NULL
 		{name: "a key missing from the stored row is left out", stored: text(`{"id":1}`), columns: []string{"payload"}, expected: map[string]any{}},
+		{name: "a stored JSON null is left out", stored: text(`{"id":1,"payload":null}`), columns: []string{"payload"}, expected: map[string]any{}},
+		{name: "a stored placeholder is left out", stored: text(`{"id":1,"payload":"` + placeholder + `"}`), columns: []string{"payload"}, expected: map[string]any{}},
 		{name: "a stored value that is not text", stored: &proto.IcebergPayload_IceRecord_FieldValue{}, columns: []string{"payload"}, expectedErr: true},
 		{name: "invalid json", stored: text(`{not json`), columns: []string{"payload"}, expectedErr: true},
 	}
 
-	resolver := &toastResolver{stream: testConfiguredStream(false)}
+	resolver := &unavailableValuesResolver{stream: testConfiguredStream(false)}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			values, err := resolver.rowValues(stored(tc.stored), tc.columns)

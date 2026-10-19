@@ -109,7 +109,9 @@ var syncCmd = &cobra.Command{
 		}
 
 		// get all types of selected streams
-		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
+		// the source reads rows back through the Iceberg table index (Postgres preserve_toast_values)
+		indexRequired := connector.RequiresTableIndex() && destinationConfig.Type == types.Iceberg
+		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state, indexRequired)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
@@ -194,7 +196,9 @@ var syncCmd = &cobra.Command{
 	},
 }
 
-func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
+// classifyStreams sorts the selected streams by sync mode, skipping invalid ones. indexRequired
+// fails the run for a CDC stream whose update type keeps no table index.
+func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State, indexRequired bool) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
 		SelectedStreams:    []types.StreamInterface{},
@@ -217,6 +221,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
 	}
 
+	var failure error
 	_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 		sMetadata, selected := selectedStreamsMap[elem.ID()]
 		// Check if the stream is in the selectedStreamMap
@@ -238,6 +243,16 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false
 			}
+		}
+
+		// With indexRequired, a CDC stream that keeps no table index (eq) could never recover the
+		// values the source leaves out: fail rather than skip it or sync it with placeholders.
+		isCDC := elem.Stream.SyncMode == types.CDC || elem.Stream.SyncMode == types.STRICTCDC
+		if indexRequired && isCDC && !elem.StreamMetadata.AppendMode && !elem.GetUpdateType().NeedsTableIndex(types.Iceberg) {
+			failure = errs.Precondition(errs.ConfigInvalid, codeUpdateTypeWithoutIndex,
+				fmt.Errorf("stream %s uses update type %q, which keeps no table index, but the source reads unchanged values back through it (preserve_toast_values); set update_type to pos or dv",
+					elem.ID(), elem.GetUpdateType()))
+			return true
 		}
 
 		if err := elem.ValidateUpdateType(); err != nil {
@@ -317,6 +332,9 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 
 		return false
 	})
+	if failure != nil {
+		return nil, failure
+	}
 	// Clear previous state streams for non-selected streams.
 	// Must not be called during clear destination to retain the global and stream state. (clear dest. -> when streams == nil)
 	if streams != nil {

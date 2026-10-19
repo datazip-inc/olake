@@ -91,7 +91,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 			filteredData := filterDataBySelectedColumnsFn(data)
 
-			return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns), sourceBytes)
+			return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns, nil), sourceBytes)
 		})
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)

@@ -752,6 +752,7 @@ func testRawRecord() types.RawRecord {
 			constants.OlakeTimestamp: time.Now().UTC(),
 			constants.OpType:         "r",
 		},
+		nil,
 	)
 }
 

@@ -195,6 +195,10 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
    * was closed.
    */
   boolean closeOpen(Set<String> paths) throws IOException {
+    // the routing cache may point at a writer closed below
+    lastRouted = null;
+    lastDataWriter = null;
+
     boolean closed = false;
     Iterator<RollingFileWriter> writers = dataWriters.values().iterator();
     while (writers.hasNext()) {

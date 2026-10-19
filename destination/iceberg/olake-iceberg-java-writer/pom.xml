@@ -595,6 +595,13 @@
                 <requireMavenVersion>
                   <version>[3.6.3,)</version>
                 </requireMavenVersion>
+                <!-- parquet-hadoop is pinned to the version iceberg-parquet pulls in; fail
+                     the build when an Iceberg bump asks for a newer one -->
+                <requireUpperBoundDeps>
+                  <includes>
+                    <include>org.apache.parquet:parquet-hadoop</include>
+                  </includes>
+                </requireUpperBoundDeps>
               </rules>
             </configuration>
           </execution>

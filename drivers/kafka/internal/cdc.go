@@ -131,7 +131,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		if !stream.ResolveUpsertOp() {
 			//append only
 			if record.Data != nil {
-				if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", record.Data, nil, bytesRead)); err != nil {
+				if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", record.Data, nil, bytesRead, nil)); err != nil {
 					return false, err
 				}
 			}
@@ -167,7 +167,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 					constants.OlakeID: olakeID,
 				}
 				logger.Warnf("encountered either missing or null value for kafka key, appending with OlakeID(offset/partition) for topic=%s partition=%d offset=%d", record.Message.Topic, record.Message.Partition, record.Message.Offset)
-				return processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead))
+				return processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead, nil))
 			}
 
 			if record.Message.Value == nil {
@@ -179,7 +179,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 						extraColumns := map[string]any{
 							constants.OlakeID: generateOlakeIDFromExistingKeys(dedupKeys, data),
 						}
-						if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "delete", data, extraColumns, bytesRead)); err != nil {
+						if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "delete", data, extraColumns, bytesRead, nil)); err != nil {
 							return false, err
 						}
 					}
@@ -195,7 +195,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 					extraColumns := map[string]any{
 						constants.OlakeID: kafkaKey,
 					}
-					if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead)); err != nil {
+					if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead, nil)); err != nil {
 						return false, err
 					}
 				}
@@ -220,7 +220,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 					extraColumns := map[string]any{
 						constants.OlakeID: generateOlakeIDFromExistingKeys(dedupKeys, data),
 					}
-					if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "update", data, extraColumns, bytesRead)); err != nil {
+					if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "update", data, extraColumns, bytesRead, nil)); err != nil {
 						return false, err
 					}
 				}

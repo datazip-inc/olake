@@ -2,8 +2,13 @@ package io.olake.iceberg.rpc;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.iceberg.Table;
+import org.apache.iceberg.util.ThreadPools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +47,13 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
   /** A ReadRows message is sent at 64 rows or 16 MB, whichever comes first. */
   private static final int READ_BATCH_ROWS = 64;
   private static final int READ_BATCH_BYTES = 16 * 1024 * 1024;
+
+  /**
+   * Reads the files of ReadRows calls, several at once since each costs a few storage round
+   * trips. Shared by every stream and bounded, so the pages held by reads in flight stay
+   * capped however many streams sync.
+   */
+  private static final ExecutorService READERS = ThreadPools.newFixedThreadPool("olake-row-reader", 4);
 
   private final ConcurrentMap<String, IcebergSession> sessions;
 
@@ -105,9 +117,17 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     }
   }
 
+  /**
+   * Reads the files concurrently on {@link #READERS} and returns before they finish: the
+   * call's callbacks, onReady among them, run only once this method has returned, and a
+   * read waits on onReady whenever the caller falls behind. Rows arrive in no particular
+   * order; the caller matches them by file and position.
+   */
   @Override
   public void readRows(ReadRowsRequest request, StreamObserver<ReadRowsBatch> responseObserver) {
     long startTime = System.currentTimeMillis();
+    RowEmitter emitter = new RowEmitter(responseObserver);
+    CompletableFuture<?>[] reads;
 
     try {
       IcebergSession session = requireSession(request.getThreadId());
@@ -118,23 +138,39 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
       // Rows written earlier in this sync may sit in a file the writer still has open.
       session.op.closeOpenDataFiles(paths);
 
-      RowEmitter emitter = new RowEmitter(responseObserver);
-      for (ReadRowsRequest.FileRows file : request.getFilesList()) {
-        RowReader.read(session.icebergTable, file.getFilePath(), file.getRowsList(), emitter::accept);
-      }
-      emitter.finish();
-
-      responseObserver.onCompleted();
-      LOGGER.debug("read rows across {} file(s) for thread {} in {} ms",
-          request.getFilesCount(), request.getThreadId(), System.currentTimeMillis() - startTime);
-    } catch (CallAbandoned e) {
-      LOGGER.warn("row read for thread {} abandoned by the caller after {} ms",
-          request.getThreadId(), System.currentTimeMillis() - startTime);
+      reads = request.getFilesList().stream()
+          .map(file -> CompletableFuture.runAsync(() -> emitter.read(session.icebergTable, file), READERS))
+          .toArray(CompletableFuture[]::new);
     } catch (Exception e) {
-      String message = String.format("failed to read rows for thread %s: %s", request.getThreadId(), e.getMessage());
-      LOGGER.error(message, e);
-      responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(message).asRuntimeException());
+      failReadRows(request, responseObserver, e);
+      return;
     }
+
+    // reads never complete exceptionally: RowEmitter.read keeps the first failure
+    CompletableFuture.allOf(reads).thenRunAsync(() -> {
+      try {
+        Throwable failure = emitter.failure.get();
+        if (failure != null) {
+          throw failure;
+        }
+        emitter.finish();
+        responseObserver.onCompleted();
+        LOGGER.debug("read rows across {} file(s) for thread {} in {} ms",
+            request.getFilesCount(), request.getThreadId(), System.currentTimeMillis() - startTime);
+      } catch (CallAbandoned e) {
+        LOGGER.warn("row read for thread {} abandoned by the caller after {} ms",
+            request.getThreadId(), System.currentTimeMillis() - startTime);
+      } catch (Throwable e) {
+        failReadRows(request, responseObserver, e);
+      }
+    }, READERS);
+  }
+
+  private static void failReadRows(ReadRowsRequest request, StreamObserver<ReadRowsBatch> responseObserver,
+      Throwable failure) {
+    String message = String.format("failed to read rows for thread %s: %s", request.getThreadId(), failure.getMessage());
+    LOGGER.error(message, failure);
+    responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(message).asRuntimeException());
   }
 
   private IcebergSession requireSession(String threadId) throws Exception {
@@ -150,7 +186,10 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     return session;
   }
 
-  /** Raised to unwind a streaming call whose caller has gone away. */
+  /**
+   * Raised to unwind a streaming call that is over: its caller has gone away, or another
+   * file of the same ReadRows call failed to read.
+   */
   private static final class CallAbandoned extends RuntimeException {
     private CallAbandoned() {
       super("streaming call cancelled by the caller", null, false, false);
@@ -266,9 +305,14 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     }
   }
 
-  /** Groups read rows into messages of at most READ_BATCH_ROWS rows or READ_BATCH_BYTES. */
+  /**
+   * Groups read rows into messages of at most READ_BATCH_ROWS rows or READ_BATCH_BYTES. Files
+   * are read concurrently, so rows are added one at a time; the first failure stops the
+   * other reads at their next row.
+   */
   private static final class RowEmitter {
     private final Outbound<ReadRowsBatch> outbound;
+    private final AtomicReference<Throwable> failure = new AtomicReference<>();
     private ReadRowsBatch.Builder batch = ReadRowsBatch.newBuilder();
     private int batchBytes;
 
@@ -276,23 +320,27 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
       this.outbound = new Outbound<>(responseObserver);
     }
 
-    private void accept(String filePath, RowReader.Row row) {
-      ReadRowsBatch.Row.Builder builder = ReadRowsBatch.Row.newBuilder()
-          .setFilePath(filePath)
-          .setPosition(row.position);
-      row.values.forEach((column, value) -> {
-        IcebergPayload.IceRecord.FieldValue fieldValue = toFieldValue(value);
-        batchBytes += fieldValue.getSerializedSize();
-        builder.putValues(column, fieldValue);
-      });
+    private void read(Table table, ReadRowsRequest.FileRows file) {
+      try {
+        RowReader.read(table, file.getFilePath(), file.getRowsList(), this::accept);
+      } catch (Throwable e) {
+        failure.compareAndSet(null, e);
+      }
+    }
 
-      batch.addRows(builder);
+    private synchronized void accept(ReadRowsBatch.Row row) {
+      if (failure.get() != null) {
+        throw new CallAbandoned();
+      }
+
+      batch.addRows(row);
+      batchBytes += row.getSerializedSize();
       if (batch.getRowsCount() >= READ_BATCH_ROWS || batchBytes >= READ_BATCH_BYTES) {
         send();
       }
     }
 
-    private void finish() {
+    private synchronized void finish() {
       if (batch.getRowsCount() > 0) {
         send();
       }
@@ -305,14 +353,4 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     }
   }
 
-  /** A value as RowReader returns it: text, a double, or null (left unset). */
-  private static IcebergPayload.IceRecord.FieldValue toFieldValue(Object value) {
-    IcebergPayload.IceRecord.FieldValue.Builder builder = IcebergPayload.IceRecord.FieldValue.newBuilder();
-    if (value instanceof String text) {
-      builder.setStringValue(text);
-    } else if (value instanceof Double number) {
-      builder.setDoubleValue(number);
-    }
-    return builder.build();
-  }
 }

@@ -143,7 +143,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					constants.OlakeTimestamp: time.Now().UTC(),
 				}
 				filteredData := filterDataBySelectedColumnsFn(record)
-				return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns), sourceBytes)
+				return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns, nil), sourceBytes)
 			})
 		})
 		return nil

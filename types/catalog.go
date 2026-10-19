@@ -102,13 +102,13 @@ type StreamMix struct {
 	StreamWithPosUpdateType int `json:"stream_with_pos_update_type_count"`
 }
 
-func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) *Catalog {
+func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine, indexRequired bool) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
 	// The default delete format is the cheapest one every target engine can read.
-	available := AvailableUpdateTypes(engines)
+	available := AvailableUpdateTypes(engines, indexRequired)
 	updateType := PreferredUpdateType(available)
 
 	// Kafka upsert always writes positional deletes. This is only the advertised default:
@@ -154,7 +154,7 @@ func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) 
 // 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 4. Everything else: Keep as new catalog
-func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Catalog {
+func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine, indexRequired bool) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -183,7 +183,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 					oldStream := oldStreams[streamID].Stream
 					newStream := newStreams[streamID].Stream
 					MergeSelectedColumns(&metadata, oldStream, newStream)
-					mergeUpdateType(&metadata, streamID, engines)
+					mergeUpdateType(&metadata, streamID, engines, indexRequired)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -230,7 +230,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 // target query engine can still read it. An unreadable choice is cleared rather than
 // replaced: switching delete formats can force a table recreate, so the user must pick the
 // new one explicitly, and a blank update_type fails validation until they do.
-func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine) {
+func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine, indexRequired bool) {
 	// A blank value predates update_type and always meant equality (see
 	// ConfiguredStream.GetUpdateType). Record it, so blank is left to mean "needs a choice".
 	if metadata.UpdateType == "" {
@@ -242,7 +242,7 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryE
 		return
 	}
 
-	available := AvailableUpdateTypes(engines)
+	available := AvailableUpdateTypes(engines, indexRequired)
 	if slices.Contains(available, UpdateType(metadata.UpdateType)) {
 		return
 	}

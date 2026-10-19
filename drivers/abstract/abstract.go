@@ -31,14 +31,15 @@ type CDCChange struct {
 	UnavailableColumns []string
 }
 
-func NewCDCChange(stream types.StreamInterface, timestamp time.Time, kind string, data, extraColumns map[string]any, sourceBytes int64) CDCChange {
+func NewCDCChange(stream types.StreamInterface, timestamp time.Time, kind string, data, extraColumns map[string]any, sourceBytes int64, unavailableColumns []string) CDCChange {
 	return CDCChange{
-		Stream:       stream,
-		Timestamp:    timestamp,
-		Kind:         kind,
-		Data:         data,
-		ExtraColumns: extraColumns,
-		Bytes:        sourceBytes,
+		Stream:             stream,
+		Timestamp:          timestamp,
+		Kind:               kind,
+		Data:               data,
+		ExtraColumns:       extraColumns,
+		Bytes:              sourceBytes,
+		UnavailableColumns: unavailableColumns,
 	}
 }
 
@@ -79,6 +80,12 @@ func (a *AbstractDriver) Spec() any {
 
 func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
+}
+
+// RequiresTableIndex reports whether the source reads rows back through the destination's table index. Valid after Setup.
+func (a *AbstractDriver) RequiresTableIndex() bool {
+	reader, ok := a.driver.(TableIndexReader)
+	return ok && reader.RequiresTableIndex()
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, skipSchema bool) ([]*types.Stream, error) {

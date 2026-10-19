@@ -108,7 +108,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 				CDCBinlogFileName: pos.Name,
 				CDCBinlogFilePos:  pos.Pos, // Use the event position
 			},
-			mysqlCDCRowBytes(row, view.types))
+			mysqlCDCRowBytes(row, view.types), nil)
 		if err := callback(ctx, change); err != nil {
 			return err
 		}

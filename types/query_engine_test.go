@@ -4,11 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/datazip-inc/olake/constants"
 )
 
 func TestParseQueryEngines(t *testing.T) {
@@ -127,10 +124,7 @@ func TestAvailableUpdateTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			viper.Set(constants.TableIndexRequired, tc.indexRequired)
-			t.Cleanup(func() { viper.Set(constants.TableIndexRequired, false) })
-
-			assert.Equal(t, tc.expected, AvailableUpdateTypes(tc.engines))
+			assert.Equal(t, tc.expected, AvailableUpdateTypes(tc.engines, tc.indexRequired))
 		})
 	}
 }
@@ -178,7 +172,7 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema()}}
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
-	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineSnowflake})
+	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, false)
 
 	assert.Equal(t, string(UpdateTypePosition), catalog.SelectedStreams["public"][0].UpdateType)
 }
@@ -190,7 +184,7 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineDuckDB})
+	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, false)
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	assert.NotContains(t, string(serialized), "target_query_engines")
@@ -242,7 +236,7 @@ func TestMergeUpdateType(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			metadata := &StreamMetadata{StreamName: "users", UpdateType: tc.existing}
-			mergeUpdateType(metadata, "public.users", tc.engines)
+			mergeUpdateType(metadata, "public.users", tc.engines, false)
 			assert.Equal(t, tc.expected, metadata.UpdateType)
 		})
 	}

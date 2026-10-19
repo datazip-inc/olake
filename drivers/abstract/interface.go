@@ -18,6 +18,13 @@ type SampledSchemaProducer interface {
 	ProduceSampledSchema(ctx context.Context, streamID types.StreamID, limit int) (*types.Stream, error)
 }
 
+// TableIndexReader is implemented by drivers that can read rows back through the destination's
+// table index, so discover offers only the update types that keep one.
+type TableIndexReader interface {
+	// RequiresTableIndex reports whether the configured source reads rows back. Valid after Setup.
+	RequiresTableIndex() bool
+}
+
 type BackfillMsgFn func(ctx context.Context, message map[string]any, sourceBytes int64) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 

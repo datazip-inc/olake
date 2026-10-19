@@ -202,7 +202,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		return err
 	}
 	change := abstract.NewCDCChange(stream, ts, record.OperationType, record.FullDocument,
-		map[string]any{CDCResumeToken: token}, docBytes)
+		map[string]any{CDCResumeToken: token}, docBytes, nil)
 
 	if err := OnMessage(ctx, change); err != nil {
 		return err

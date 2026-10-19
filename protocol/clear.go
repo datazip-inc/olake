@@ -42,7 +42,7 @@ var clearCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state)
+		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state, false)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}

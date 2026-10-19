@@ -144,17 +144,20 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-// tupleValuesToMap converts one row's tuple into column values. unchangedToastColumns
-// lists this row's out-of-line values the UPDATE left unchanged, which Postgres did not
-// send. Nil unless preserveToastValues is on.
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (data map[string]any, rowBytes int64, unchangedToastColumns []string, err error) {
-	data = make(map[string]any)
+// tupleValuesToMap converts one row's tuple into column values. The returned columns are
+// this row's out-of-line values the UPDATE left unchanged, which Postgres did not send;
+// nil unless preserveToastValues is on.
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, int64, []string, error) {
+	data := make(map[string]any)
 	if tuple == nil {
 		return data, 0, nil, nil
 	}
 
 	// rowBytes is summed inline below (attached to CDCChange.Bytes by the caller),
 	// so the tuple is walked only once.
+	var rowBytes int64
+	var unchangedToastColumns []string
+
 	for idx, col := range tuple.Columns {
 		if idx >= len(rel.Columns) {
 			continue
@@ -213,7 +216,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 	}
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "insert", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes, nil))
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
@@ -232,11 +235,8 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return err
 	}
 
-	change := abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes)
-	change.UnavailableColumns = unchangedToastColumns
-
-	return insertFn(ctx, change)
+	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes, unchangedToastColumns))
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -256,7 +256,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 	}
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes, nil))
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

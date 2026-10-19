@@ -173,10 +173,11 @@ type RawRecord struct {
 	UnavailableColumns []string `json:"-"`
 }
 
-func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord {
+func CreateRawRecord(data map[string]any, olakeColumns map[string]any, unavailableColumns []string) RawRecord {
 	return RawRecord{
-		Data:         data,
-		OlakeColumns: olakeColumns,
+		Data:               data,
+		OlakeColumns:       olakeColumns,
+		UnavailableColumns: unavailableColumns,
 	}
 }
 
