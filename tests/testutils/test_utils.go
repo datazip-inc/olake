@@ -2794,6 +2794,7 @@ func (cfg *IntegrationTest) TestDDL(t *testing.T) {
 	// the metadata it loads is anchored after that position: the busy-server case.
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "ddl-seed")
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "ddl-noise-start")
+	defer cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "ddl-noise-stop")
 	cfg.ddlSync(ctx, t, "saving")
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "ddl-noise-stop")
 

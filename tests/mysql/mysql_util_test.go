@@ -19,6 +19,7 @@ import (
 var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
 
 // ddlNoise is the writer ddl-noise-start runs on a table no stream captures, until ddl-noise-stop.
+// stop is nil once stopped, so a second ddl-noise-stop (the deferred one) does nothing.
 var ddlNoise struct {
 	stop, done chan struct{}
 }
@@ -374,8 +375,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "ddl-noise-stop":
-		close(ddlNoise.stop)
-		<-ddlNoise.done
+		if ddlNoise.stop != nil {
+			close(ddlNoise.stop)
+			<-ddlNoise.done
+			ddlNoise.stop = nil
+		}
 		return
 
 	case "ddl-backlog":

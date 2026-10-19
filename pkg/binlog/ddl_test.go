@@ -1,6 +1,10 @@
 package binlog
 
 import (
+	"context"
+	"maps"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -39,12 +43,17 @@ func columnNames(meta *tableMeta) []string {
 	return names
 }
 
+// column returns the cached column with this name, failing the test when there is none, so
+// assertions do not depend on a column's position in the fixture.
+func column(t *testing.T, meta *tableMeta, name string) columnMeta {
+	t.Helper()
+	i := findColumn(meta.Columns, name)
+	require.NotEqual(t, -1, i, "no column %q in %v", name, columnNames(meta))
+	return meta.Columns[i]
+}
+
 func cacheKeys(c *schemaCache) []string {
-	keys := make([]string, 0, len(c.tables))
-	for key := range c.tables {
-		keys = append(keys, key)
-	}
-	return keys
+	return slices.Collect(maps.Keys(c.tables))
 }
 
 // charsetOf names the character set of a collation ID; decoding depends only on the charset,
@@ -63,27 +72,34 @@ func TestApplyDDLFollowsEachAlterInOrder(t *testing.T) {
 
 	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','pending','paid')", "shop", ddlPos(200))
 	require.Contains(t, c.tables, "shop.orders")
-	assert.Equal(t, []string{"new", "pending", "paid"}, c.tables["shop.orders"].Columns[1].EnumValues)
+	assert.Equal(t, []string{"new", "pending", "paid"}, column(t, c.tables["shop.orders"], "status").EnumValues)
 	assert.Equal(t, ddlPos(200), c.tables["shop.orders"].AnchoredAt)
 
 	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','review','pending','paid')", "shop", ddlPos(300))
-	assert.Equal(t, []string{"new", "review", "pending", "paid"}, c.tables["shop.orders"].Columns[1].EnumValues)
+	assert.Equal(t, []string{"new", "review", "pending", "paid"}, column(t, c.tables["shop.orders"], "status").EnumValues)
 	assert.Equal(t, ddlPos(300), c.tables["shop.orders"].AnchoredAt)
 }
 
 // snapshot() shares *tableMeta with the saved state, so an ALTER must replace the entry
-// rather than mutate it.
+// rather than mutate it. The live entry is checked too: it took the DDL, so the saved one
+// staying put is copy-on-write, not a DDL silently ignored.
 func TestApplyDDLCopiesOnWrite(t *testing.T) {
 	c := ddlCache()
 	saved := c.snapshot(ddlPos(200))
 
 	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','pending','paid'), DROP COLUMN name", "shop", ddlPos(200))
 
-	assert.Equal(t, []string{"new", "paid"}, saved["shop.orders"].Columns[1].EnumValues)
+	assert.Equal(t, []string{"new", "paid"}, column(t, saved["shop.orders"], "status").EnumValues)
 	assert.Equal(t, []string{"id", "status", "name"}, columnNames(saved["shop.orders"]))
 	assert.Equal(t, ddlPos(100), saved["shop.orders"].AnchoredAt)
+
+	assert.Equal(t, []string{"id", "status"}, columnNames(c.tables["shop.orders"]))
+	assert.Equal(t, []string{"new", "pending", "paid"}, column(t, c.tables["shop.orders"], "status").EnumValues)
 }
 
+// Each ALTER clause reaches the cached columns. Every case also re-anchors the entry at the DDL,
+// the index-only one included: an ALTER of a cached table leaves the entry known to be valid
+// there even when no column changes, so that AnchoredAt check is intentional.
 func TestApplyDDLColumnChanges(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -120,6 +136,9 @@ func TestApplyDDLColumnChanges(t *testing.T) {
 	}
 }
 
+// Column details an added column carries: ZEROFILL implies UNSIGNED, charsets and collations,
+// SET members, and BLOB as binary. TiDB's parser gives BLOB the binary charset; without it the
+// column would take the table default, so that case guards the dependency.
 func TestApplyDDLColumnDetails(t *testing.T) {
 	c := ddlCache()
 	c.applyDDL("ALTER TABLE orders "+
@@ -129,19 +148,19 @@ func TestApplyDDLColumnDetails(t *testing.T) {
 		"ADD l VARCHAR(5) CHARACTER SET latin1, "+
 		"ADD bin VARCHAR(5) CHARACTER SET utf8mb4 BINARY, "+
 		"ADD c VARCHAR(5) COLLATE utf8mb4_bin, "+
-		"ADD tags SET('a','b')", "shop", ddlPos(200))
+		"ADD tags SET('a','b'), "+
+		"ADD data BLOB", "shop", ddlPos(200))
 
 	meta := c.tables["shop.orders"]
 	require.NotNil(t, meta)
-	cols := meta.Columns[3:]
-
-	assert.True(t, cols[0].Unsigned, "ZEROFILL implies UNSIGNED")
-	assert.True(t, cols[1].Unsigned)
-	assert.Equal(t, uint64(binaryCollationID), cols[2].CollationID)
-	assert.Equal(t, "latin1", charsetOf(t, cols[3].CollationID))
-	assert.Equal(t, mustCollationID(t, "utf8mb4_bin"), cols[4].CollationID, "BINARY attribute takes the _bin collation")
-	assert.Equal(t, mustCollationID(t, "utf8mb4_bin"), cols[5].CollationID)
-	assert.Equal(t, []string{"a", "b"}, cols[6].SetMembers)
+	assert.True(t, column(t, meta, "z").Unsigned, "ZEROFILL implies UNSIGNED")
+	assert.True(t, column(t, meta, "u").Unsigned)
+	assert.Equal(t, uint64(binaryCollationID), column(t, meta, "b").CollationID)
+	assert.Equal(t, "latin1", charsetOf(t, column(t, meta, "l").CollationID))
+	assert.Equal(t, mustCollationID(t, "utf8mb4_bin"), column(t, meta, "bin").CollationID, "BINARY attribute takes the _bin collation")
+	assert.Equal(t, mustCollationID(t, "utf8mb4_bin"), column(t, meta, "c").CollationID)
+	assert.Equal(t, []string{"a", "b"}, column(t, meta, "tags").SetMembers)
+	assert.Equal(t, uint64(binaryCollationID), column(t, meta, "data").CollationID, "BLOB is binary")
 }
 
 func TestApplyDDLConvertCharset(t *testing.T) {
@@ -151,10 +170,56 @@ func TestApplyDDLConvertCharset(t *testing.T) {
 
 	c.applyDDL("ALTER TABLE orders CONVERT TO CHARACTER SET latin1", "shop", ddlPos(200))
 
-	cols := c.tables["shop.orders"].Columns
-	assert.Equal(t, uint64(0), cols[0].CollationID, "non-character columns are untouched")
-	assert.Equal(t, "latin1", charsetOf(t, cols[2].CollationID))
-	assert.Equal(t, uint64(binaryCollationID), cols[3].CollationID, "binary columns are untouched")
+	meta := c.tables["shop.orders"]
+	assert.Equal(t, uint64(0), column(t, meta, "id").CollationID, "non-character columns are untouched")
+	assert.Equal(t, "latin1", charsetOf(t, column(t, meta, "name").CollationID))
+	assert.Equal(t, uint64(binaryCollationID), column(t, meta, "raw").CollationID, "binary columns are untouched")
+}
+
+// The other table charset options: COLLATE alone changes only the default, CONVERT TO ... COLLATE
+// converts every character column to that collation, and CONVERT TO binary would change column
+// types, so the table is dropped instead.
+func TestApplyDDLCharsetOptions(t *testing.T) {
+	tests := []struct {
+		name        string
+		query       string
+		dropped     bool
+		wantDefault uint64 // the table default after the DDL
+		wantName    uint64 // the collation of the existing character column "name"
+	}{
+		{
+			name:        "COLLATE only changes the default",
+			query:       "ALTER TABLE orders COLLATE utf8mb4_bin",
+			wantDefault: mustCollationID(t, "utf8mb4_bin"),
+			wantName:    utf8mb4GeneralCI,
+		},
+		{
+			name:        "CONVERT TO with COLLATE",
+			query:       "ALTER TABLE orders CONVERT TO CHARACTER SET latin1 COLLATE latin1_general_ci",
+			wantDefault: mustCollationID(t, "latin1_general_ci"),
+			wantName:    mustCollationID(t, "latin1_general_ci"),
+		},
+		{
+			name:    "CONVERT TO binary drops the table",
+			query:   "ALTER TABLE orders CONVERT TO CHARACTER SET binary",
+			dropped: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := ddlCache()
+			c.applyDDL(tt.query, "shop", ddlPos(200))
+
+			if tt.dropped {
+				assert.NotContains(t, c.tables, "shop.orders")
+				return
+			}
+			meta := c.tables["shop.orders"]
+			require.NotNil(t, meta)
+			assert.Equal(t, tt.wantDefault, meta.DefaultCollationID)
+			assert.Equal(t, tt.wantName, column(t, meta, "name").CollationID)
+		})
+	}
 }
 
 func TestApplyDDLIfExists(t *testing.T) {
@@ -177,7 +242,8 @@ func TestApplyDDLIfExists(t *testing.T) {
 	}
 }
 
-// Statements that change no captured table's columns must leave the cache as it is.
+// Statements that change no captured table's columns must leave the cache as it is. The whole
+// cache is compared, so a statement that touches any other entry fails too.
 func TestApplyDDLIgnores(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -197,8 +263,10 @@ func TestApplyDDLIgnores(t *testing.T) {
 		{"grant", "GRANT SELECT ON shop.* TO bob"},
 		{"commented trigger", "-- cleanup\nDROP TRIGGER trg"},
 		{"create if not exists", "CREATE TABLE IF NOT EXISTS orders (id INT)"},
-		{"other-case table name", "ALTER TABLE ORDERS ADD c INT"},
 		{"unparseable create of another table", "CREATE TABLE geo (id INT PRIMARY KEY, g POINT NOT NULL)"},
+		{"unparseable alter of a $ name", "ALTER TABLE orders$archive WIBBLE"},
+		{"unparseable alter of a non-ASCII name", "ALTER TABLE ordersé WIBBLE"},
+		{"unparseable alter of another table", "ALTER TABLE logs WIBBLE"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -208,6 +276,18 @@ func TestApplyDDLIgnores(t *testing.T) {
 			assert.Equal(t, before, c.tables)
 		})
 	}
+}
+
+// A table named like an object keyword (user, event, view, ...) is still a table: nonTableDDLRe
+// only matches the keyword right after the verb, so ALTER TABLE user is applied, not skipped.
+func TestApplyDDLTableNamedLikeKeyword(t *testing.T) {
+	c := ddlCache()
+	c.tables["shop.user"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
+
+	c.applyDDL("ALTER TABLE user ADD c INT", "shop", ddlPos(200))
+
+	require.Contains(t, c.tables, "shop.user")
+	assert.Equal(t, []string{"id", "c"}, columnNames(c.tables["shop.user"]))
 }
 
 // Statements that give a table a new layout, or a new name, forget only the tables named.
@@ -226,6 +306,9 @@ func TestApplyDDLDropsNamedTables(t *testing.T) {
 		{"rename to cached name", "RENAME TABLE archive TO customers", "shop", []string{"shop.orders", "sales.invoices"}},
 		{"alter rename", "ALTER TABLE orders RENAME TO orders_old", "shop", []string{"shop.customers", "sales.invoices"}},
 		{"set statement prefix", "SET STATEMENT lock_wait_timeout=5 FOR DROP TABLE customers", "shop", []string{"shop.orders", "sales.invoices"}},
+		// lower_case_table_names: the row events' spelling may differ from the DDL's.
+		{"other-case alter", "ALTER TABLE ORDERS ADD c INT", "shop", []string{"shop.customers", "sales.invoices"}},
+		{"other-case drop", "DROP TABLE shop.CUSTOMERS", "x", []string{"shop.orders", "sales.invoices"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -266,25 +349,67 @@ func TestApplyDDLTableDefaultCharset(t *testing.T) {
 	c := ddlCache()
 	c.applyDDL("ALTER TABLE orders ADD note VARCHAR(255)", "shop", ddlPos(200))
 	require.Contains(t, c.tables, "shop.orders")
-	assert.Equal(t, uint64(utf8mb4GeneralCI), c.tables["shop.orders"].Columns[3].CollationID)
+	assert.Equal(t, uint64(utf8mb4GeneralCI), column(t, c.tables["shop.orders"], "note").CollationID)
 
 	c.applyDDL("ALTER TABLE orders DEFAULT CHARSET=latin1", "shop", ddlPos(300))
 	c.applyDDL("ALTER TABLE orders ADD memo TEXT", "shop", ddlPos(400))
-	cols := c.tables["shop.orders"].Columns
-	assert.Equal(t, "utf8mb4", charsetOf(t, cols[2].CollationID), "existing columns keep their charset")
-	assert.Equal(t, "latin1", charsetOf(t, cols[4].CollationID))
+	meta := c.tables["shop.orders"]
+	assert.Equal(t, "utf8mb4", charsetOf(t, column(t, meta, "name").CollationID), "existing columns keep their charset")
+	assert.Equal(t, "latin1", charsetOf(t, column(t, meta, "memo").CollationID))
+}
+
+func TestCollationID(t *testing.T) {
+	tests := []struct {
+		name         string
+		cs, collate  string
+		binaryAttr   bool
+		tableDefault uint64
+		want         uint64
+		wantErr      string
+	}{
+		{name: "no charset and no table default", wantErr: "table default is unknown"},
+		{name: "no charset takes the table default", tableDefault: utf8mb4GeneralCI, want: utf8mb4GeneralCI},
+		{name: "BINARY takes the table charset's _bin", binaryAttr: true, tableDefault: utf8mb4GeneralCI, want: mustCollationID(t, "utf8mb4_bin")},
+		{name: "explicit COLLATE wins", collate: "utf8mb4_bin", tableDefault: utf8mb4GeneralCI, want: mustCollationID(t, "utf8mb4_bin")},
+		{name: "unknown charset", cs: "nope", wantErr: `unknown character set "nope"`},
+		{name: "unknown collation", collate: "nope_ci", wantErr: `unknown collation "nope_ci"`},
+		{name: "binary short-circuits", cs: "binary", tableDefault: utf8mb4GeneralCI, want: binaryCollationID},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := collationID(tt.cs, tt.collate, tt.binaryAttr, tt.tableDefault)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 // An entry loaded from information_schema after this DDL may already include it, so it is
-// dropped rather than altered a second time.
+// dropped rather than altered a second time. One anchored exactly at the DDL was read right
+// after it, so >= is deliberate and that case is dropped too.
 func TestApplyDDLDropsEntryNewerThanDDL(t *testing.T) {
-	c := ddlCache()
-	c.tables["shop.orders"].AnchoredAt = ddlPos(500)
+	tests := []struct {
+		name   string
+		anchor mysql.Position
+	}{
+		{"anchored after the DDL", ddlPos(500)},
+		{"anchored at the DDL", ddlPos(400)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := ddlCache()
+			c.tables["shop.orders"].AnchoredAt = tt.anchor
 
-	c.applyDDL("ALTER TABLE orders ADD c INT", "shop", ddlPos(400))
+			c.applyDDL("ALTER TABLE orders ADD c INT", "shop", ddlPos(400))
 
-	assert.NotContains(t, c.tables, "shop.orders")
-	assert.Contains(t, c.tables, "shop.customers")
+			assert.NotContains(t, c.tables, "shop.orders")
+			assert.Contains(t, c.tables, "shop.customers")
+		})
+	}
 }
 
 // When a statement cannot be read, or names a table with no database, any cached table
@@ -308,15 +433,35 @@ func TestApplyDDLWipesWhenUnsure(t *testing.T) {
 	}
 }
 
-// Any DDL, a trigger included, may give a table a new TableID, so it clears every recorded one.
-func TestApplyDDLForgetsTableIDs(t *testing.T) {
+// snapshot and maxAnchor (State and the stop check) and get (every row) can read the cache while
+// applyDDL changes it. Running them together lets go test -race catch any access outside c.mu.
+// get records TableID 7 on shop.customers with setTable while applyDDL replaces shop.orders: both
+// paths write the cache.
+func TestSchemaCacheConcurrentAccess(t *testing.T) {
 	c := ddlCache()
-	c.tables["shop.orders"].TableID = 7
-	saved := c.snapshot(ddlPos(200))
-
-	c.applyDDL("CREATE DEFINER=`root`@`%` TRIGGER trg AFTER INSERT ON orders FOR EACH ROW SET @x = 1", "shop", ddlPos(200))
-
-	assert.Equal(t, uint64(0), c.tables["shop.orders"].TableID)
-	assert.Equal(t, []string{"id", "status", "name"}, columnNames(c.tables["shop.orders"]))
-	assert.Equal(t, uint64(7), saved["shop.orders"].TableID, "the saved entry is not edited")
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := uint32(0); i < 200; i++ {
+			c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','paid')", "shop", ddlPos(200+i))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			_ = c.snapshot(ddlPos(1000))
+			_ = c.maxAnchor()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			if _, err := c.get(context.Background(), "shop", "customers", 7, 1); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
 }

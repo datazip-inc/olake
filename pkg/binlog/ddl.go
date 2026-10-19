@@ -29,12 +29,14 @@ var nonTableDDLRe = regexp.MustCompile(`(?is)` + leadingComments + `(?:create|al
 
 // tableDDLNameRe finds the table of an ALTER TABLE or CREATE TABLE the parser rejects, such as
 // one using INVISIBLE, SRID, a SPATIAL INDEX or a POINT column, so only that table is dropped.
+// Unquoted names take any letter, digit, _ or $, as MySQL allows; a name that does not end at a
+// space, "(", ";" or the end does not match, so the caller wipes the cache instead of guessing.
 var tableDDLNameRe = regexp.MustCompile(`(?is)` + leadingComments +
 	`(?:alter\s+(?:online\s+|ignore\s+)?|create\s+(?:temporary\s+)?)table\s+(?:if\s+not\s+exists\s+)?` +
-	"(?:`([^`]+)`|(\\w+))(?:\\s*\\.\\s*(?:`([^`]+)`|(\\w+)))?")
+	"(?:`([^`]+)`|([\\pL\\pN_$]+))(?:\\s*\\.\\s*(?:`([^`]+)`|([\\pL\\pN_$]+)))?(?:[\\s(;]|$)")
 
-// unparsedTableDDL returns the table an unparseable ALTER TABLE or CREATE TABLE names, if it is one.
-func unparsedTableDDL(query string) (*ast.TableName, bool) {
+// tableOfUnparsedDDL returns the table an unparseable ALTER TABLE or CREATE TABLE names, if it is one.
+func tableOfUnparsedDDL(query string) (*ast.TableName, bool) {
 	m := tableDDLNameRe.FindStringSubmatch(query)
 	if m == nil {
 		return nil, false
@@ -46,6 +48,27 @@ func unparsedTableDDL(query string) (*ast.TableName, bool) {
 	return &ast.TableName{Schema: ast.NewCIStr(first), Name: ast.NewCIStr(second)}, true
 }
 
+// maxLoggedQueryLen caps how much of a statement a log line carries: a big CREATE TABLE can run
+// to many kilobytes.
+const maxLoggedQueryLen = 200
+
+// shortQuery returns query cut to maxLoggedQueryLen characters for logs, marked with "…" when cut.
+func shortQuery(query string) string {
+	if r := []rune(query); len(r) > maxLoggedQueryLen {
+		return string(r[:maxLoggedQueryLen]) + "…"
+	}
+	return query
+}
+
+// ddlEvent is one QueryEvent's DDL as the helpers below need it: its text for logs (shortened by
+// shortQuery), the database in use when it ran (for unqualified names), and its binlog position
+// (where an applied ALTER is anchored).
+type ddlEvent struct {
+	query         string
+	defaultSchema string
+	pos           mysql.Position
+}
+
 // applyDDL updates the cache for one QueryEvent, in binlog order, so each cached schema keeps
 // describing its table at the reader's position. pos is the event's position and
 // defaultSchema the database in use when the statement ran.
@@ -54,101 +77,110 @@ func unparsedTableDDL(query string) (*ast.TableName, bool) {
 // when that is unknown, and an ALTER it cannot apply drops just that table. Either way the
 // table reloads lazily from information_schema, anchored by get().
 func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position) {
-	// With binlog_row_metadata=FULL every row carries its own metadata, so nothing is ever
-	// cached and there is nothing to update.
-	c.mu.RLock()
-	empty := len(c.tables) == 0
-	c.mu.RUnlock()
-	if empty {
-		return
-	}
-
 	query = setStatementRe.ReplaceAllLiteralString(query, "")
 	if !isDDL([]byte(query)) {
 		return
 	}
-	// Any DDL, a trigger or an index included, may give a table a new TableMapEvent.TableID, so
-	// the next id get sees is no sign of an unlogged change.
-	c.forgetTableIDs()
-	if nonTableDDLRe.MatchString(query) {
-		return
+
+	ev := ddlEvent{query: shortQuery(query), defaultSchema: defaultSchema, pos: pos}
+
+	// Parse before taking c.mu: it reads only the query. DDL on objects with no columns (triggers,
+	// views, users, ...) needs no parse.
+	nonTable := nonTableDDLRe.MatchString(query)
+	var stmts []ast.StmtNode
+	var err error
+	if !nonTable {
+		stmts, _, err = parser.New().ParseSQL(query)
 	}
 
-	stmts, _, err := parser.New().ParseSQL(query)
-	if err != nil || len(stmts) != 1 {
-		// Only a single statement the parser rejects can be pinned to its table: several
-		// statements may alter several tables.
-		if name, ok := unparsedTableDDL(query); ok && err != nil {
-			logger.Warnf("cannot parse DDL, dropping cached column metadata for its table: %s", query)
-			c.mu.Lock()
-			c.dropTables(defaultSchema, query, name)
-			c.mu.Unlock()
-			return
-		}
-		logger.Warnf("cannot parse DDL, dropping all cached column metadata: %s", query)
-		c.invalidate()
-		return
-	}
-
+	// One lock for the whole change, from the empty check to the last write, so get() never sees
+	// it half done. Everything below is a Locked helper.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// With binlog_row_metadata=FULL every row carries its own metadata, so nothing is ever
+	// cached and there is nothing to update.
+	if len(c.tables) == 0 {
+		return
+	}
+
+	if nonTable {
+		return
+	}
+
+	if err != nil || len(stmts) != 1 {
+		// Only a single statement the parser rejects can be pinned to its table: several
+		// statements may alter several tables. MySQL logs each statement as its own QueryEvent,
+		// even when a client sends several at once, so a rejected query here is one statement.
+		if name, ok := tableOfUnparsedDDL(query); ok && err != nil {
+			logger.Infof("cannot parse DDL, forgetting its table if cached: %s", ev.query)
+			c.dropTablesLocked(ev, name)
+			return
+		}
+		logger.Warnf("cannot parse DDL, dropping all cached column metadata: %s", ev.query)
+		c.resetLocked()
+		return
+	}
 	switch stmt := stmts[0].(type) {
 	case *ast.AlterTableStmt:
-		c.alterTable(stmt, defaultSchema, pos, query)
+		c.alterTableLocked(stmt, ev)
 	case *ast.RenameTableStmt:
 		// Forget both names of every pair: after a swap such as gh-ost's cutover
 		// (RENAME TABLE t TO _t_del, _t_gho TO t) the new name holds a different layout.
+		names := make([]*ast.TableName, 0, 2*len(stmt.TableToTables))
 		for _, pair := range stmt.TableToTables {
-			c.dropTables(defaultSchema, query, pair.OldTable, pair.NewTable)
+			names = append(names, pair.OldTable, pair.NewTable)
 		}
+		c.dropTablesLocked(ev, names...)
 	case *ast.DropTableStmt:
 		if !stmt.IsView {
-			c.dropTables(defaultSchema, query, stmt.Tables...)
+			c.dropTablesLocked(ev, stmt.Tables...)
 		}
 	case *ast.CreateTableStmt:
 		// A table created under a cached name has a new layout. IF NOT EXISTS on an existing
 		// table changes nothing, and apps that bootstrap their schema run it on every start.
 		if !stmt.IfNotExists {
-			c.dropTables(defaultSchema, query, stmt.Table)
+			c.dropTablesLocked(ev, stmt.Table)
 		}
 	case *ast.DropDatabaseStmt:
-		c.dropSchema(stmt.Name.O, query)
+		c.dropSchemaLocked(stmt.Name.O, ev)
 	case *ast.CreateDatabaseStmt, *ast.AlterDatabaseStmt, *ast.CreateIndexStmt, *ast.DropIndexStmt, *ast.CreateViewStmt:
 		// No table's columns change.
 	default:
 		// A statement type this file does not know: forget any cached table it names.
-		c.dropTables(defaultSchema, query, referencedTables(stmts[0])...)
+		c.dropTablesLocked(ev, referencedTables(stmts[0])...)
 	}
 }
 
-// alterTable applies an ALTER TABLE to the cached schema of its table, if cached.
+// alterTableLocked applies an ALTER TABLE to the cached schema of its table, if cached.
 // The caller holds c.mu.
-func (c *schemaCache) alterTable(stmt *ast.AlterTableStmt, defaultSchema string, pos mysql.Position, query string) {
+func (c *schemaCache) alterTableLocked(stmt *ast.AlterTableStmt, ev ddlEvent) {
 	for _, spec := range stmt.Specs {
 		if spec.Tp == ast.AlterTableRenameTable {
 			// The table moves to a new name: forget both, so each reloads fresh if streamed.
-			c.dropTables(defaultSchema, query, stmt.Table, spec.NewTable)
+			c.dropTablesLocked(ev, stmt.Table, spec.NewTable)
 			return
 		}
 	}
 
-	schema, ok := tableSchema(defaultSchema, stmt.Table)
-	if !ok {
-		c.dropTables(defaultSchema, query, stmt.Table)
+	schema, known := tableSchema(ev.defaultSchema, stmt.Table)
+	if !known {
+		c.dropTablesLocked(ev, stmt.Table)
 		return
 	}
-	key := schema + "." + stmt.Table.Name.O
-	meta, ok := c.tables[key]
-	if !ok {
+	key := tableKey(schema, stmt.Table.Name.O)
+	meta, cached := c.getTableLocked(key)
+	if !cached {
+		// lower_case_table_names may make the DDL's spelling differ from the row events'.
+		c.dropTablesLocked(ev, stmt.Table)
 		return
 	}
 
 	// An entry anchored at or after this DDL was read from information_schema later, and may
 	// already include it; applying the DDL again would corrupt the entry.
-	if meta.AnchoredAt.Compare(pos) >= 0 {
+	if meta.AnchoredAt.Compare(ev.pos) >= 0 {
 		delete(c.tables, key)
-		logger.Warnf("cached column metadata for %s may already include this DDL, dropping it: %s", key, query)
+		logger.Warnf("cached column metadata for %s may already include this DDL, dropping it: %s", key, ev.query)
 		return
 	}
 
@@ -157,55 +189,43 @@ func (c *schemaCache) alterTable(stmt *ast.AlterTableStmt, defaultSchema string,
 	for _, spec := range stmt.Specs {
 		if err := next.applyAlterSpec(spec); err != nil {
 			delete(c.tables, key)
-			logger.Warnf("cannot apply DDL to cached column metadata for %s (%s), dropping it: %s", key, err, query)
+			logger.Warnf("cannot apply DDL to cached column metadata for %s (%s), dropping it: %s", key, err, ev.query)
 			return
 		}
 	}
-	next.AnchoredAt = pos
-	next.TableID = 0 // the ALTER gives the table a new id, which the next row records
-	c.tables[key] = next
-	logger.Infof("applied DDL to cached column metadata for %s: %s", key, query)
+	next.AnchoredAt = ev.pos
+	c.setTableLocked(key, next)
+	logger.Infof("applied DDL to cached column metadata for %s: %s", key, ev.query)
 }
 
-// dropTables forgets each named table. A name that resolves to no database wipes the cache,
+// dropTablesLocked forgets each named table. A name that resolves to no database wipes the cache,
 // since any cached table could be the one meant. The caller holds c.mu.
-func (c *schemaCache) dropTables(defaultSchema, query string, names ...*ast.TableName) {
+func (c *schemaCache) dropTablesLocked(ev ddlEvent, names ...*ast.TableName) {
 	for _, name := range names {
-		schema, ok := tableSchema(defaultSchema, name)
+		schema, ok := tableSchema(ev.defaultSchema, name)
 		if !ok {
-			logger.Warnf("DDL names a table without a database, dropping all cached column metadata: %s", query)
-			c.tables = map[string]*tableMeta{}
+			logger.Warnf("DDL names a table without a database, dropping all cached column metadata: %s", ev.query)
+			c.resetLocked()
 			return
 		}
-		// Table names are case-sensitive on Linux, so only an exact match is the same table.
-		key := schema + "." + name.Name.O
-		if _, ok := c.tables[key]; ok {
-			delete(c.tables, key)
-			logger.Infof("DDL dropped cached column metadata for %s: %s", key, query)
+		// lower_case_table_names may make the DDL's spelling differ from the row events', so match
+		// case-insensitively; dropping a same-named table on a case-sensitive server only reloads it.
+		key := tableKey(schema, name.Name.O)
+		for cached := range c.tables {
+			if strings.EqualFold(cached, key) {
+				c.deleteTableLocked(cached)
+				logger.Infof("DDL dropped cached column metadata for %s: %s", cached, ev.query)
+			}
 		}
 	}
 }
 
-// forgetTableIDs clears every entry's TableID, so get records the next one it sees instead of
-// reloading. Entries are replaced, never edited, since snapshot shares them.
-func (c *schemaCache) forgetTableIDs() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for key, meta := range c.tables {
-		if meta.TableID != 0 {
-			next := meta.clone()
-			next.TableID = 0
-			c.tables[key] = next
-		}
-	}
-}
-
-// dropSchema forgets every cached table in a dropped database. The caller holds c.mu.
-func (c *schemaCache) dropSchema(schema, query string) {
+// dropSchemaLocked forgets every cached table in a dropped database. The caller holds c.mu.
+func (c *schemaCache) dropSchemaLocked(schema string, ev ddlEvent) {
 	for key := range c.tables {
-		if keySchema, _, _ := strings.Cut(key, "."); keySchema == schema {
-			delete(c.tables, key)
-			logger.Infof("DDL dropped cached column metadata for %s: %s", key, query)
+		if keySchema, _, _ := strings.Cut(key, "."); strings.EqualFold(keySchema, schema) {
+			c.deleteTableLocked(key)
+			logger.Infof("DDL dropped cached column metadata for %s: %s", key, ev.query)
 		}
 	}
 }
@@ -219,7 +239,10 @@ func tableSchema(defaultSchema string, name *ast.TableName) (string, bool) {
 	return defaultSchema, defaultSchema != ""
 }
 
-// clone returns a deep copy, so changing it never reaches a *tableMeta shared with a snapshot.
+// clone returns a deep copy, so changing it never reaches a *tableMeta shared with a snapshot:
+// callers set columns, AnchoredAt and TableID on the copy, while the saved state keeps the old one.
+// next := *m copies every field (new ones included, so none is forgotten), then Columns is
+// replaced with the deep copy built above; returning m itself would edit the shared entry.
 func (m *tableMeta) clone() *tableMeta {
 	cols := make([]columnMeta, len(m.Columns))
 	for i, col := range m.Columns {
@@ -288,6 +311,9 @@ func (m *tableMeta) applyAlterSpec(spec *ast.AlterTableSpec) error {
 			col.Name = m.Columns[i].Name // MODIFY keeps the name as stored
 		}
 		m.Columns = slices.Delete(m.Columns, i, i+1)
+		if findColumn(m.Columns, col.Name) != -1 {
+			return fmt.Errorf("column %q already exists", col.Name)
+		}
 		at, err := columnIndex(m.Columns, spec.Position, i)
 		if err != nil {
 			return err
@@ -298,6 +324,9 @@ func (m *tableMeta) applyAlterSpec(spec *ast.AlterTableSpec) error {
 		i := findColumn(m.Columns, spec.OldColumnName.Name.O)
 		if i == -1 {
 			return fmt.Errorf("unknown column %q", spec.OldColumnName.Name.O)
+		}
+		if j := findColumn(m.Columns, spec.NewColumnName.Name.O); j != -1 && j != i {
+			return fmt.Errorf("column %q already exists", spec.NewColumnName.Name.O)
 		}
 		m.Columns[i].Name = spec.NewColumnName.Name.O
 

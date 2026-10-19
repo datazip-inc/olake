@@ -66,9 +66,29 @@ func NewConnection(_ context.Context, config *Config, state Binlog, streams []ty
 	return conn, nil
 }
 
+// isRecovery reports whether the caller fixed the stop position, as a recovery run does: it must
+// end exactly there, where a previous run already committed to the destination.
+func isRecovery(stop mysql.Position) bool {
+	return stop.Name != "" && stop.Pos != 0
+}
+
+// lastPosToRead is the position the run reads to. A recovery run stops exactly at latestBinlogPos.
+// Otherwise it reads on to the newest cached schema's anchor when that is later (the server head
+// when that table was loaded), so State can save every schema: the next run resumes there and
+// drops schemas anchored later. Tables load while the run reads, so the answer can move.
+func (c *Connection) lastPosToRead(latestBinlogPos mysql.Position, recovery bool) mysql.Position {
+	if recovery {
+		return latestBinlogPos
+	}
+	if anchor := c.changeFilter.schema.maxAnchor(); anchor.Compare(latestBinlogPos) > 0 {
+		return anchor
+	}
+	return latestBinlogPos
+}
+
 func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestBinlogPos mysql.Position, callback abstract.CDCMsgFn) error {
-	// A caller-given stop is a recovery run, which must end exactly there.
-	recovery := latestBinlogPos.Name != "" && latestBinlogPos.Pos != 0
+	// Decided before latestBinlogPos is replaced below, which would make it look caller-given.
+	recovery := isRecovery(latestBinlogPos)
 	if !recovery {
 		var err error
 		latestBinlogPos, err = GetCurrentBinlogPosition(ctx, client)
@@ -100,8 +120,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 			// Stop once past the latest binlog position. Outside recovery, first read on past every
 			// cached schema's anchor, which is the server head when that table was loaded, so State
 			// can save it: the next run resumes here and drops schemas anchored later.
-			if c.CurrentPos.Compare(latestBinlogPos) >= 0 &&
-				(recovery || c.CurrentPos.Compare(c.changeFilter.schema.maxAnchor()) >= 0) {
+			if c.CurrentPos.Compare(latestBinlogPos) >= 0 && c.CurrentPos.Compare(c.lastPosToRead(latestBinlogPos, recovery)) >= 0 {
 				logger.Infof("Reached the configured latest binlog position %s:%d; stopping CDC sync", c.CurrentPos.Name, c.CurrentPos.Pos)
 				return nil
 			}

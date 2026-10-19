@@ -31,8 +31,9 @@ type tableMeta struct {
 	AnchoredAt mysql.Position `json:"anchored_at"`
 	// DefaultCollationID is the table default, which a column added without a charset takes.
 	DefaultCollationID uint64 `json:"default_collation_id,omitempty"`
-	// TableID is the TableMapEvent.TableID last seen, or 0 after a DDL until the next row.
-	TableID uint64 `json:"table_id,omitempty"`
+	// TableID is the TableMapEvent.TableID last seen in this run, 0 until the table's first row.
+	// Not saved: MySQL reassigns ids on restart and FLUSH TABLES.
+	TableID uint64 `json:"-"`
 }
 
 // schemaCache supplies the column metadata the binlog omits. Safe for concurrent use:
@@ -49,6 +50,12 @@ type schemaCache struct {
 	tables map[string]*tableMeta
 }
 
+// tableKey is the key a table's entry is cached under, "schematable". Every lookup, store and
+// drop builds it here, so a DDL finds exactly the entry a row event cached.
+func tableKey(schema, table string) string {
+	return schema + "." + table
+}
+
 // newSchemaCache starts from the previous run's saved schemas, keeping only those valid at or
 // before the resume position. A later anchor may already include DDL the reader has not reached,
 // so that table is reloaded instead. An empty anchor would compare as earliest, so it is skipped.
@@ -62,28 +69,60 @@ func newSchemaCache(client *sqlx.DB, state Binlog) *schemaCache {
 	return &schemaCache{client: client, tables: tables}
 }
 
-// get returns a table's cached schema, loading it on first use. tableID is the TableMapEvent's:
-// MySQL gives a table a new one on every ALTER, logged or not, so a change with no DDL applied
-// since (sql_log_bin=0, binlog-ignore-db) means the cached schema is stale and is reloaded.
-func (c *schemaCache) get(ctx context.Context, schema, table string, tableID uint64) (*tableMeta, error) {
-	key := schema + "." + table
+// Single reads and writes of c.tables go through these. getTable and setTable take c.mu
+// themselves. The Locked variants are for a step that reads and changes several entries as one
+// change (applyDDL): the caller holds c.mu.
 
+func (c *schemaCache) getTable(key string) (*tableMeta, bool) {
 	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.getTableLocked(key)
+}
+
+func (c *schemaCache) setTable(key string, meta *tableMeta) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.setTableLocked(key, meta)
+}
+
+func (c *schemaCache) getTableLocked(key string) (*tableMeta, bool) {
 	meta, ok := c.tables[key]
-	c.mu.RUnlock()
+	return meta, ok
+}
+
+func (c *schemaCache) setTableLocked(key string, meta *tableMeta) {
+	c.tables[key] = meta
+}
+
+func (c *schemaCache) deleteTableLocked(key string) {
+	delete(c.tables, key)
+}
+
+func (c *schemaCache) resetLocked() {
+	c.tables = map[string]*tableMeta{}
+}
+
+// get returns a table's cached schema, loading it on first use. tableID and columns are the
+// TableMapEvent's. MySQL gives a table a new id on every ALTER, logged or not, but also on
+// TRUNCATE, OPTIMIZE, FLUSH TABLES and table cache eviction, so a new id alone proves nothing.
+// The cached schema is reloaded only when the id changed and the column count differs too, as
+// after an unlogged ALTER (sql_log_bin=0, binlog-ignore-db).
+func (c *schemaCache) get(ctx context.Context, schema, table string, tableID uint64, columns int) (*tableMeta, error) {
+	key := tableKey(schema, table)
+
+	meta, ok := c.getTable(key)
+
 	switch {
 	case ok && meta.TableID == tableID:
 		return meta, nil
-	case ok && meta.TableID == 0:
-		// First row since the entry was loaded, saved or changed by a DDL: record the table's id.
+	case ok && len(meta.Columns) == columns:
+		// A new id with the columns as cached: record it and keep the cached schema.
 		next := meta.clone()
 		next.TableID = tableID
-		c.mu.Lock()
-		c.tables[key] = next
-		c.mu.Unlock()
+		c.setTable(key, next)
 		return next, nil
 	case ok:
-		logger.Warnf("table id of %s changed from %d to %d with no DDL seen, reloading column metadata", key, meta.TableID, tableID)
+		logger.Infof("cached column metadata for %s has %d columns, binlog has %d; reloading", key, len(meta.Columns), columns)
 	}
 
 	if c.client == nil {
@@ -105,18 +144,8 @@ func (c *schemaCache) get(ctx context.Context, schema, table string, tableID uin
 
 	meta.TableID = tableID
 
-	c.mu.Lock()
-	c.tables[key] = meta
-	c.mu.Unlock()
+	c.setTable(key, meta)
 	return meta, nil
-}
-
-// invalidate drops every cached table, for DDL that applyDDL cannot parse.
-// Each table reloads lazily, so only tables still streaming pay for it.
-func (c *schemaCache) invalidate() {
-	c.mu.Lock()
-	c.tables = map[string]*tableMeta{}
-	c.mu.Unlock()
 }
 
 // snapshot returns the cached schemas valid at upTo, for saving alongside the binlog position.
@@ -264,7 +293,8 @@ func parseEnumSetMembers(columnType string) []string {
 }
 
 // leadingComments matches what may precede a DDL keyword: block comments, # and "-- " line
-// comments, and the opening of a versioned comment such as /*!50700.
+// comments, and the opening of a versioned comment such as /*!50700. It starts with ^, so ddlRe,
+// nonTableDDLRe and tableDDLNameRe, which are all built on it, match only at the start of a query.
 const leadingComments = `^\s*(?:(?:/\*.*?\*/|(?:#|--[^\S\n])[^\n]*\n|--\n)\s*)*(?:/\*!\d*\s*)?`
 
 // ddlRe matches DDL that can change a table's column layout, as a cheap filter before

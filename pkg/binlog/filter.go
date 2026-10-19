@@ -154,7 +154,7 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 	var meta *tableMeta
 	if namesMissing || signednessMissing {
 		var err error
-		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table), tableMap.TableID)
+		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table), tableMap.TableID, n)
 		if err != nil {
 			return nil, err
 		}

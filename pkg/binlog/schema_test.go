@@ -146,7 +146,7 @@ func TestSeededSchemaAnswersWithoutQuery(t *testing.T) {
 		},
 	}})
 
-	meta, err := c.get(context.Background(), "shop", "orders", 0)
+	meta, err := c.get(context.Background(), "shop", "orders", 0, 1)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"new", "paid"}, meta.Columns[0].EnumValues)
 }
@@ -170,7 +170,7 @@ func TestConnectionSeedsAndReturnsState(t *testing.T) {
 }
 
 // The saved state format must not change by accident: a renamed Go field would otherwise
-// silently drop every saved schema on upgrade.
+// silently drop every saved schema on upgrade. TableID is left out: MySQL reassigns it on restart.
 func TestBinlogJSONFormat(t *testing.T) {
 	in := Binlog{
 		Position: mysql.Position{Name: "mysql-bin.000010", Pos: 500},
@@ -200,30 +200,32 @@ func TestBinlogJSONFormat(t *testing.T) {
 				{"name": "note", "collation_id": 45}
 			],
 			"anchored_at": {"Name": "mysql-bin.000010", "Pos": 400},
-			"default_collation_id": 45,
-			"table_id": 7
+			"default_collation_id": 45
 		}}
 	}`, string(raw))
 }
 
-// The cache has no client, so a reload fails: an error proves get tried to reload.
+// The cache has no client, so a reload fails: an error proves get tried to reload. The cached
+// entry has one column.
 func TestSchemaCacheGetTableID(t *testing.T) {
 	tests := []struct {
 		name      string
 		cachedID  uint64
 		eventID   uint64
+		columns   int
 		wantError bool
 	}{
-		{"same id uses cache", 7, 7, false},
-		{"unset id records the new one", 0, 9, false},
-		{"changed id with no DDL reloads", 7, 9, true},
+		{"same id uses cache", 7, 7, 1, false},
+		{"unset id records the new one", 0, 9, 1, false},
+		{"changed id, same column count, keeps cache", 7, 9, 1, false},
+		{"changed id and column count reloads", 7, 9, 2, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newSchemaCache(nil, Binlog{})
 			c.tables["shop.orders"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, TableID: tt.cachedID}
 
-			meta, err := c.get(context.Background(), "shop", "orders", tt.eventID)
+			meta, err := c.get(context.Background(), "shop", "orders", tt.eventID, tt.columns)
 			if tt.wantError {
 				require.Error(t, err)
 				return
@@ -232,6 +234,23 @@ func TestSchemaCacheGetTableID(t *testing.T) {
 			assert.Equal(t, tt.eventID, meta.TableID)
 		})
 	}
+}
+
+// A MySQL restart gives tables new ids, so a resumed run must adopt the new id rather than
+// reload: the cache has no client, so a reload would fail.
+func TestSchemaCacheGetTableIDAfterResume(t *testing.T) {
+	pos := mysql.Position{Name: "mysql-bin.000010", Pos: 400}
+	raw, err := json.Marshal(Binlog{Position: pos, Schemas: map[string]*tableMeta{
+		"shop.orders": {Columns: []columnMeta{{Name: "id"}}, AnchoredAt: pos, TableID: 112},
+	}})
+	require.NoError(t, err)
+	var state Binlog
+	require.NoError(t, json.Unmarshal(raw, &state))
+
+	c := newSchemaCache(nil, state)
+	meta, err := c.get(context.Background(), "shop", "orders", 98, 1)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(98), meta.TableID)
 }
 
 // State saves only schemas valid at the resume position: a later anchor may include DDL the
