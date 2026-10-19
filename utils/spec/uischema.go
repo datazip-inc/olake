@@ -167,6 +167,12 @@ const PostgresUISchema = `{
         },
         "type": {
           "ui:widget": "hidden"
+        },
+        "replication_slot": {
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/setup/generic/#8-create-logical-replication-slot"
+        },
+        "publication": {
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/setup/generic/#7-create-publication"
         }
       },
       "ssh_config": {
