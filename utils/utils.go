@@ -497,8 +497,8 @@ func SplitAndTrim(s string) []string {
 	return result
 }
 
-// maxTypeParamDigits bounds a type parameter to 18 digits, which always fits an int64.
-const maxTypeParamDigits = 18
+// maxTypeParamDigits bounds a type parameter to 9 digits, which always fits an int, even a 32-bit one.
+const maxTypeParamDigits = 9
 
 // IsType reports whether dataType is an instance of pattern, a type whose non-negative integer
 // parameters are written %d (fixed_binary(%d), fixed[%d]), with exactly numParams of them, and
