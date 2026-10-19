@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,7 +75,7 @@ func TestTypeFromValue(t *testing.T) {
 		{name: "string_timestamp_nano", input: "2024-12-18T10:30:00.123456789Z", expected: types.TimestampNano},
 		{name: "string_invalid_date_shape", input: "2024-13-40", expected: types.String},
 
-		{name: "byte_slice", input: []byte("hello"), expected: types.String},
+		{name: "byte_slice", input: []byte("hello"), expected: types.Binary},
 
 		{name: "int_slice", input: []int{1, 2, 3}, expected: types.Array},
 		{name: "empty_string_slice", input: []string{}, expected: types.Array},
@@ -113,6 +114,30 @@ func TestTypeFromValue(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, TypeFromValue(tc.input))
+		})
+	}
+}
+
+func TestTypeFromValueBytes(t *testing.T) {
+	testCases := []struct {
+		name         string
+		stateVersion int
+		input        []byte
+		expected     types.DataType
+	}{
+		{name: "bytes", stateVersion: constants.LatestStateVersion, input: []byte{0xff, 0x00}, expected: types.Binary},
+		{name: "empty_bytes", stateVersion: constants.LatestStateVersion, input: []byte{}, expected: types.Binary},
+		{name: "bytes_as_text_before_version_8", stateVersion: 7, input: []byte{0xff, 0x00}, expected: types.String},
+		{name: "empty_bytes_as_text_before_version_8", stateVersion: 7, input: []byte{}, expected: types.String},
+	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
 			assert.Equal(t, tc.expected, TypeFromValue(tc.input))
 		})
 	}
@@ -272,6 +297,7 @@ func TestExtractAndMapColumnType(t *testing.T) {
 		"double":    types.Float64,
 		"timestamp": types.Timestamp,
 		"unknown":   types.Unknown,
+		"varbinary": types.Binary,
 	}
 
 	testCases := []struct {
@@ -287,6 +313,7 @@ func TestExtractAndMapColumnType(t *testing.T) {
 		{name: "double", columnType: "double", expected: types.Float64},
 		{name: "timestamp_with_size", columnType: "timestamp(6)", expected: types.Timestamp},
 		{name: "unknown", columnType: "unknown", expected: types.Unknown},
+		{name: "varbinary_with_size", columnType: "varbinary(64)", expected: types.Binary},
 		{name: "unmapped_type", columnType: "varchar(255)", expected: types.DataType("")},
 	}
 
