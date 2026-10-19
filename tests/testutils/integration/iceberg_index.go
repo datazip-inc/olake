@@ -284,7 +284,6 @@ func (th *TestHandler) TestUnchangedToastRecovery(t *testing.T) {
 	require.NoError(t, enablePreserveToastValues(th.TestConfig), "failed enabling preserve_toast_values")
 
 	toastValue := strings.Repeat("t", ToastValueLength)
-	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
 	testCases := []struct {
 		updateType   string
 		deleteFormat string // what the update's delete is written as, proving the sync ran under updateType
@@ -298,6 +297,8 @@ func (th *TestHandler) TestUnchangedToastRecovery(t *testing.T) {
 			require.NoError(t, th.prepareTableIndexSync(ctx, t, testTable))
 			require.NoError(t, setUpdateType(th.TestConfig, th.Namespace, testTable, tc.updateType))
 			defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+			// DestinationDB is set once the catalog is rendered for this suite
+			fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
 
 			require.NoError(t, th.runSyncAndVerify(ctx, t, testTable, false, "iceberg", "", "r",
 				map[string]interface{}{"col_toast": toastValue}, false))
