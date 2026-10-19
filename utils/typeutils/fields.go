@@ -82,7 +82,7 @@ func (f Fields) Process(record types.Record) (bool, bool, Fields) {
 		detectedType := TypeFromValue(value)
 		if val, found := f[key]; found {
 			currentType := val.getType()
-			if detectedType != types.Null && currentType != detectedType { // compare current type
+			if detectedType != types.Null && currentType.ValueType() != detectedType { // compare current type
 				f[key].Merge(NewField(detectedType)) // merged data types for this field
 				updatedType := f[key].getType()
 				if updatedType != currentType {
@@ -173,6 +173,9 @@ func (f *Field) getType() types.DataType {
 	f.dataType = &common
 	return common
 }
+
+// Type returns the column's resolved type.
+func (f *Field) Type() types.DataType { return f.getType() }
 
 func (f *Field) Types() []types.DataType {
 	var typs []types.DataType
