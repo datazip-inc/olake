@@ -41,6 +41,8 @@ services:
       "
 
   azurite:
+    # Blob data is intentionally ephemeral (no volume): recreating the  
+    # container resets it; persistent stack state lives under ./data.  
     image: mcr.microsoft.com/azure-storage/azurite:3.37.0
     container_name: "azurite"
     networks:
