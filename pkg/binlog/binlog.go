@@ -30,7 +30,6 @@ type Connection struct {
 	ServerUUID      string
 	gtidSet         mysql.GTIDSet
 	targetGTIDSet   mysql.GTIDSet
-	migration       *GTIDMigration
 	replicationUUID string
 	readTimeout     time.Duration
 	ServerID        uint32
@@ -48,11 +47,6 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 			return nil, err
 		}
 	}
-	if state.Migration != nil {
-		if _, err := state.migrationState(); err != nil {
-			return nil, err
-		}
-	}
 	connectionCtx, cancel := context.WithCancel(ctx)
 	c := &Connection{
 		ServerID:        config.ServerID,
@@ -60,7 +54,6 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 		CurrentPos:      state.Position,
 		ServerUUID:      state.ServerUUID,
 		gtidSet:         gtidSet,
-		migration:       state.Migration,
 		readTimeout:     2 * config.HeartbeatPeriod,
 		initialWaitTime: config.InitialWaitTime,
 		changeFilter:    NewChangeFilter(config.SchemaClient, typeConverter, streams...),
@@ -76,54 +69,14 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 		VerifyChecksum:  config.VerifyChecksum,
 		HeartbeatPeriod: config.HeartbeatPeriod,
 		TLSConfig:       config.TLSConfig,
+		Option:          c.validateReplicationServer,
+		Dialer:          newBinlogDialer(connectionCtx, config),
 		// Replaying part of a transaction inside the syncer can duplicate rows already delivered.
 		DisableRetrySync: true,
 	}
 	// SSH channels reject socket deadlines; their reads are interrupted by cancellation.
 	if config.SSHClient == nil {
 		syncerConfig.ReadTimeout = 2 * config.HeartbeatPeriod
-	}
-	// Validate the actual replication session; the SQL connection may use another server.
-	syncerConfig.Option = func(conn *client.Conn) error {
-		if c.ServerUUID == "" && c.gtidSet == nil {
-			return nil
-		}
-		query := "SELECT @@server_uuid"
-		if c.gtidSet != nil || c.migration != nil {
-			query += ", @@gtid_mode, @@global.gtid_executed, @@global.gtid_purged"
-		}
-		result, err := conn.Execute(query)
-		if err != nil {
-			return fmt.Errorf("failed to get replication server UUID: %w", err)
-		}
-		serverUUID, err := result.GetString(0, 0)
-		if err != nil {
-			return fmt.Errorf("failed to read replication server UUID: %w", err)
-		}
-		if c.gtidSet == nil {
-			if err := c.Checkpoint().ValidateServerUUID(serverUUID); err != nil {
-				return err
-			}
-			if c.migration == nil {
-				return nil
-			}
-		}
-		values := make([]string, 3)
-		for i := range values {
-			values[i], err = result.GetString(0, i+1)
-			if err != nil {
-				return fmt.Errorf("failed to read replication GTID history: %w", err)
-			}
-		}
-		saved := c.gtidSet
-		if saved == nil {
-			saved = c.targetGTIDSet
-		}
-		if err := validateGTIDHistory(saved, c.targetGTIDSet, values[0], values[1], values[2]); err != nil {
-			return err
-		}
-		c.replicationUUID = serverUUID
-		return nil
 	}
 	// For state versions > 1, use the connection's configured timezone.
 	// This ensures consistency between Full Refresh and CDC timestamps.
@@ -132,7 +85,55 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 		syncerConfig.TimestampStringLocation = config.TimestampStringLocation
 	}
 
-	syncerConfig.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	c.syncer = replication.NewBinlogSyncer(syncerConfig)
+	return c, nil
+}
+
+// Validate the actual replication session; the SQL connection may use another server.
+func (c *Connection) validateReplicationServer(conn *client.Conn) error {
+	if c.ServerUUID == "" && c.gtidSet == nil {
+		return nil
+	}
+	query := jdbc.MySQLServerUUIDQuery()
+	if c.gtidSet != nil || c.targetGTIDSet != nil {
+		query = jdbc.MySQLGTIDStateQuery()
+	}
+	result, err := conn.Execute(query)
+	if err != nil {
+		return fmt.Errorf("failed to get replication server UUID: %w", err)
+	}
+	serverUUID, err := result.GetString(0, 0)
+	if err != nil {
+		return fmt.Errorf("failed to read replication server UUID: %w", err)
+	}
+	if c.gtidSet == nil {
+		if err := c.Checkpoint().ValidateServerUUID(serverUUID); err != nil {
+			return err
+		}
+		if c.targetGTIDSet == nil {
+			return nil
+		}
+	}
+	values := make([]string, 3)
+	for i := range values {
+		values[i], err = result.GetString(0, i+1)
+		if err != nil {
+			return fmt.Errorf("failed to read replication GTID history: %w", err)
+		}
+	}
+	saved := c.gtidSet
+	if saved == nil {
+		saved = c.targetGTIDSet
+	}
+	if err := validateGTIDHistory(saved, c.targetGTIDSet, values[0], values[1], values[2]); err != nil {
+		return err
+	}
+	c.replicationUUID = serverUUID
+	return nil
+}
+
+func newBinlogDialer(connectionCtx context.Context, config *Config) client.Dialer {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if err := connectionCtx.Err(); err != nil {
 			return nil, err
 		}
@@ -150,51 +151,27 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 		context.AfterFunc(connectionCtx, func() { _ = conn.Close() })
 		return conn, nil
 	}
-
-	c.syncer = replication.NewBinlogSyncer(syncerConfig)
-	return c, nil
 }
 
 func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestState Binlog, callback abstract.CDCMsgFn) error {
-	if latestState.GTIDSet == nil && (latestState.Position.Name == "" || latestState.Position.Pos == 0) {
-		var err error
-		latestState, err = GetCurrentBinlogState(ctx, client)
-		if err != nil {
-			return fmt.Errorf("failed to get current binlog state: %w", err)
-		}
-		if c.gtidSet == nil {
-			if err := c.Checkpoint().ValidateServerUUID(latestState.ServerUUID); err != nil {
-				return err
-			}
-		}
+	recovering := latestState.GTIDSet != nil
+	latestState, err := c.prepareSyncTarget(ctx, client, latestState)
+	if err != nil {
+		return err
 	}
-	if c.gtidSet == nil && latestState.GTIDSet != nil {
-		if err := c.prepareMigration(latestState); err != nil {
-			return err
-		}
-		latestState.Position = c.migration.Position
-	}
-	if c.gtidSet != nil {
-		if latestState.GTIDSet == nil {
-			return errs.Precondition(errs.CDCPositionLost, "mysql.gtid_disabled",
-				fmt.Errorf("%w: a GTID checkpoint requires gtid_mode=ON on the source", constants.ErrNonRetryable))
-		}
-		var err error
-		c.targetGTIDSet, err = parseGTIDSet(*latestState.GTIDSet)
-		if err != nil {
-			return err
-		}
-	}
+	gtidMode := c.gtidSet != nil
+	migrating := !gtidMode && latestState.GTIDSet != nil
 	latestBinlogPos := latestState.Position
 
 	logger.Infof("Starting MySQL CDC from %s:%d to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos, latestBinlogPos.Name, latestBinlogPos.Pos)
 
 	var streamer *replication.BinlogStreamer
-	var err error
 	resumePos := c.CurrentPos
-	migrating := c.gtidSet == nil && c.migration != nil
-	var progress migrationProgress
-	if c.gtidSet != nil {
+	var rebuild *gtidRebuild
+	if migrating {
+		rebuild = &gtidRebuild{}
+	}
+	if gtidMode {
 		logger.Infof("Resuming MySQL CDC with GTIDs")
 		streamer, err = c.syncer.StartSyncGTID(c.gtidSet.Clone())
 	} else {
@@ -218,122 +195,160 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 		case <-ctx.Done():
 			return nil
 		default:
-			if c.gtidSet != nil && c.gtidSet.Contain(c.targetGTIDSet) {
-				return nil
+		}
+		reached, err := c.reachedTarget(latestState, rebuild, recovering)
+		if err != nil || reached {
+			return err
+		}
+		if !messageReceived && c.initialWaitTime > 0 && time.Since(startTime) > c.initialWaitTime {
+			if gtidMode || migrating {
+				return fmt.Errorf("initial wait time expired before reaching the MySQL GTID sync target")
 			}
-			if !messageReceived && c.initialWaitTime > 0 && time.Since(startTime) > c.initialWaitTime {
-				if c.gtidSet != nil || c.migration != nil {
-					return fmt.Errorf("initial wait time expired before reaching the MySQL GTID sync target")
-				}
-				logger.Warnf("no records found in given initial wait time, try increasing it")
-				return nil
-			}
+			logger.Warnf("no records found in given initial wait time, try increasing it")
+			return nil
+		}
 
-			// if the current position has reached or passed the latest binlog position, stop the syncer
-			if c.gtidSet == nil && c.CurrentPos.Compare(latestBinlogPos) >= 0 && (!migrating || progress.gtidSet != nil) {
-				if c.migration != nil {
-					if c.CurrentPos.Compare(latestBinlogPos) != 0 {
-						return fmt.Errorf("binlog stream passed the GTID migration boundary")
-					}
-					if err := c.finishMigration(progress, latestState.Migration != nil); err != nil {
-						return err
-					}
-				}
-				logger.Infof("Reached the configured latest binlog position %s:%d; stopping CDC sync", c.CurrentPos.Name, c.CurrentPos.Pos)
-				return nil
-			}
-
-			eventCtx := ctx
-			cancel := func() {}
-			if c.readTimeout > 0 {
-				eventCtx, cancel = context.WithTimeout(ctx, c.readTimeout)
-			}
-			ev, err := streamer.GetEvent(eventCtx)
-			cancel()
+		eventCtx := ctx
+		cancel := func() {}
+		if c.readTimeout > 0 {
+			eventCtx, cancel = context.WithTimeout(ctx, c.readTimeout)
+		}
+		ev, err := streamer.GetEvent(eventCtx)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("failed to get binlog event: %w", err)
+		}
+		var completed mysql.GTIDSet
+		withinTarget := true
+		if gtidMode {
+			completed, err = transaction.consume(ev)
 			if err != nil {
-				return fmt.Errorf("failed to get binlog event: %w", err)
+				return err
 			}
-			var completed mysql.GTIDSet
-			withinTarget := true
-			if c.gtidSet != nil {
-				completed, err = transaction.consume(ev)
-				if err != nil {
-					return err
-				}
-				withinTarget = transaction.gtid == nil || c.targetGTIDSet.Contain(transaction.gtid)
+			withinTarget = transaction.gtid == nil || c.targetGTIDSet.Contain(transaction.gtid)
+		}
+		if migrating {
+			if err := rebuild.consume(ev); err != nil {
+				return err
 			}
-			if migrating {
-				if err := progress.consume(ev); err != nil {
-					return err
-				}
+		}
+		// Update current position
+		if ev.Header.LogPos > 0 {
+			c.CurrentPos.Pos = ev.Header.LogPos
+		}
+		if migrating && ev.Header.LogPos > 0 && c.CurrentPos.Name == resumePos.Name {
+			if c.CurrentPos.Pos > resumePos.Pos && c.CurrentPos.Pos-ev.Header.EventSize < resumePos.Pos {
+				return errs.Precondition(errs.StateInvalid, "mysql.gtid_migration_invalid",
+					fmt.Errorf("%w: legacy checkpoint is inside a binlog event", constants.ErrNonRetryable))
 			}
-			// Update current position
-			if ev.Header.LogPos > 0 {
-				c.CurrentPos.Pos = ev.Header.LogPos
+			withinTarget = c.CurrentPos.Pos > resumePos.Pos
+		}
+		if migrating && withinTarget {
+			switch ev.Header.EventType {
+			case replication.ANONYMOUS_GTID_EVENT, replication.GTID_TAGGED_LOG_EVENT, replication.XA_PREPARE_LOG_EVENT, replication.TRANSACTION_PAYLOAD_EVENT:
+				return fmt.Errorf("%w: unsupported event %s during MySQL GTID migration", constants.ErrNonRetryable, ev.Header.EventType)
 			}
-			if migrating && ev.Header.LogPos > 0 && c.CurrentPos.Name == resumePos.Name {
-				if c.CurrentPos.Pos > resumePos.Pos && c.CurrentPos.Pos-ev.Header.EventSize < resumePos.Pos {
-					return errs.Precondition(errs.StateInvalid, "mysql.gtid_migration_invalid",
-						fmt.Errorf("%w: legacy checkpoint is inside a binlog event", constants.ErrNonRetryable))
-				}
-				withinTarget = c.CurrentPos.Pos > resumePos.Pos
-			}
-			if migrating && withinTarget {
-				switch ev.Header.EventType {
-				case replication.ANONYMOUS_GTID_EVENT, replication.GTID_TAGGED_LOG_EVENT, replication.XA_PREPARE_LOG_EVENT, replication.TRANSACTION_PAYLOAD_EVENT:
-					return fmt.Errorf("%w: unsupported event %s during MySQL GTID migration", constants.ErrNonRetryable, ev.Header.EventType)
-				}
-			}
+		}
 
-			switch e := ev.Event.(type) {
-			case *replication.RotateEvent:
-				c.CurrentPos.Name = string(e.NextLogName)
-				if c.gtidSet != nil {
-					c.ServerUUID = c.replicationUUID
-				}
-				if e.Position > math.MaxUint32 {
-					return fmt.Errorf("binlog position overflow: %d exceeds uint32 max value", e.Position)
-				}
-				c.CurrentPos.Pos = uint32(e.Position)
-				logger.Infof("Binlog rotated to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
+		switch e := ev.Event.(type) {
+		case *replication.RotateEvent:
+			c.CurrentPos.Name = string(e.NextLogName)
+			if gtidMode {
+				c.ServerUUID = c.replicationUUID
+			}
+			if e.Position > math.MaxUint32 {
+				return fmt.Errorf("binlog position overflow: %d exceeds uint32 max value", e.Position)
+			}
+			c.CurrentPos.Pos = uint32(e.Position)
+			logger.Infof("Binlog rotated to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 
-			case *replication.GTIDEvent:
-				if c.gtidSet != nil || c.migration != nil {
-					messageReceived = true
-				}
-				if e.OriginalCommitTimestamp > 0 {
-					c.changeFilter.lastGTIDEvent = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
-				}
-
-				// TODO: Investigate MariaDB GTID event structure for microsecond timestamp support.
-
-			case *replication.RowsEvent:
-				if !withinTarget {
-					continue
-				}
+		case *replication.GTIDEvent:
+			if gtidMode || migrating {
 				messageReceived = true
-				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, c.CurrentPos, callback); err != nil {
-					return err
-				}
-
-			case *replication.QueryEvent:
-				if migrating && withinTarget && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(string(e.Query))), "XA ") {
-					return fmt.Errorf("%w: XA transactions are not supported during MySQL GTID migration", constants.ErrNonRetryable)
-				}
-				// QueryEvent carries DDL even under binlog_format=ROW. Any DDL may have
-				// reshaped a cached table, so drop the cache and reload lazily.
-				if withinTarget && isDDL(e.Query) {
-					logger.Infof("DDL observed in binlog, invalidating cached column metadata: %s", string(e.Query))
-					c.changeFilter.schema.invalidate()
-				}
 			}
-			if completed != nil && withinTarget {
-				if err := c.gtidSet.Update(completed.String()); err != nil {
-					return fmt.Errorf("failed to advance completed GTID checkpoint: %w", err)
-				}
+			if e.OriginalCommitTimestamp > 0 {
+				c.changeFilter.lastGTIDEvent = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
+			}
+
+			// TODO: Investigate MariaDB GTID event structure for microsecond timestamp support.
+
+		case *replication.RowsEvent:
+			if !withinTarget {
+				continue
+			}
+			messageReceived = true
+			if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, c.CurrentPos, callback); err != nil {
+				return err
+			}
+
+		case *replication.QueryEvent:
+			if migrating && withinTarget && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(string(e.Query))), "XA ") {
+				return fmt.Errorf("%w: XA transactions are not supported during MySQL GTID migration", constants.ErrNonRetryable)
+			}
+			// QueryEvent carries DDL even under binlog_format=ROW. Any DDL may have
+			// reshaped a cached table, so drop the cache and reload lazily.
+			if withinTarget && isDDL(e.Query) {
+				logger.Infof("DDL observed in binlog, invalidating cached column metadata: %s", string(e.Query))
+				c.changeFilter.schema.invalidate()
+			}
+		}
+		if completed != nil && withinTarget {
+			if err := c.gtidSet.Update(completed.String()); err != nil {
+				return fmt.Errorf("failed to advance completed GTID checkpoint: %w", err)
 			}
 		}
 	}
+}
+
+func (c *Connection) prepareSyncTarget(ctx context.Context, client *sqlx.DB, latestState Binlog) (Binlog, error) {
+	if latestState.GTIDSet == nil && (latestState.Position.Name == "" || latestState.Position.Pos == 0) {
+		var err error
+		latestState, err = GetCurrentBinlogState(ctx, client)
+		if err != nil {
+			return Binlog{}, fmt.Errorf("failed to get current binlog state: %w", err)
+		}
+		if c.gtidSet == nil {
+			if err := c.Checkpoint().ValidateServerUUID(latestState.ServerUUID); err != nil {
+				return Binlog{}, err
+			}
+		}
+	}
+	if c.gtidSet == nil && latestState.GTIDSet != nil {
+		if err := c.prepareMigration(latestState); err != nil {
+			return Binlog{}, err
+		}
+	}
+	if c.gtidSet != nil {
+		if latestState.GTIDSet == nil {
+			return Binlog{}, errs.Precondition(errs.CDCPositionLost, "mysql.gtid_disabled",
+				fmt.Errorf("%w: a GTID checkpoint requires gtid_mode=ON on the source", constants.ErrNonRetryable))
+		}
+		var err error
+		c.targetGTIDSet, err = parseGTIDSet(*latestState.GTIDSet)
+		if err != nil {
+			return Binlog{}, err
+		}
+	}
+	return latestState, nil
+}
+
+func (c *Connection) reachedTarget(target Binlog, rebuild *gtidRebuild, recovering bool) (bool, error) {
+	if c.gtidSet != nil {
+		return c.gtidSet.Contain(c.targetGTIDSet), nil
+	}
+	if c.CurrentPos.Compare(target.Position) < 0 || (rebuild != nil && rebuild.gtidSet == nil) {
+		return false, nil
+	}
+	if rebuild != nil {
+		if c.CurrentPos.Compare(target.Position) != 0 {
+			return false, fmt.Errorf("binlog stream passed the GTID migration boundary")
+		}
+		if err := c.finishMigration(*rebuild, recovering); err != nil {
+			return false, err
+		}
+	}
+	logger.Infof("Reached the configured latest binlog position %s:%d; stopping CDC sync", c.CurrentPos.Name, c.CurrentPos.Pos)
+	return true, nil
 }
 
 // Checkpoint returns progress for destination metadata and source state persistence.
@@ -342,7 +357,6 @@ func (c *Connection) Checkpoint() Binlog {
 	if c.gtidSet != nil {
 		value := c.gtidSet.String()
 		state.GTIDSet = &value
-		state.Migration = c.migration
 	}
 	return state
 }
@@ -384,7 +398,7 @@ func GetCurrentBinlogState(ctx context.Context, client *sqlx.DB) (Binlog, error)
 	}
 	var serverUUID, gtidMode string
 	if mysqlFlavor == "MySQL" {
-		if err := conn.QueryRowContext(ctx, "SELECT @@server_uuid, @@gtid_mode").Scan(&serverUUID, &gtidMode); err != nil {
+		if err := conn.QueryRowContext(ctx, jdbc.MySQLGTIDModeQuery()).Scan(&serverUUID, &gtidMode); err != nil {
 			return Binlog{}, fmt.Errorf("failed to get MySQL server UUID: %w", err)
 		}
 	}

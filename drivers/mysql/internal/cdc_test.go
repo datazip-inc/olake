@@ -163,8 +163,7 @@ func TestMySQL_MigrationRecovery(t *testing.T) {
 	viper.Set(constants.StatePath, filepath.Join(t.TempDir(), "state.json"))
 	t.Cleanup(func() { viper.Set(constants.StatePath, previousPath) })
 	gtid := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:1-3"
-	checkpoint := binlog.Binlog{Position: mysql.Position{Name: "bin.000001", Pos: 900}, ServerUUID: "a", GTIDSet: &gtid,
-		Migration: &binlog.GTIDMigration{Position: mysql.Position{Name: "bin.000001", Pos: 900}, ServerUUID: "a", GTIDSet: gtid}}
+	checkpoint := binlog.Binlog{Position: mysql.Position{Name: "bin.000001", Pos: 900}, ServerUUID: "a", GTIDSet: &gtid}
 	orders := &types.ConfiguredStream{Stream: types.NewStream("orders", "demo", nil)}
 	other := &types.ConfiguredStream{Stream: types.NewStream("other", "demo", nil)}
 	for _, owner := range []string{"a", ""} {
@@ -196,6 +195,33 @@ func TestMySQL_MigrationRecovery(t *testing.T) {
 			if !reflect.DeepEqual(m.state.GetGlobal().State, want) {
 				t.Fatalf("got state %+v, want %+v", m.state.GetGlobal(), want)
 			}
+		})
+	}
+}
+
+func TestMySQL_LegacyMetadataAfterMigration(t *testing.T) {
+	gtid := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:1-3"
+	for _, owner := range []string{"a", ""} {
+		t.Run("legacy metadata owner "+owner, func(t *testing.T) {
+			m, mock := newMockMySQL(t)
+			initial := MySQLGlobalState{ServerID: 1001, State: binlog.Binlog{
+				Position: mysql.Position{Name: "bin.000001", Pos: 100}, ServerUUID: "b", GTIDSet: &gtid,
+			}}
+			m.config = &Config{Port: 3306}
+			m.state = &types.State{RWMutex: &sync.RWMutex{}, Global: &types.GlobalState{State: initial}}
+			metadata, err := json.Marshal(binlog.Binlog{
+				Position: mysql.Position{Name: "bin.000010", Pos: 900}, ServerUUID: owner,
+			})
+			require.NoError(t, err)
+			sourceErr := errors.New("source unavailable")
+			mock.ExpectQuery("SELECT @@version").WillReturnError(sourceErr)
+
+			// Idle-table metadata from before migration must not order the promoted server's position.
+			_, err = m.StreamChanges(context.Background(), 0, map[string]any{"idle": string(metadata)}, nil)
+			require.NotNil(t, m.BinlogConn)
+			t.Cleanup(m.BinlogConn.Cleanup)
+			require.ErrorIs(t, err, sourceErr)
+			require.Equal(t, initial, m.state.GetGlobal().State)
 		})
 	}
 }

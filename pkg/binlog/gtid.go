@@ -21,20 +21,14 @@ func parseGTIDSet(value string) (mysql.GTIDSet, error) {
 
 // Compare orders checkpoints by processed transactions, or by position in file mode.
 func (b Binlog) Compare(other Binlog) (int, error) {
-	if b.GTIDSet == nil && other.GTIDSet == nil {
+	if b.GTIDSet == nil || other.GTIDSet == nil {
+		// Mixed modes are compared during the first migration, before source state adopts GTIDs.
 		if other.ServerUUID != "" {
 			if err := b.ValidateServerUUID(other.ServerUUID); err != nil {
 				return 0, err
 			}
 		}
 		return b.Position.Compare(other.Position), nil
-	}
-	if b.GTIDSet == nil || other.GTIDSet == nil {
-		if b.GTIDSet != nil {
-			return b.compareFileCheckpoint(other)
-		}
-		comparison, err := other.compareFileCheckpoint(b)
-		return -comparison, err
 	}
 	set, err := parseGTIDSet(*b.GTIDSet)
 	if err != nil {
@@ -119,10 +113,15 @@ func (t *gtidTransaction) consume(event *replication.BinlogEvent) (mysql.GTIDSet
 		if t.begun && query != "COMMIT" && query != "ROLLBACK" {
 			return nil, nil
 		}
+		return t.complete()
 	case *replication.XIDEvent:
+		return t.complete()
 	default:
 		return nil, nil
 	}
+}
+
+func (t *gtidTransaction) complete() (mysql.GTIDSet, error) {
 	if !t.active {
 		return nil, fmt.Errorf("missing GTID at MySQL transaction boundary")
 	}

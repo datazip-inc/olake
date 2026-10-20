@@ -142,6 +142,10 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 			if err != nil {
 				return nil, fmt.Errorf("failed to unmarshal metadata state: %w", err)
 			}
+			// Migration is one-way; file metadata predates a saved GTID source checkpoint.
+			if mySQLGlobalState.State.GTIDSet != nil && mysqlMetadataState.GTIDSet == nil {
+				continue
+			}
 			comparison, err := mysqlMetadataState.Compare(mySQLGlobalState.State)
 			if err != nil {
 				return nil, fmt.Errorf("invalid metadata for stream[%s]: %w", streamID, err)
@@ -159,7 +163,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 							fmt.Errorf("recovery checkpoints disagree across streams"))
 					}
 				}
-				// Keep the migration mapping when file and GTID metadata describe the same boundary.
+				// Prefer GTIDs when both formats describe the same recovery boundary.
 				if recoveryState.GTIDSet == nil || mysqlMetadataState.GTIDSet != nil {
 					recoveryState = mysqlMetadataState
 				}

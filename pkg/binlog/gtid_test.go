@@ -46,8 +46,37 @@ func TestBinlog_Compare(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(`{"gtid_set":""}`), &empty))
 		require.Nil(t, legacy.GTIDSet)
 		require.NotNil(t, empty.GTIDSet)
-		_, err := empty.Compare(legacy)
-		require.ErrorIs(t, err, constants.ErrNonRetryable)
+	})
+	t.Run("file migration boundaries", func(t *testing.T) {
+		gtid := testSID + ":1-3"
+		checkpoint := Binlog{Position: mysql.Position{Name: "bin.000010", Pos: 900}, ServerUUID: "a", GTIDSet: &gtid}
+		tests := []struct {
+			name, owner string
+			position    uint32
+			want        int
+			invalid     bool
+		}{
+			{"older file checkpoint", "a", 400, 1, false},
+			{"legacy checkpoint without identity", "", 400, 1, false},
+			{"same transition boundary", "a", 900, 0, false},
+			{"later file checkpoint", "a", 950, -1, false},
+			{"different server", "b", 400, 0, true},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				file := Binlog{Position: mysql.Position{Name: "bin.000010", Pos: tt.position}, ServerUUID: tt.owner}
+				got, err := checkpoint.Compare(file)
+				if tt.invalid {
+					require.ErrorIs(t, err, constants.ErrNonRetryable)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+				got, err = file.Compare(checkpoint)
+				require.NoError(t, err)
+				require.Equal(t, -tt.want, got)
+			})
+		}
 	})
 }
 

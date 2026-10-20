@@ -3,7 +3,6 @@ package binlog
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/datazip-inc/olake/constants"
@@ -12,50 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBinlog_CompareMigration(t *testing.T) {
-	boundary, later := testSID+":1-3", testSID+":1-4"
-	migration := &GTIDMigration{Position: mysql.Position{Name: "bin.000010", Pos: 900}, ServerUUID: "a", GTIDSet: boundary}
-	tests := []struct {
-		name, owner string
-		position    uint32
-		gtid        string
-		want        int
-		invalid     bool
-	}{
-		{"older table after promotion", "a", 400, later, 1, false},
-		{"legacy table without identity", "", 400, later, 1, false},
-		{"same transition boundary", "a", 900, boundary, 0, false},
-		{"GTIDs advanced after migration", "a", 900, later, 1, false},
-		{"unmapped later file position", "a", 950, later, 0, true},
-		{"wrong original owner", "b", 400, later, 0, true},
-		{"checkpoint predates migration", "a", 400, testSID + ":1-2", 0, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// The promoted server's physical position cannot order old file metadata.
-			state := Binlog{Position: mysql.Position{Name: "bin.000001", Pos: 100}, ServerUUID: "b", GTIDSet: &tt.gtid, Migration: migration}
-			file := Binlog{Position: mysql.Position{Name: "bin.000010", Pos: tt.position}, ServerUUID: tt.owner}
-			got, err := state.Compare(file)
-			if tt.invalid {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tt.want, got)
-			got, err = file.Compare(state)
-			require.NoError(t, err)
-			require.Equal(t, -tt.want, got)
-			data, err := json.Marshal(state)
-			require.NoError(t, err)
-			var restored Binlog
-			require.NoError(t, json.Unmarshal(data, &restored))
-			require.Equal(t, state, restored)
-		})
-	}
-}
-
 func TestConnection_FinishMigration(t *testing.T) {
-	var progress migrationProgress
+	var progress gtidRebuild
 	events := []struct {
 		kind  replication.EventType
 		event replication.Event
@@ -81,7 +38,7 @@ func TestConnection_FinishMigration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			target, err := parseGTIDSet(tt.target)
 			require.NoError(t, err)
-			conn := &Connection{targetGTIDSet: target, migration: &GTIDMigration{GTIDSet: tt.target}}
+			conn := &Connection{targetGTIDSet: target}
 			err = conn.finishMigration(progress, tt.recovering)
 			if tt.invalid {
 				require.ErrorIs(t, err, constants.ErrNonRetryable)
@@ -90,12 +47,11 @@ func TestConnection_FinishMigration(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, testSID+":1-2", *conn.Checkpoint().GTIDSet)
-			require.Equal(t, *conn.Checkpoint().GTIDSet, conn.Checkpoint().Migration.GTIDSet)
 		})
 	}
 	t.Run("unfinished transaction", func(t *testing.T) {
 		progress.transaction.active = true
-		conn := &Connection{targetGTIDSet: progress.gtidSet, migration: &GTIDMigration{}}
+		conn := &Connection{targetGTIDSet: progress.gtidSet}
 		require.ErrorIs(t, conn.finishMigration(progress, false), constants.ErrNonRetryable)
 		require.Nil(t, conn.gtidSet)
 	})
@@ -118,7 +74,6 @@ func TestConnection_PrepareMigration(t *testing.T) {
 			require.NoError(t, err)
 			// Capturing the target must not publish its GTIDs before catch-up completes.
 			require.Nil(t, conn.Checkpoint().GTIDSet)
-			require.Nil(t, conn.Checkpoint().Migration)
 			require.Equal(t, state.Position, conn.Checkpoint().Position)
 		})
 	}

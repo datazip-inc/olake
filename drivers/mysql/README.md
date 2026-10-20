@@ -284,10 +284,10 @@ or purged history causes an error; OLake does not reset to the latest position.
 Existing file/offset pipelines migrate during a successful sync against the
 **original source server**, while its required binlogs are still available.
 Before a planned switchover, confirm that the saved checkpoint contains
-`gtid_set`; any pending file-position recovery completes first. OLake reads to a
-matching file/GTID boundary and retains `gtid_migration` so older destination checkpoints
-remain usable during recovery. Keep the generated state and destination metadata
-intact; do not add the server's current GTID set to an older state manually.
+`gtid_set`; any pending file-position recovery completes first. OLake rebuilds
+the matching GTID set from completed binlog transactions. Keep the generated
+state and destination metadata intact; do not add the server's current GTID set
+to an older state manually.
 After migration, resume with a GTID-aware driver; older versions interpret only
 the file/offset fields.
 
