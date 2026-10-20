@@ -48,6 +48,7 @@ func NewChangeFilter(schemaClient *sqlx.DB, state Binlog, foldCase bool, typeCon
 	}
 	for _, stream := range streams {
 		filter.streams[fmt.Sprintf("%s.%s", stream.Namespace(), stream.Name())] = stream
+		filter.schema.streamed[filter.schema.tableKey(stream.Namespace(), stream.Name())] = true
 	}
 	return filter
 }

@@ -150,9 +150,10 @@ func tableSchema(defaultSchema string, name *ast.TableName) (string, bool) {
 }
 
 // tableMetaFromDef builds a table's decoding info from a CREATE TABLE's column definitions and its
-// DEFAULT CHARSET / COLLATE, matching what load reads from information_schema.
-func tableMetaFromDef(stmt *ast.CreateTableStmt) (*tableMeta, error) {
-	meta := &tableMeta{}
+// DEFAULT CHARSET / COLLATE, matching what load reads from information_schema. schemaDefault is the
+// database default, which the table takes when it names no charset; 0 when it is not known.
+func tableMetaFromDef(stmt *ast.CreateTableStmt, schemaDefault uint64) (*tableMeta, error) {
+	meta := &tableMeta{DefaultCollationID: schemaDefault, SchemaCollationID: schemaDefault}
 	if err := meta.convertCharset(stmt.Options); err != nil {
 		return nil, err
 	}

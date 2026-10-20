@@ -66,9 +66,34 @@ func charsetOf(t *testing.T, id uint64) string {
 	return coll.CharsetName
 }
 
+// TestSchemaCacheApplyDDL covers applyDDL, one subtest per behavior; each subtest's doc says what it checks.
+func TestSchemaCacheApplyDDL(t *testing.T) {
+	t.Run("follows each alter in order", testApplyDDLFollowsEachAlterInOrder)
+	t.Run("copies on write", testApplyDDLCopiesOnWrite)
+	t.Run("column changes", testApplyDDLColumnChanges)
+	t.Run("column details", testApplyDDLColumnDetails)
+	t.Run("convert charset", testApplyDDLConvertCharset)
+	t.Run("charset options", testApplyDDLCharsetOptions)
+	t.Run("if exists", testApplyDDLIfExists)
+	t.Run("ignores", testApplyDDLIgnores)
+	t.Run("table named like keyword", testApplyDDLTableNamedLikeKeyword)
+	t.Run("drops named tables", testApplyDDLDropsNamedTables)
+	t.Run("fold case", testApplyDDLFoldCase)
+	t.Run("mariadb syntax", testApplyDDLMariaDBSyntax)
+	t.Run("create table", testApplyDDLCreateTable)
+	t.Run("online schema change", testApplyDDLOnlineSchemaChange)
+	t.Run("drops table it cannot apply", testApplyDDLDropsTableItCannotApply)
+	t.Run("table default charset", testApplyDDLTableDefaultCharset)
+	t.Run("drops entry newer than ddl", testApplyDDLDropsEntryNewerThanDDL)
+	t.Run("wipes when unsure", testApplyDDLWipesWhenUnsure)
+	t.Run("several statements", testApplyDDLSeveralStatements)
+	t.Run("recreates the only cached table", testApplyDDLRecreatesOnlyCachedTable)
+	t.Run("reports its outcome", testDDLOutcome)
+}
+
 // Two ALTERs on one table in a backlog: each row must decode with the schema between them,
 // which a reload from information_schema (the server's present) cannot give.
-func TestApplyDDLFollowsEachAlterInOrder(t *testing.T) {
+func testApplyDDLFollowsEachAlterInOrder(t *testing.T) {
 	c := ddlCache()
 
 	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','pending','paid')", "shop", ddlPos(200))
@@ -84,7 +109,7 @@ func TestApplyDDLFollowsEachAlterInOrder(t *testing.T) {
 // snapshot() shares *tableMeta with the saved state, so an ALTER must replace the entry
 // rather than mutate it. The live entry is checked too: it took the DDL, so the saved one
 // staying put is copy-on-write, not a DDL silently ignored.
-func TestApplyDDLCopiesOnWrite(t *testing.T) {
+func testApplyDDLCopiesOnWrite(t *testing.T) {
 	c := ddlCache()
 	saved := c.snapshot(ddlPos(200))
 
@@ -101,30 +126,30 @@ func TestApplyDDLCopiesOnWrite(t *testing.T) {
 // Each ALTER clause reaches the cached columns. Every case also re-anchors the entry at the DDL,
 // the index-only one included: an ALTER of a cached table leaves the entry known to be valid
 // there even when no column changes, so that AnchoredAt check is intentional.
-func TestApplyDDLColumnChanges(t *testing.T) {
+func testApplyDDLColumnChanges(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
 		want  []string
 	}{
-		{"add at end", "ALTER TABLE orders ADD COLUMN qty INT", []string{"id", "status", "name", "qty"}},
-		{"add first", "ALTER TABLE orders ADD qty INT FIRST", []string{"qty", "id", "status", "name"}},
-		{"add after", "ALTER TABLE orders ADD qty INT AFTER id", []string{"id", "qty", "status", "name"}},
-		{"add several", "ALTER TABLE orders ADD (a INT, b INT)", []string{"id", "status", "name", "a", "b"}},
-		{"drop", "ALTER TABLE orders DROP COLUMN status", []string{"id", "name"}},
-		{"modify keeps place", "ALTER TABLE orders MODIFY id BIGINT UNSIGNED", []string{"id", "status", "name"}},
-		{"modify moves", "ALTER TABLE orders MODIFY id BIGINT UNSIGNED AFTER name", []string{"status", "name", "id"}},
-		{"modify keeps stored name", "ALTER TABLE orders MODIFY ID BIGINT", []string{"id", "status", "name"}},
-		{"change renames and moves", "ALTER TABLE orders CHANGE name full_name VARCHAR(20) COLLATE utf8mb4_bin FIRST", []string{"full_name", "id", "status"}},
-		{"rename column", "ALTER TABLE orders RENAME COLUMN status TO state", []string{"id", "state", "name"}},
-		{"case-insensitive column names", "ALTER TABLE orders DROP COLUMN STATUS", []string{"id", "name"}},
-		{"changes apply in order", "ALTER TABLE orders ADD qty INT AFTER status, DROP COLUMN status", []string{"id", "qty", "name"}},
-		{"qualified name", "ALTER TABLE shop.orders DROP COLUMN name", []string{"id", "status"}},
-		{"index-only alter", "ALTER TABLE orders ADD INDEX i (name)", []string{"id", "status", "name"}},
-		{"add generated", "ALTER TABLE orders ADD total INT AS (id + 1) VIRTUAL", []string{"id", "status", "name", "total"}},
-		{"dash comment", "-- migration 42\nALTER TABLE orders DROP COLUMN name", []string{"id", "status"}},
-		{"hash comment", "# migration 42\nALTER TABLE orders DROP COLUMN name", []string{"id", "status"}},
-		{"versioned comment", "/*!50700 ALTER TABLE orders DROP COLUMN name */", []string{"id", "status"}},
+		{name: "add at end", query: "ALTER TABLE orders ADD COLUMN qty INT", want: []string{"id", "status", "name", "qty"}},
+		{name: "add first", query: "ALTER TABLE orders ADD qty INT FIRST", want: []string{"qty", "id", "status", "name"}},
+		{name: "add after", query: "ALTER TABLE orders ADD qty INT AFTER id", want: []string{"id", "qty", "status", "name"}},
+		{name: "add several", query: "ALTER TABLE orders ADD (a INT, b INT)", want: []string{"id", "status", "name", "a", "b"}},
+		{name: "drop", query: "ALTER TABLE orders DROP COLUMN status", want: []string{"id", "name"}},
+		{name: "modify keeps place", query: "ALTER TABLE orders MODIFY id BIGINT UNSIGNED", want: []string{"id", "status", "name"}},
+		{name: "modify moves", query: "ALTER TABLE orders MODIFY id BIGINT UNSIGNED AFTER name", want: []string{"status", "name", "id"}},
+		{name: "modify keeps stored name", query: "ALTER TABLE orders MODIFY ID BIGINT", want: []string{"id", "status", "name"}},
+		{name: "change renames and moves", query: "ALTER TABLE orders CHANGE name full_name VARCHAR(20) COLLATE utf8mb4_bin FIRST", want: []string{"full_name", "id", "status"}},
+		{name: "rename column", query: "ALTER TABLE orders RENAME COLUMN status TO state", want: []string{"id", "state", "name"}},
+		{name: "case-insensitive column names", query: "ALTER TABLE orders DROP COLUMN STATUS", want: []string{"id", "name"}},
+		{name: "changes apply in order", query: "ALTER TABLE orders ADD qty INT AFTER status, DROP COLUMN status", want: []string{"id", "qty", "name"}},
+		{name: "qualified name", query: "ALTER TABLE shop.orders DROP COLUMN name", want: []string{"id", "status"}},
+		{name: "index-only alter", query: "ALTER TABLE orders ADD INDEX i (name)", want: []string{"id", "status", "name"}},
+		{name: "add generated", query: "ALTER TABLE orders ADD total INT AS (id + 1) VIRTUAL", want: []string{"id", "status", "name", "total"}},
+		{name: "dash comment", query: "-- migration 42\nALTER TABLE orders DROP COLUMN name", want: []string{"id", "status"}},
+		{name: "hash comment", query: "# migration 42\nALTER TABLE orders DROP COLUMN name", want: []string{"id", "status"}},
+		{name: "versioned comment", query: "/*!50700 ALTER TABLE orders DROP COLUMN name */", want: []string{"id", "status"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -140,7 +165,7 @@ func TestApplyDDLColumnChanges(t *testing.T) {
 // Column details an added column carries: ZEROFILL implies UNSIGNED, charsets and collations,
 // SET members, and BLOB as binary. TiDB's parser gives BLOB the binary charset; without it the
 // column would take the table default, so that case guards the dependency.
-func TestApplyDDLColumnDetails(t *testing.T) {
+func testApplyDDLColumnDetails(t *testing.T) {
 	c := ddlCache()
 	c.applyDDL("ALTER TABLE orders "+
 		"ADD z INT ZEROFILL, "+
@@ -164,7 +189,7 @@ func TestApplyDDLColumnDetails(t *testing.T) {
 	assert.Equal(t, uint64(binaryCollationID), column(t, meta, "data").CollationID, "BLOB is binary")
 }
 
-func TestApplyDDLConvertCharset(t *testing.T) {
+func testApplyDDLConvertCharset(t *testing.T) {
 	c := ddlCache()
 	c.tables["shop.orders"].Columns = append(c.tables["shop.orders"].Columns,
 		columnMeta{Name: "raw", CollationID: binaryCollationID})
@@ -180,7 +205,7 @@ func TestApplyDDLConvertCharset(t *testing.T) {
 // The other table charset options: COLLATE alone changes only the default, CONVERT TO ... COLLATE
 // converts every character column to that collation, and CONVERT TO binary would change column
 // types, so the table is dropped instead.
-func TestApplyDDLCharsetOptions(t *testing.T) {
+func testApplyDDLCharsetOptions(t *testing.T) {
 	tests := []struct {
 		name        string
 		query       string
@@ -223,15 +248,15 @@ func TestApplyDDLCharsetOptions(t *testing.T) {
 	}
 }
 
-func TestApplyDDLIfExists(t *testing.T) {
+func testApplyDDLIfExists(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
 	}{
-		{"drop missing", "ALTER TABLE orders DROP COLUMN IF EXISTS missing"},
-		{"modify missing", "ALTER TABLE orders MODIFY COLUMN IF EXISTS missing INT"},
-		{"change missing", "ALTER TABLE orders CHANGE COLUMN IF EXISTS missing other INT"},
-		{"add existing", "ALTER TABLE orders ADD COLUMN IF NOT EXISTS id INT"},
+		{name: "drop missing", query: "ALTER TABLE orders DROP COLUMN IF EXISTS missing"},
+		{name: "modify missing", query: "ALTER TABLE orders MODIFY COLUMN IF EXISTS missing INT"},
+		{name: "change missing", query: "ALTER TABLE orders CHANGE COLUMN IF EXISTS missing other INT"},
+		{name: "add existing", query: "ALTER TABLE orders ADD COLUMN IF NOT EXISTS id INT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -246,31 +271,32 @@ func TestApplyDDLIfExists(t *testing.T) {
 // Statements that change no captured table's columns must leave the cache as it is. The test
 // compares the whole map against a snapshot, not just column names, so it also fails when an
 // ignored statement drops or adds an entry, re-anchors one, or clears its TableID.
-func TestApplyDDLIgnores(t *testing.T) {
+func testApplyDDLIgnores(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
 	}{
-		{"transaction", "BEGIN"},
-		{"truncate", "TRUNCATE TABLE orders"},
-		{"insert", "INSERT INTO orders VALUES (1)"},
-		{"partition on other table", "ALTER TABLE logs DROP PARTITION p1"},
-		{"alter uncached table", "ALTER TABLE logs ADD c INT"},
-		{"create index", "CREATE INDEX i ON orders (id)"},
-		{"drop index", "DROP INDEX i ON orders"},
-		{"create database", "CREATE DATABASE other"},
-		{"trigger with definer", "CREATE DEFINER=`root`@`%` TRIGGER trg BEFORE INSERT ON orders FOR EACH ROW SET NEW.id = 1"},
-		{"view", "CREATE OR REPLACE VIEW v AS SELECT id FROM orders"},
-		{"drop user", "DROP USER bob"},
-		{"grant", "GRANT SELECT ON shop.* TO bob"},
-		{"commented trigger", "-- cleanup\nDROP TRIGGER trg"},
-		{"create if not exists", "CREATE TABLE IF NOT EXISTS orders (id INT)"},
-		{"unparseable create of another table", "CREATE TABLE geo (id INT PRIMARY KEY, g POINT NOT NULL)"},
-		{"unparseable alter of a $ name", "ALTER TABLE orders$archive WIBBLE"},
-		{"unparseable alter of a non-ASCII name", "ALTER TABLE ordersé WIBBLE"},
-		{"other-case alter on a case-sensitive server", "ALTER TABLE ORDERS ADD c INT"},
-		{"other-case drop on a case-sensitive server", "DROP TABLE shop.CUSTOMERS"},
-		{"unparseable alter of another table", "ALTER TABLE logs WIBBLE"},
+		{name: "transaction", query: "BEGIN"},
+		{name: "truncate", query: "TRUNCATE TABLE orders"},
+		{name: "insert", query: "INSERT INTO orders VALUES (1)"},
+		{name: "partition on other table", query: "ALTER TABLE logs DROP PARTITION p1"},
+		{name: "alter uncached table", query: "ALTER TABLE logs ADD c INT"},
+		{name: "create index", query: "CREATE INDEX i ON orders (id)"},
+		{name: "drop index", query: "DROP INDEX i ON orders"},
+		{name: "create database", query: "CREATE DATABASE other"},
+		{name: "trigger with definer", query: "CREATE DEFINER=`root`@`%` TRIGGER trg BEFORE INSERT ON orders FOR EACH ROW SET NEW.id = 1"},
+		{name: "view", query: "CREATE OR REPLACE VIEW v AS SELECT id FROM orders"},
+		{name: "drop user", query: "DROP USER bob"},
+		{name: "grant", query: "GRANT SELECT ON shop.* TO bob"},
+		{name: "commented trigger", query: "-- cleanup\nDROP TRIGGER trg"},
+		{name: "create if not exists", query: "CREATE TABLE IF NOT EXISTS orders (id INT)"},
+		{name: "unparseable create of another table", query: "CREATE TABLE geo (id INT PRIMARY KEY, g POINT NOT NULL)"},
+		{name: "unparseable alter of a $ name", query: "ALTER TABLE orders$archive WIBBLE"},
+		{name: "unparseable alter of a non-ASCII name", query: "ALTER TABLE ordersé WIBBLE"},
+		{name: "other-case alter on a case-sensitive server", query: "ALTER TABLE ORDERS ADD c INT"},
+		{name: "other-case drop on a case-sensitive server", query: "DROP TABLE shop.CUSTOMERS"},
+		{name: "unparseable alter of another table", query: "ALTER TABLE logs WIBBLE"},
+		{name: "drop temporary table", query: "DROP TEMPORARY TABLE IF EXISTS orders"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -284,7 +310,7 @@ func TestApplyDDLIgnores(t *testing.T) {
 
 // A table named like an object keyword (user, event, view, ...) is still a table: nonTableDDLRe
 // only matches the keyword right after the verb, so ALTER TABLE user is applied, not skipped.
-func TestApplyDDLTableNamedLikeKeyword(t *testing.T) {
+func testApplyDDLTableNamedLikeKeyword(t *testing.T) {
 	c := ddlCache()
 	c.tables["shop.user"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
 
@@ -295,22 +321,22 @@ func TestApplyDDLTableNamedLikeKeyword(t *testing.T) {
 }
 
 // Statements that give a table a new layout, or a new name, forget only the tables named.
-func TestApplyDDLDropsNamedTables(t *testing.T) {
+func testApplyDDLDropsNamedTables(t *testing.T) {
 	tests := []struct {
 		name     string
 		query    string
 		schema   string
 		wantKeys []string
 	}{
-		{"drop table", "DROP TABLE customers", "shop", []string{"shop.orders", "sales.invoices"}},
-		{"drop table list", "/* gh-ost */ DROP TABLE IF EXISTS shop.customers, sales.invoices", "x", []string{"shop.orders"}},
-		{"drop database", "DROP DATABASE shop", "", []string{"sales.invoices"}},
-		{"create table select", "CREATE TABLE customers SELECT id FROM orders", "shop", []string{"shop.orders", "sales.invoices"}},
-		{"create like uncached table", "CREATE TABLE customers LIKE archive", "shop", []string{"shop.orders", "sales.invoices"}},
-		{"gh-ost cutover with uncached shadow", "RENAME TABLE orders TO _orders_del, _orders_gho TO orders", "shop", []string{"shop._orders_del", "shop.customers", "sales.invoices"}},
-		{"rename to cached name", "RENAME TABLE archive TO customers", "shop", []string{"shop.orders", "sales.invoices"}},
-		{"alter rename", "ALTER TABLE orders RENAME TO orders_old", "shop", []string{"shop.customers", "sales.invoices"}},
-		{"set statement prefix", "SET STATEMENT lock_wait_timeout=5 FOR DROP TABLE customers", "shop", []string{"shop.orders", "sales.invoices"}},
+		{name: "drop table", query: "DROP TABLE customers", schema: "shop", wantKeys: []string{"shop.orders", "sales.invoices"}},
+		{name: "drop table list", query: "/* gh-ost */ DROP TABLE IF EXISTS shop.customers, sales.invoices", schema: "x", wantKeys: []string{"shop.orders"}},
+		{name: "drop database", query: "DROP DATABASE shop", schema: "", wantKeys: []string{"sales.invoices"}},
+		{name: "create table select", query: "CREATE TABLE customers SELECT id FROM orders", schema: "shop", wantKeys: []string{"shop.orders", "sales.invoices"}},
+		{name: "create like uncached table", query: "CREATE TABLE customers LIKE archive", schema: "shop", wantKeys: []string{"shop.orders", "sales.invoices"}},
+		{name: "gh-ost cutover with uncached shadow", query: "RENAME TABLE orders TO _orders_del, _orders_gho TO orders", schema: "shop", wantKeys: []string{"shop._orders_del", "shop.customers", "sales.invoices"}},
+		{name: "rename to cached name", query: "RENAME TABLE archive TO customers", schema: "shop", wantKeys: []string{"shop.orders", "sales.invoices"}},
+		{name: "alter rename", query: "ALTER TABLE orders RENAME TO orders_old", schema: "shop", wantKeys: []string{"shop.customers", "sales.invoices"}},
+		{name: "set statement prefix", query: "SET STATEMENT lock_wait_timeout=5 FOR DROP TABLE customers", schema: "shop", wantKeys: []string{"shop.orders", "sales.invoices"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -323,7 +349,7 @@ func TestApplyDDLDropsNamedTables(t *testing.T) {
 
 // With lower_case_table_names 1 or 2 names match in any case: an ALTER is applied to the cached
 // entry, not dropped, and a DROP removes it.
-func TestApplyDDLFoldCase(t *testing.T) {
+func testApplyDDLFoldCase(t *testing.T) {
 	c := newSchemaCache(nil, Binlog{}, true)
 	c.tables["shop.orders"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
 	c.tables["shop.customers"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
@@ -337,7 +363,7 @@ func TestApplyDDLFoldCase(t *testing.T) {
 
 // MariaDB's /*M!...*/ versioned comment, ALTER ONLINE and CREATE OR REPLACE are applied as the
 // statement they run, as are MySQL's /*!...*/ comments.
-func TestApplyDDLMariaDBSyntax(t *testing.T) {
+func testApplyDDLMariaDBSyntax(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
@@ -360,7 +386,7 @@ func TestApplyDDLMariaDBSyntax(t *testing.T) {
 
 // A CREATE of a cached name is read from its definition, so a later ALTER in the backlog applies to
 // it. With no charset on a text column and no table default it cannot be read, so the name drops.
-func TestApplyDDLCreateTable(t *testing.T) {
+func testApplyDDLCreateTable(t *testing.T) {
 	c := ddlCache()
 	c.applyDDL("CREATE TABLE customers (id INT UNSIGNED, kind ENUM('a','b'), note TEXT) DEFAULT CHARSET=latin1", "shop", ddlPos(200))
 	got := c.tables["shop.customers"]
@@ -373,11 +399,26 @@ func TestApplyDDLCreateTable(t *testing.T) {
 
 	c.applyDDL("CREATE TABLE customers (id INT, note TEXT)", "shop", ddlPos(300))
 	assert.NotContains(t, cacheKeys(c), "shop.customers")
+
+	c.streamed["shop.customers"] = true
+	c.applyDDL("CREATE TABLE customers (id INT, b INT)", "shop", ddlPos(400))
+	assert.Equal(t, []string{"id", "b"}, columnNames(c.tables["shop.customers"]), "a streamed table is read from its definition even when not cached")
+
+	c.tables["shop.orders"].SchemaCollationID = mustCollationID(t, "latin1_swedish_ci")
+	c.applyDDL("DROP TABLE customers", "shop", ddlPos(500))
+	c.applyDDL("CREATE TABLE customers (id INT, note VARCHAR(10))", "shop", ddlPos(501))
+	require.Contains(t, cacheKeys(c), "shop.customers")
+	assert.Equal(t, "latin1", charsetOf(t, c.tables["shop.customers"].Columns[1].CollationID), "a column with no charset takes the database default")
+
+	c.applyDDL("ALTER DATABASE shop CHARACTER SET utf8mb4", "", ddlPos(600))
+	c.applyDDL("DROP TABLE customers", "shop", ddlPos(601))
+	c.applyDDL("CREATE TABLE customers (id INT, note VARCHAR(10))", "shop", ddlPos(602))
+	assert.Equal(t, "utf8mb4", charsetOf(t, c.tables["shop.customers"].Columns[1].CollationID), "ALTER DATABASE changes the default later tables take")
 }
 
 // gh-ost and pt-online-schema-change copy the table with CREATE ... LIKE, alter the copy and swap
 // it in with RENAME. The cache follows the copy, so a later ALTER of t applies to the new layout.
-func TestApplyDDLOnlineSchemaChange(t *testing.T) {
+func testApplyDDLOnlineSchemaChange(t *testing.T) {
 	c := ddlCache()
 	pos := uint32(200)
 	for _, query := range []string{
@@ -395,20 +436,20 @@ func TestApplyDDLOnlineSchemaChange(t *testing.T) {
 }
 
 // An ALTER that cannot be applied without guessing drops that table alone, to reload later.
-func TestApplyDDLDropsTableItCannotApply(t *testing.T) {
+func testApplyDDLDropsTableItCannotApply(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
 	}{
-		{"unknown column", "ALTER TABLE orders DROP COLUMN missing"},
-		{"unknown AFTER column", "ALTER TABLE orders ADD c INT AFTER missing"},
-		{"duplicate column", "ALTER TABLE orders ADD id INT"},
-		{"convert to default", "ALTER TABLE orders CONVERT TO CHARACTER SET DEFAULT"},
-		{"one bad change of many", "ALTER TABLE orders ADD a INT, DROP COLUMN missing"},
-		{"unparseable alter", "ALTER TABLE orders WIBBLE"},
-		{"invisible column", "ALTER TABLE orders ADD COLUMN c INT INVISIBLE"},
-		{"qualified unparseable alter", "ALTER TABLE `shop`.`orders` ADD c POINT SRID 4326"},
-		{"unparseable create", "CREATE TABLE orders (id INT PRIMARY KEY, g POINT NOT NULL)"},
+		{name: "unknown column", query: "ALTER TABLE orders DROP COLUMN missing"},
+		{name: "unknown AFTER column", query: "ALTER TABLE orders ADD c INT AFTER missing"},
+		{name: "duplicate column", query: "ALTER TABLE orders ADD id INT"},
+		{name: "convert to default", query: "ALTER TABLE orders CONVERT TO CHARACTER SET DEFAULT"},
+		{name: "one bad change of many", query: "ALTER TABLE orders ADD a INT, DROP COLUMN missing"},
+		{name: "unparseable alter", query: "ALTER TABLE orders WIBBLE"},
+		{name: "invisible column", query: "ALTER TABLE orders ADD COLUMN c INT INVISIBLE"},
+		{name: "qualified unparseable alter", query: "ALTER TABLE `shop`.`orders` ADD c POINT SRID 4326"},
+		{name: "unparseable create", query: "CREATE TABLE orders (id INT PRIMARY KEY, g POINT NOT NULL)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -420,7 +461,7 @@ func TestApplyDDLDropsTableItCannotApply(t *testing.T) {
 }
 
 // A column added without a charset takes the table default, which DEFAULT CHARSET changes.
-func TestApplyDDLTableDefaultCharset(t *testing.T) {
+func testApplyDDLTableDefaultCharset(t *testing.T) {
 	c := ddlCache()
 	c.applyDDL("ALTER TABLE orders ADD note VARCHAR(255)", "shop", ddlPos(200))
 	require.Contains(t, c.tables, "shop.orders")
@@ -466,13 +507,13 @@ func TestCollationID(t *testing.T) {
 // An entry loaded from information_schema after this DDL may already include it, so it is
 // dropped rather than altered a second time. One anchored exactly at the DDL was read right
 // after it, so >= is deliberate and that case is dropped too.
-func TestApplyDDLDropsEntryNewerThanDDL(t *testing.T) {
+func testApplyDDLDropsEntryNewerThanDDL(t *testing.T) {
 	tests := []struct {
 		name   string
 		anchor mysql.Position
 	}{
-		{"anchored after the DDL", ddlPos(500)},
-		{"anchored at the DDL", ddlPos(400)},
+		{name: "anchored after the DDL", anchor: ddlPos(500)},
+		{name: "anchored at the DDL", anchor: ddlPos(400)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -488,7 +529,7 @@ func TestApplyDDLDropsEntryNewerThanDDL(t *testing.T) {
 }
 
 // The helpers report what they did instead of logging it.
-func TestDDLOutcome(t *testing.T) {
+func testDDLOutcome(t *testing.T) {
 	c := ddlCache()
 	stmts, _, err := parser.New().ParseSQL("ALTER TABLE orders ADD c INT; DROP TABLE customers")
 	require.NoError(t, err)
@@ -502,14 +543,14 @@ func TestDDLOutcome(t *testing.T) {
 
 // When a statement cannot be read, or names a table with no database, any cached table
 // could be affected, so the whole cache is dropped.
-func TestApplyDDLWipesWhenUnsure(t *testing.T) {
+func testApplyDDLWipesWhenUnsure(t *testing.T) {
 	tests := []struct {
 		name   string
 		query  string
 		schema string
 	}{
-		{"unparseable non-alter", "CREATE WIBBLE orders", "shop"},
-		{"no database", "DROP TABLE orders", ""},
+		{name: "unparseable non-alter", query: "CREATE WIBBLE orders", schema: "shop"},
+		{name: "no database", query: "DROP TABLE orders", schema: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -521,7 +562,7 @@ func TestApplyDDLWipesWhenUnsure(t *testing.T) {
 }
 
 // A query that parses into several statements is applied statement by statement.
-func TestApplyDDLSeveralStatements(t *testing.T) {
+func testApplyDDLSeveralStatements(t *testing.T) {
 	c := ddlCache()
 	c.applyDDL("ALTER TABLE orders ADD a INT; ALTER TABLE customers ADD b INT", "shop", ddlPos(200))
 	assert.Equal(t, []string{"id", "status", "name", "a"}, columnNames(c.tables["shop.orders"]))
@@ -559,4 +600,19 @@ func TestSchemaCacheConcurrentAccess(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+}
+
+// DROP TABLE t can leave the cache empty when t was its only entry. The CREATE TABLE t and ALTER
+// after it must still be applied, or the next row reloads a schema that already has the ALTER.
+func testApplyDDLRecreatesOnlyCachedTable(t *testing.T) {
+	c := newSchemaCache(nil, Binlog{}, false)
+	c.streamed["shop.t"] = true
+	c.setTable("shop.t", &tableMeta{Columns: []columnMeta{{Name: "id"}, {Name: "a"}, {Name: "b"}}, AnchoredAt: ddlPos(100)})
+
+	c.applyDDL("DROP TABLE t", "shop", ddlPos(200))
+	c.applyDDL("CREATE TABLE t (id INT PRIMARY KEY, b INT, a INT)", "shop", ddlPos(201))
+	assert.Equal(t, []string{"id", "b", "a"}, columnNames(c.tables["shop.t"]))
+
+	c.applyDDL("ALTER TABLE t ADD COLUMN c INT AFTER id", "shop", ddlPos(202))
+	assert.Equal(t, []string{"id", "c", "b", "a"}, columnNames(c.tables["shop.t"]))
 }

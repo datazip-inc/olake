@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -15,48 +14,13 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
-	"github.com/pingcap/tidb/pkg/parser/charset"
 )
-
-// binaryCollationID is MySQL's `binary` collation, which TableMapEvent gives BINARY,
-// VARBINARY and BLOB columns under FULL and decodeBytesToString passes through unchanged.
-// Some servers report COLLATION_NAME as NULL for these, so the type is checked too.
-const binaryCollationID = 63
-
-// binaryStringTypeRe matches COLUMN_TYPE values MySQL stores with charset `binary`.
-// GEOMETRY is deliberately absent: TableMapEvent does not count it as a character column
-// outside MariaDB, so it carries no collation.
-var binaryStringTypeRe = regexp.MustCompile(`^(binary|varbinary|tinyblob|blob|mediumblob|longblob)\b`)
-
-// columnMeta is one column's decoding info from information_schema. Its index in
-// tableMeta.Columns is the ordinal position, matching TableMapEvent.ColumnType. The json tags
-// fix the saved state format, so renaming a field cannot silently change it.
-type columnMeta struct {
-	Name        string   `json:"name"`
-	Unsigned    bool     `json:"unsigned,omitempty"`
-	EnumValues  []string `json:"enum_values,omitempty"`  // ENUM members in definition order; value idx 1..n
-	SetMembers  []string `json:"set_members,omitempty"`  // SET members; bit 0..n-1
-	CollationID uint64   `json:"collation_id,omitempty"` // 0 when the column is not character data
-}
-
-// tableMeta is one table's decoding info, valid at the binlog position AnchoredAt.
-type tableMeta struct {
-	Columns    []columnMeta   `json:"columns"`
-	AnchoredAt mysql.Position `json:"anchored_at"`
-	// DefaultCollationID is the table default, which a column added without a charset takes.
-	DefaultCollationID uint64 `json:"default_collation_id,omitempty"`
-	// TableID is the TableMapEvent.TableID last seen in this run, 0 until the table's first row and
-	// after an ALTER applied to it. Not saved: MySQL reassigns ids on restart and FLUSH TABLES.
-	TableID uint64 `json:"-"`
-	// ColumnTypes are the TableMapEvent.ColumnType bytes recorded with TableID. Not saved either.
-	ColumnTypes []byte `json:"-"`
-}
 
 // schemaCache supplies the column metadata the binlog omits. Safe for concurrent use:
 // StreamMessages is single-goroutine today, but the cache outlives one event.
 //
 // Each entry carries AnchoredAt, the binlog position it is valid at. Entries are saved in
-// Binlog.Schemas and loaded back by newSchemaCache on resume, and applyDDL (ddl.go) advances
+// Binlog.Schemas and loaded back by newSchemaCache on resume, and applyDDL advances
 // them through each DDL in stream order, so they describe tables at the reader's position.
 // Only a table's first load reads information_schema, the server's present, and get()
 // anchors that load.
@@ -66,13 +30,18 @@ type schemaCache struct {
 	tables map[string]*tableMeta
 	// foldCase is lower_case_table_names 1 or 2: the server compares table names case-insensitively.
 	foldCase bool
+	// streamed are the keys of the tables the sync captures. A CREATE of one is read from its
+	// definition even when it is not cached, as after DROP TABLE t; CREATE TABLE t.
+	streamed map[string]bool
+	// active is set once the cache has held an entry, and stays set when DDL later drops every one.
+	active bool
 }
 
 // newSchemaCache starts from the previous run's saved schemas, keeping only those valid at or
 // before the resume position. A later anchor may already include DDL the reader has not reached,
 // so that table is reloaded instead. An empty anchor would compare as earliest, so it is skipped.
 func newSchemaCache(client *sqlx.DB, state Binlog, foldCase bool) *schemaCache {
-	c := &schemaCache{client: client, tables: map[string]*tableMeta{}, foldCase: foldCase}
+	c := &schemaCache{client: client, tables: map[string]*tableMeta{}, foldCase: foldCase, streamed: map[string]bool{}}
 	for key, meta := range state.Schemas {
 		if meta != nil && meta.AnchoredAt.Name != "" && meta.AnchoredAt.Compare(state.Position) <= 0 {
 			if foldCase {
@@ -81,6 +50,7 @@ func newSchemaCache(client *sqlx.DB, state Binlog, foldCase bool) *schemaCache {
 			c.tables[key] = meta
 		}
 	}
+	c.active = len(c.tables) > 0
 	return c
 }
 
@@ -110,12 +80,19 @@ func (c *schemaCache) setTable(key string, meta *tableMeta) {
 	c.setTableLocked(key, meta)
 }
 
-// isEmpty reports whether nothing is cached. With binlog_row_metadata=FULL every row carries its
-// own metadata, so nothing is ever cached and applyDDL has nothing to update.
-func (c *schemaCache) isEmpty() bool {
+// idle reports whether the cache has never held an entry. With binlog_row_metadata=FULL every
+// row carries its own metadata, so nothing is ever cached and applyDDL has nothing to update. A
+// cache that DDL emptied stays active: after DROP TABLE t, the CREATE TABLE t that follows must
+// still be applied.
+func (c *schemaCache) idle() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return len(c.tables) == 0
+	return c.idleLocked()
+}
+
+// idleLocked is idle for a caller that holds c.mu.
+func (c *schemaCache) idleLocked() bool {
+	return !c.active && len(c.tables) == 0
 }
 
 func (c *schemaCache) getTableLocked(key string) (*tableMeta, bool) {
@@ -125,6 +102,7 @@ func (c *schemaCache) getTableLocked(key string) (*tableMeta, bool) {
 
 func (c *schemaCache) setTableLocked(key string, meta *tableMeta) {
 	c.tables[key] = meta
+	c.active = true
 }
 
 func (c *schemaCache) deleteTableLocked(key string) {
@@ -239,6 +217,12 @@ func (c *schemaCache) load(ctx context.Context, schema, table string) (*tableMet
 		return nil, fmt.Errorf("failed to load default collation for %s.%s: %w", schema, table, err)
 	}
 	meta.DefaultCollationID = collationIDByName(tableCollation)
+
+	var schemaCollation string
+	if err := c.client.QueryRowContext(ctx, jdbc.MySQLCDCSchemaCollationQuery(), schema).Scan(&schemaCollation); err != nil {
+		return nil, fmt.Errorf("failed to load default collation of database %s: %w", schema, err)
+	}
+	meta.SchemaCollationID = collationIDByName(schemaCollation)
 	return meta, nil
 }
 
@@ -248,14 +232,14 @@ func (c *schemaCache) load(ctx context.Context, schema, table string) (*tableMet
 //
 // It never guesses: a statement it cannot parse drops the table it alters or creates, or wipes the cache
 // when that is unknown, and an ALTER it cannot apply drops just that table. Either way the
-// table reloads lazily from information_schema, anchored by get(). An empty cache
-// (binlog_row_metadata=FULL) returns before any regex or parse. MySQL logs each statement as its
+// table reloads lazily from information_schema, anchored by get(). A cache that never
+// held an entry (binlog_row_metadata=FULL) returns before any regex or parse. MySQL logs each statement as its
 // own QueryEvent, so a rejected query is one statement; a query that parses into several is
 // applied statement by statement.
 // MariaDB's /*M!...*/ wrapper, ALTER ONLINE and CREATE OR REPLACE are rewritten to the statement
 // they run before parsing.
 func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position) {
-	if c.isEmpty() {
+	if c.idle() {
 		return
 	}
 	query = setStatementRe.ReplaceAllLiteralString(query, "")
@@ -276,13 +260,13 @@ func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position) 
 		stmts, _, err = parser.New().ParseSQL(query)
 	}
 
-	// One lock for the whole change, from the empty check to the last write, so get() never sees
+	// One lock for the whole change, from the idle check to the last write, so get() never sees
 	// it half done. Everything below is a Locked helper.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Checked again under the lock, so the change applies to the cache it checked.
-	if len(c.tables) == 0 {
+	if c.idleLocked() {
 		return
 	}
 
@@ -316,14 +300,16 @@ func (c *schemaCache) applyStmtLocked(stmt ast.StmtNode, ev ddlEvent) ddlOutcome
 	case *ast.RenameTableStmt:
 		return c.renameTablesLocked(ev, stmt.TableToTables)
 	case *ast.DropTableStmt:
-		if !stmt.IsView {
+		if !stmt.IsView && stmt.TemporaryKeyword == ast.TemporaryNone {
 			return c.dropTablesLocked(ev, stmt.Tables...)
 		}
 	case *ast.CreateTableStmt:
 		return c.createTableLocked(stmt, ev)
 	case *ast.DropDatabaseStmt:
 		return c.dropSchemaLocked(stmt.Name.O)
-	case *ast.CreateDatabaseStmt, *ast.AlterDatabaseStmt, *ast.CreateIndexStmt, *ast.DropIndexStmt, *ast.CreateViewStmt,
+	case *ast.AlterDatabaseStmt:
+		return c.alterSchemaLocked(stmt, ev)
+	case *ast.CreateDatabaseStmt, *ast.CreateIndexStmt, *ast.DropIndexStmt, *ast.CreateViewStmt,
 		*ast.TruncateTableStmt, *ast.OptimizeTableStmt, *ast.AnalyzeTableStmt, *ast.RepairTableStmt:
 		// No table's columns change.
 	default:
@@ -412,7 +398,7 @@ func (c *schemaCache) renameTablesLocked(ev ddlEvent, pairs []*ast.TableToTable)
 // createTableLocked records the schema a CREATE TABLE gives a name, so DDL after it in the backlog
 // applies to that schema instead of to a reload that already has the DDL. CREATE ... LIKE copies
 // the source's cached schema, which is how gh-ost and pt-online-schema-change start their shadow
-// tables; a CREATE of a cached name is read from its column definitions. Any other CREATE, a
+// tables; a CREATE of a cached or streamed name is read from its column definitions. Any other CREATE, a
 // temporary table and CREATE ... SELECT load on first use, and a definition that cannot be read
 // without guessing (a text column with no charset and no table default) drops the name. IF NOT
 // EXISTS on a cached table changes nothing. It returns what it did. The caller holds c.mu.
@@ -439,9 +425,9 @@ func (c *schemaCache) createTableLocked(stmt *ast.CreateTableStmt, ev ddlEvent) 
 			return c.dropTablesLocked(ev, stmt.Table)
 		}
 		meta = src.clone()
-	case cached && stmt.Select == nil:
+	case (cached || c.streamed[key]) && stmt.Select == nil:
 		var err error
-		if meta, err = tableMetaFromDef(stmt); err != nil {
+		if meta, err = tableMetaFromDef(stmt, c.schemaCollationLocked(schema, ev.pos)); err != nil {
 			out := c.dropTablesLocked(ev, stmt.Table)
 			out.reasons = append(out.reasons, "cannot read CREATE TABLE: "+err.Error())
 			return out
@@ -487,235 +473,52 @@ func (c *schemaCache) dropSchemaLocked(schema string) ddlOutcome {
 	return out
 }
 
-// clone returns a deep copy, so changing it never reaches a *tableMeta shared with a snapshot:
-// callers set columns, AnchoredAt, TableID and ColumnTypes on the copy, while the saved state keeps
-// the old one.
-// next := *m copies every field (new ones included, so none is forgotten), then Columns is
-// replaced with the deep copy built above; returning m itself would edit the shared entry.
-func (m *tableMeta) clone() *tableMeta {
-	cols := make([]columnMeta, len(m.Columns))
-	for i, col := range m.Columns {
-		col.EnumValues = slices.Clone(col.EnumValues)
-		col.SetMembers = slices.Clone(col.SetMembers)
-		cols[i] = col
-	}
-	next := *m
-	next.Columns = cols
-	return &next
-}
-
-// applyAlterSpec applies one ALTER TABLE clause. Clauses that do not change columns
-// (indexes, constraints, partitions, most table options, column defaults) are no-ops.
-func (m *tableMeta) applyAlterSpec(spec *ast.AlterTableSpec) error {
-	switch spec.Tp {
-	case ast.AlterTableAddColumns:
-		return m.addColumns(spec)
-	case ast.AlterTableDropColumn:
-		return m.dropColumn(spec)
-	case ast.AlterTableModifyColumn, ast.AlterTableChangeColumn:
-		return m.replaceColumn(spec)
-	case ast.AlterTableRenameColumn:
-		return m.renameColumn(spec)
-	case ast.AlterTableOption:
-		return m.convertCharset(spec.Options)
-	}
-	return nil
-}
-
-// addColumns applies ADD COLUMN, at the end or at its FIRST / AFTER position. IF NOT EXISTS
-// skips a column that is already there.
-func (m *tableMeta) addColumns(spec *ast.AlterTableSpec) error {
-	at, err := columnIndex(m.Columns, spec.Position, len(m.Columns))
-	if err != nil {
-		return err
-	}
-	var added []columnMeta
-	for _, def := range spec.NewColumns {
-		if findColumn(m.Columns, def.Name.Name.O) != -1 {
-			if spec.IfNotExists {
-				continue
-			}
-			return fmt.Errorf("column %q already exists", def.Name.Name.O)
-		}
-		col, err := columnMetaFromDef(def, m.DefaultCollationID)
-		if err != nil {
-			return err
-		}
-		added = append(added, col)
-	}
-	m.Columns = slices.Insert(m.Columns, at, added...)
-	return nil
-}
-
-// dropColumn applies DROP COLUMN. IF EXISTS makes a missing column a no-op.
-func (m *tableMeta) dropColumn(spec *ast.AlterTableSpec) error {
-	i := findColumn(m.Columns, spec.OldColumnName.Name.O)
-	if i == -1 {
-		if spec.IfExists {
-			return nil
-		}
-		return fmt.Errorf("unknown column %q", spec.OldColumnName.Name.O)
-	}
-	m.Columns = slices.Delete(m.Columns, i, i+1)
-	return nil
-}
-
-// replaceColumn applies MODIFY and CHANGE: the column takes its new definition, and its FIRST /
-// AFTER position when given. MODIFY keeps the name as stored; CHANGE renames it.
-func (m *tableMeta) replaceColumn(spec *ast.AlterTableSpec) error {
-	def := spec.NewColumns[0]
-	old := def.Name
-	if spec.Tp == ast.AlterTableChangeColumn {
-		old = spec.OldColumnName
-	}
-	i := findColumn(m.Columns, old.Name.O)
-	if i == -1 {
-		if spec.IfExists {
-			return nil
-		}
-		return fmt.Errorf("unknown column %q", old.Name.O)
-	}
-	col, err := columnMetaFromDef(def, m.DefaultCollationID)
-	if err != nil {
-		return err
-	}
-	if spec.Tp == ast.AlterTableModifyColumn {
-		col.Name = m.Columns[i].Name
-	}
-	m.Columns = slices.Delete(m.Columns, i, i+1)
-	if findColumn(m.Columns, col.Name) != -1 {
-		return fmt.Errorf("column %q already exists", col.Name)
-	}
-	at, err := columnIndex(m.Columns, spec.Position, i)
-	if err != nil {
-		return err
-	}
-	m.Columns = slices.Insert(m.Columns, at, col)
-	return nil
-}
-
-// renameColumn applies RENAME COLUMN. Renaming onto another existing column is an error.
-func (m *tableMeta) renameColumn(spec *ast.AlterTableSpec) error {
-	i := findColumn(m.Columns, spec.OldColumnName.Name.O)
-	if i == -1 {
-		return fmt.Errorf("unknown column %q", spec.OldColumnName.Name.O)
-	}
-	if j := findColumn(m.Columns, spec.NewColumnName.Name.O); j != -1 && j != i {
-		return fmt.Errorf("column %q already exists", spec.NewColumnName.Name.O)
-	}
-	m.Columns[i].Name = spec.NewColumnName.Name.O
-	return nil
-}
-
-// convertCharset applies a table's charset options. CONVERT TO re-encodes every character
-// column and sets the table default; DEFAULT CHARSET and COLLATE change only the default,
-// which columns added later take.
-func (m *tableMeta) convertCharset(opts []*ast.TableOption) error {
+// alterSchemaLocked records a database's new default charset or collation on each of its cached
+// tables, so a table created in it later without a charset takes the new default. An entry
+// anchored at or after the ALTER was loaded later and already has it. It returns what it did. The
+// caller holds c.mu.
+func (c *schemaCache) alterSchemaLocked(stmt *ast.AlterDatabaseStmt, ev ddlEvent) ddlOutcome {
 	var cs, collate string
-	var convert, change bool
-	for _, opt := range opts {
+	for _, opt := range stmt.Options {
 		switch opt.Tp {
-		case ast.TableOptionCharset:
-			if opt.Default {
-				return fmt.Errorf("CHARACTER SET DEFAULT needs the database default, which is not cached")
-			}
-			change, cs = true, opt.StrValue
-			convert = convert || opt.UintValue == ast.TableOptionCharsetWithConvertTo
-		case ast.TableOptionCollate:
-			change, collate = true, opt.StrValue
+		case ast.DatabaseOptionCharset:
+			cs = opt.Value
+		case ast.DatabaseOptionCollate:
+			collate = opt.Value
 		}
 	}
-	if !change {
-		return nil
+	if cs == "" && collate == "" {
+		return ddlOutcome{}
 	}
-
+	schema := stmt.Name.O
+	if stmt.AlterDefaultDatabase || schema == "" {
+		schema = ev.defaultSchema
+	}
 	id, err := collationID(cs, collate, false, 0)
 	if err != nil {
-		return err
+		id = 0
 	}
-	if convert && id == binaryCollationID {
-		return fmt.Errorf("CONVERT TO CHARACTER SET binary changes column types, which is not supported")
-	}
-	m.DefaultCollationID = id
-	if convert {
-		for i := range m.Columns {
-			if c := m.Columns[i].CollationID; c != 0 && c != binaryCollationID {
-				m.Columns[i].CollationID = id
-			}
+	var out ddlOutcome
+	prefix := c.tableKey(schema, "")
+	for key, meta := range c.tables {
+		if strings.HasPrefix(key, prefix) && meta.AnchoredAt.Compare(ev.pos) < 0 {
+			next := meta.clone()
+			next.SchemaCollationID, next.AnchoredAt = id, ev.pos
+			c.setTableLocked(key, next)
+			out.applied = append(out.applied, key)
 		}
 	}
-	return nil
+	return out
 }
 
-// columnMetaFrom builds one column's decoding info from its information_schema row.
-func columnMetaFrom(name, columnType, collationName string) columnMeta {
-	lowered := strings.ToLower(columnType)
-
-	collationID := collationIDByName(collationName)
-	if collationID == 0 && binaryStringTypeRe.MatchString(lowered) {
-		collationID = binaryCollationID
-	}
-
-	col := columnMeta{
-		Name:        name,
-		Unsigned:    strings.Contains(lowered, "unsigned"),
-		CollationID: collationID,
-	}
-	switch {
-	case strings.HasPrefix(lowered, "enum("):
-		col.EnumValues = parseEnumSetMembers(columnType)
-	case strings.HasPrefix(lowered, "set("):
-		col.SetMembers = parseEnumSetMembers(columnType)
-	}
-	return col
-}
-
-// collationIDByName resolves a collation name to the numeric ID the binlog carries under
-// FULL. Returns 0 for binary/unknown, which decodeBytesToString treats as passthrough.
-func collationIDByName(name string) uint64 {
-	if name == "" {
-		return 0
-	}
-	coll, err := charset.GetCollationByName(name)
-	if err != nil || coll == nil || coll.ID < 0 {
-		return 0
-	}
-	return uint64(coll.ID)
-}
-
-// parseEnumSetMembers extracts members from a COLUMN_TYPE such as enum('a','b') or
-// set('x','y,z'), handling both quote-escaping forms MySQL emits: doubled and backslashed.
-func parseEnumSetMembers(columnType string) []string {
-	open := strings.Index(columnType, "(")
-	closing := strings.LastIndex(columnType, ")")
-	if open < 0 || closing <= open {
-		return nil
-	}
-	body := columnType[open+1 : closing]
-
-	var (
-		members []string
-		cur     strings.Builder
-		inQuote bool
-	)
-	for i := 0; i < len(body); i++ {
-		ch := body[i]
-		switch {
-		case !inQuote && ch == '\'':
-			inQuote = true
-		case inQuote && ch == '\\' && i+1 < len(body):
-			i++
-			cur.WriteByte(body[i])
-		case inQuote && ch == '\'' && i+1 < len(body) && body[i+1] == '\'':
-			i++
-			cur.WriteByte('\'')
-		case inQuote && ch == '\'':
-			inQuote = false
-			members = append(members, cur.String())
-			cur.Reset()
-		case inQuote:
-			cur.WriteByte(ch)
+// schemaCollationLocked returns a database's default collation as of pos, read from a cached table
+// in it that is anchored before pos, or 0 when none is. The caller holds c.mu.
+func (c *schemaCache) schemaCollationLocked(schema string, pos mysql.Position) uint64 {
+	prefix := c.tableKey(schema, "")
+	for key, meta := range c.tables {
+		if strings.HasPrefix(key, prefix) && meta.SchemaCollationID != 0 && meta.AnchoredAt.Compare(pos) < 0 {
+			return meta.SchemaCollationID
 		}
 	}
-	return members
+	return 0
 }

@@ -587,6 +587,16 @@ func MySQLCDCTableCollationQuery() string {
 	`
 }
 
+// MySQLCDCSchemaCollationQuery returns the query for a database's default collation, which a table
+// created later without a charset or collation takes.
+func MySQLCDCSchemaCollationQuery() string {
+	return `
+		SELECT COALESCE(DEFAULT_COLLATION_NAME, '')
+		FROM INFORMATION_SCHEMA.SCHEMATA
+		WHERE SCHEMA_NAME = ?
+	`
+}
+
 // MySQLLowerCaseTableNamesQuery returns the query for lower_case_table_names: 0 compares table
 // names case-sensitively, 1 and 2 case-insensitively.
 func MySQLLowerCaseTableNamesQuery() string {

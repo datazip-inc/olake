@@ -16,18 +16,18 @@ func TestParseEnumSetMembers(t *testing.T) {
 		columnType string
 		want       []string
 	}{
-		{"simple enum", "enum('a','b')", []string{"a", "b"}},
-		{"simple set", "set('sports','music','gaming','reading')", []string{"sports", "music", "gaming", "reading"}},
-		{"member containing a comma", "set('x','y,z')", []string{"x", "y,z"}},
-		{"doubled-quote escape", "enum('it''s','ok')", []string{"it's", "ok"}},
-		{"backslash escape", `enum('it\'s','ok')`, []string{"it's", "ok"}},
-		{"empty member", "enum('','a')", []string{"", "a"}},
-		{"multi-byte member", "enum('日本語','ok')", []string{"日本語", "ok"}},
-		{"member containing parens", "enum('a(1)','b')", []string{"a(1)", "b"}},
-		{"single member", "enum('only')", []string{"only"}},
-		{"no parens", "enum", nil},
-		{"empty body", "enum()", nil},
-		{"unclosed", "enum('a'", nil},
+		{name: "simple enum", columnType: "enum('a','b')", want: []string{"a", "b"}},
+		{name: "simple set", columnType: "set('sports','music','gaming','reading')", want: []string{"sports", "music", "gaming", "reading"}},
+		{name: "member containing a comma", columnType: "set('x','y,z')", want: []string{"x", "y,z"}},
+		{name: "doubled-quote escape", columnType: "enum('it''s','ok')", want: []string{"it's", "ok"}},
+		{name: "backslash escape", columnType: `enum('it\'s','ok')`, want: []string{"it's", "ok"}},
+		{name: "empty member", columnType: "enum('','a')", want: []string{"", "a"}},
+		{name: "multi-byte member", columnType: "enum('日本語','ok')", want: []string{"日本語", "ok"}},
+		{name: "member containing parens", columnType: "enum('a(1)','b')", want: []string{"a(1)", "b"}},
+		{name: "single member", columnType: "enum('only')", want: []string{"only"}},
+		{name: "no parens", columnType: "enum", want: nil},
+		{name: "empty body", columnType: "enum()", want: nil},
+		{name: "unclosed", columnType: "enum('a'", want: nil},
 	}
 
 	for _, tt := range tests {
@@ -43,12 +43,12 @@ func TestCollationIDByName(t *testing.T) {
 		name string
 		want uint64
 	}{
-		{"utf8mb4_general_ci", 45},
-		{"latin1_swedish_ci", 8},
-		{"ucs2_general_ci", 35},
-		{"utf8mb4_0900_ai_ci", 255},
-		{"", 0},
-		{"not_a_collation", 0},
+		{name: "utf8mb4_general_ci", want: 45},
+		{name: "latin1_swedish_ci", want: 8},
+		{name: "ucs2_general_ci", want: 35},
+		{name: "utf8mb4_0900_ai_ci", want: 255},
+		{name: "", want: 0},
+		{name: "not_a_collation", want: 0},
 	}
 
 	for _, tt := range tests {
@@ -64,20 +64,20 @@ func TestIsDDL(t *testing.T) {
 		query string
 		want  bool
 	}{
-		{"begin", "BEGIN", false},
-		{"commit", "COMMIT", false},
-		{"rollback", "ROLLBACK", false},
-		{"savepoint", "SAVEPOINT sp1", false},
-		{"truncate leaves columns alone", "TRUNCATE TABLE users", false},
-		{"insert", "INSERT INTO users VALUES (1)", false},
-		{"alter table", "ALTER TABLE users ADD COLUMN age INT", true},
-		{"lowercase alter", "alter table users drop column age", true},
-		{"leading whitespace", "\n\t ALTER TABLE users ADD COLUMN age INT", true},
-		{"comment-prefixed migration", "/* gh-ost */ ALTER TABLE users ADD COLUMN age INT", true},
-		{"multiline comment prefix", "/* migration\n123 */ ALTER TABLE t ADD c INT", true},
-		{"rename table", "RENAME TABLE users TO _users_del, _users_gho TO users", true},
-		{"drop table", "DROP TABLE users", true},
-		{"mariadb create or replace", "CREATE OR REPLACE TABLE users (id INT)", true},
+		{name: "begin", query: "BEGIN", want: false},
+		{name: "commit", query: "COMMIT", want: false},
+		{name: "rollback", query: "ROLLBACK", want: false},
+		{name: "savepoint", query: "SAVEPOINT sp1", want: false},
+		{name: "truncate leaves columns alone", query: "TRUNCATE TABLE users", want: false},
+		{name: "insert", query: "INSERT INTO users VALUES (1)", want: false},
+		{name: "alter table", query: "ALTER TABLE users ADD COLUMN age INT", want: true},
+		{name: "lowercase alter", query: "alter table users drop column age", want: true},
+		{name: "leading whitespace", query: "\n\t ALTER TABLE users ADD COLUMN age INT", want: true},
+		{name: "comment-prefixed migration", query: "/* gh-ost */ ALTER TABLE users ADD COLUMN age INT", want: true},
+		{name: "multiline comment prefix", query: "/* migration\n123 */ ALTER TABLE t ADD c INT", want: true},
+		{name: "rename table", query: "RENAME TABLE users TO _users_del, _users_gho TO users", want: true},
+		{name: "drop table", query: "DROP TABLE users", want: true},
+		{name: "mariadb create or replace", query: "CREATE OR REPLACE TABLE users (id INT)", want: true},
 	}
 
 	for _, tt := range tests {
@@ -87,10 +87,16 @@ func TestIsDDL(t *testing.T) {
 	}
 }
 
+// TestNewSchemaCache covers seeding the cache from a saved state.
+func TestNewSchemaCache(t *testing.T) {
+	t.Run("keeps only schemas valid at resume", testSeedKeepsOnlySchemasValidAtResume)
+	t.Run("old state without schemas seeds nothing", testOldStateWithoutSchemasSeedsNothing)
+}
+
 // A saved schema anchored after the resume position may already include DDL the reader has
 // not reached, so newSchemaCache must drop it; an empty anchor compares as earliest and is
 // dropped too.
-func TestSeedKeepsOnlySchemasValidAtResume(t *testing.T) {
+func testSeedKeepsOnlySchemasValidAtResume(t *testing.T) {
 	resume := mysql.Position{Name: "mysql-bin.000010", Pos: 500}
 	saved := map[string]*tableMeta{
 		"shop.before": {Columns: []columnMeta{{Name: "id"}}, AnchoredAt: mysql.Position{Name: "mysql-bin.000010", Pos: 400}},
@@ -107,7 +113,13 @@ func TestSeedKeepsOnlySchemasValidAtResume(t *testing.T) {
 	assert.NotContains(t, c.tables, "shop.empty")
 }
 
-func TestBinlogSchemasRoundTrip(t *testing.T) {
+// TestBinlogJSON covers the saved state's JSON.
+func TestBinlogJSON(t *testing.T) {
+	t.Run("schemas round trip", testBinlogSchemasRoundTrip)
+	t.Run("format", testBinlogJSONFormat)
+}
+
+func testBinlogSchemasRoundTrip(t *testing.T) {
 	in := Binlog{
 		Position: mysql.Position{Name: "mysql-bin.000010", Pos: 500},
 		Schemas: map[string]*tableMeta{
@@ -126,7 +138,7 @@ func TestBinlogSchemasRoundTrip(t *testing.T) {
 }
 
 // State files written before schemas were persisted must still load, with an empty cache.
-func TestOldStateWithoutSchemasSeedsNothing(t *testing.T) {
+func testOldStateWithoutSchemasSeedsNothing(t *testing.T) {
 	var out Binlog
 	require.NoError(t, json.Unmarshal([]byte(`{"position":{"Name":"mysql-bin.000010","Pos":500}}`), &out))
 	assert.Nil(t, out.Schemas)
@@ -135,9 +147,16 @@ func TestOldStateWithoutSchemasSeedsNothing(t *testing.T) {
 	assert.Empty(t, c.tables)
 }
 
+// TestSchemaCacheGet covers get: cached answers and the table id check.
+func TestSchemaCacheGet(t *testing.T) {
+	t.Run("seeded schema answers without a query", testSeededSchemaAnswersWithoutQuery)
+	t.Run("table id", testSchemaCacheGetTableID)
+	t.Run("table id after resume", testSchemaCacheGetTableIDAfterResume)
+}
+
 // The cache has no client, so any information_schema query would fail: getting the saved
 // schema back proves a resumed run decodes with the schema as of its start position.
-func TestSeededSchemaAnswersWithoutQuery(t *testing.T) {
+func testSeededSchemaAnswersWithoutQuery(t *testing.T) {
 	resume := mysql.Position{Name: "mysql-bin.000010", Pos: 500}
 	c := newSchemaCache(nil, Binlog{Position: resume, Schemas: map[string]*tableMeta{
 		"shop.orders": {
@@ -171,7 +190,7 @@ func TestConnectionSeedsAndReturnsState(t *testing.T) {
 
 // The saved state format must not change by accident: a renamed Go field would otherwise
 // silently drop every saved schema on upgrade. TableID is left out: MySQL reassigns it on restart.
-func TestBinlogJSONFormat(t *testing.T) {
+func testBinlogJSONFormat(t *testing.T) {
 	in := Binlog{
 		Position: mysql.Position{Name: "mysql-bin.000010", Pos: 500},
 		Schemas: map[string]*tableMeta{
@@ -184,6 +203,7 @@ func TestBinlogJSONFormat(t *testing.T) {
 				},
 				AnchoredAt:         mysql.Position{Name: "mysql-bin.000010", Pos: 400},
 				DefaultCollationID: 45,
+				SchemaCollationID:  8,
 				TableID:            7,
 			},
 		},
@@ -200,14 +220,15 @@ func TestBinlogJSONFormat(t *testing.T) {
 				{"name": "note", "collation_id": 45}
 			],
 			"anchored_at": {"Name": "mysql-bin.000010", "Pos": 400},
-			"default_collation_id": 45
+			"default_collation_id": 45,
+			"schema_collation_id": 8
 		}}
 	}`, string(raw))
 }
 
 // The cache has no client, so a reload fails: an error proves get tried to reload. The cached
 // entry is (id INT, name VARCHAR).
-func TestSchemaCacheGetTableID(t *testing.T) {
+func testSchemaCacheGetTableID(t *testing.T) {
 	intVarchar := []byte{mysql.MYSQL_TYPE_LONG, mysql.MYSQL_TYPE_VARCHAR}
 	varcharInt := []byte{mysql.MYSQL_TYPE_VARCHAR, mysql.MYSQL_TYPE_LONG}
 	tests := []struct {
@@ -247,7 +268,7 @@ func TestSchemaCacheGetTableID(t *testing.T) {
 
 // A MySQL restart gives tables new ids, so a resumed run must adopt the new id rather than
 // reload: the cache has no client, so a reload would fail.
-func TestSchemaCacheGetTableIDAfterResume(t *testing.T) {
+func testSchemaCacheGetTableIDAfterResume(t *testing.T) {
 	pos := mysql.Position{Name: "mysql-bin.000010", Pos: 400}
 	raw, err := json.Marshal(Binlog{Position: pos, Schemas: map[string]*tableMeta{
 		"shop.orders": {Columns: []columnMeta{{Name: "id"}}, AnchoredAt: pos, TableID: 112},
@@ -274,9 +295,9 @@ func TestSchemaCacheSnapshot(t *testing.T) {
 		upTo mysql.Position
 		want []string
 	}{
-		{"keeps entries anchored at or before upTo", mysql.Position{Name: "mysql-bin.000010", Pos: 500}, []string{"shop.before", "shop.at"}},
-		{"keeps every entry once past all anchors", mysql.Position{Name: "mysql-bin.000011", Pos: 100}, []string{"shop.before", "shop.at", "shop.after"}},
-		{"keeps none before every anchor", mysql.Position{Name: "mysql-bin.000010", Pos: 300}, []string{}},
+		{name: "keeps entries anchored at or before upTo", upTo: mysql.Position{Name: "mysql-bin.000010", Pos: 500}, want: []string{"shop.before", "shop.at"}},
+		{name: "keeps every entry once past all anchors", upTo: mysql.Position{Name: "mysql-bin.000011", Pos: 100}, want: []string{"shop.before", "shop.at", "shop.after"}},
+		{name: "keeps none before every anchor", upTo: mysql.Position{Name: "mysql-bin.000010", Pos: 300}, want: []string{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -303,16 +324,16 @@ func TestSchemaCacheMaxAnchor(t *testing.T) {
 		anchors map[string]mysql.Position
 		want    mysql.Position
 	}{
-		{"empty cache gives the zero position", nil, mysql.Position{}},
-		{"latest offset in one file", map[string]mysql.Position{
+		{name: "empty cache gives the zero position", anchors: nil, want: mysql.Position{}},
+		{name: "latest offset in one file", anchors: map[string]mysql.Position{
 			"shop.a": {Name: "mysql-bin.000010", Pos: 400},
 			"shop.b": {Name: "mysql-bin.000010", Pos: 900},
 			"shop.c": {Name: "mysql-bin.000010", Pos: 500},
-		}, mysql.Position{Name: "mysql-bin.000010", Pos: 900}},
-		{"later file beats a larger offset", map[string]mysql.Position{
+		}, want: mysql.Position{Name: "mysql-bin.000010", Pos: 900}},
+		{name: "later file beats a larger offset", anchors: map[string]mysql.Position{
 			"shop.a": {Name: "mysql-bin.000010", Pos: 900},
 			"shop.b": {Name: "mysql-bin.000011", Pos: 100},
-		}, mysql.Position{Name: "mysql-bin.000011", Pos: 100}},
+		}, want: mysql.Position{Name: "mysql-bin.000011", Pos: 100}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
