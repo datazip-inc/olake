@@ -23,6 +23,8 @@ print.platforms.%:
 
 .PHONY: gomod golangci.install trivy gofmt pre-commit
 
+gomod golangci.install olake.lint test.lint: export GOTOOLCHAIN = $(GO_VERSION)
+
 # Build a driver image locally, e.g. `make docker.postgres.build IMAGE_TAG=v1.2.3`.
 # Drivers with an explicit entry in drivers/platforms.conf are pinned to it.
 # Concrete (non-pattern) targets so they are phony and shells can autocomplete them.
@@ -40,15 +42,36 @@ $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
 docker.all.build: $(addsuffix .build,$(addprefix docker.,$(DRIVERS)))
 
 gomod:
+	go work sync
+	cd tests && go work sync
 	find . -name go.mod -execdir go mod tidy \;
 
 # Pinned so a new golangci-lint release can't fail lint on unchanged code.
 golangci.install:
-	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+# Shared dependency check used by both lint targets.
+define check_go_mod_tidy
+	@before=$$(git diff -- '*go.mod' '*.sum') || exit 1; \
+	for d in $(1); do \
+		if ! (cd "$$d" && go mod tidy -diff); then \
+			echo "go.mod/go.sum not tidy in $$d: run make gomod and commit the result"; \
+			exit 1; \
+		fi; \
+	done; \
+	(cd "$(2)" && go work sync) || exit 1; \
+	after=$$(git diff -- '*go.mod' '*.sum') || exit 1; \
+	if [ "$$before" != "$$after" ]; then \
+		echo "go work sync changed go.mod/go.sum in $(2): run make gomod and commit the result"; \
+		git diff -- '*go.mod' '*.sum'; \
+		exit 1; \
+	fi
+endef
 
 # One golangci-lint run over every product module in go.work. Relative patterns on purpose: an
 # absolute <dir>/... for the root module sweeps into tests/, while ./... stays module-scoped.
 olake.lint: golangci.install prepare.all
+	$(call check_go_mod_tidy,$(patsubst $(CURDIR)%,.%,$(ROOT_MODULES)),.)
 	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) $(GOPATH)/bin/golangci-lint run $(patsubst $(CURDIR)%,.%/...,$(ROOT_MODULES))
 
 trivy:
@@ -65,6 +88,7 @@ pre-commit:
 	git config core.hooksPath .githooks
 
 test.lint: golangci.install prepare.all
+	$(call check_go_mod_tidy,$(addprefix tests/,$(TEST_MODULES)),tests)
 	cd tests && $(foreach m,$(TEST_MODULES),($(GO_ENV.$(m)) $(GOPATH)/bin/golangci-lint run ./$(m)/...) &&) true
 
 # Mirrors CI's "Go Build and Lint" workflow
@@ -398,11 +422,10 @@ $(foreach d,$(DRIVERS),$(eval $(call COMPATIBILITY_TEST_template,$(d))))
 .PHONY: test.compatibility
 test.compatibility: $(addprefix test.compatibility.,$(DRIVERS))
 
-# Unit tests across every module in the go.work workspace. Directory patterns
-# ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
-# like <module>/... prefix-matches into sibling modules.
+# Unit tests across every module in the go.work workspace, with a merged cover profile
+# (coverage.out) and a per-package coverage table; see the script for details.
 test.unit: $(addprefix prepare.,$(DRIVERS))
-	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1
+	@$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) .github/scripts/test-unit.sh
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
