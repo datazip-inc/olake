@@ -2,7 +2,6 @@ package parquet
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/datazip-inc/olake/destination/parquet/azure"
 	"github.com/datazip-inc/olake/destination/parquet/s3"
@@ -22,7 +21,6 @@ func newObjectStore(cfg *Config) (objectStore, error) {
 			ConnectionString:         cfg.AzureConnectionString,
 		})
 	case cfg.usingS3():
-		cfg.Prefix = strings.Trim(cfg.Prefix, "/")
 		return s3.New(s3.Config{
 			Bucket:     cfg.Bucket,
 			Region:     cfg.Region,
