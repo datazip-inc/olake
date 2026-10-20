@@ -170,6 +170,54 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 	assert.NotContains(t, string(serialized), "target_query_engines")
 }
 
+// An omitted update_type follows default_stream_properties, which a new discover derives from the
+// current engines; merging keeps the previous format instead of letting it switch silently.
+func TestMergeCatalogsKeepsImplicitUpdateType(t *testing.T) {
+	stream := func(defaultType UpdateType) *Stream {
+		return &Stream{
+			Name: "users", Namespace: "public", Schema: NewTypeSchema(),
+			DefaultStreamProperties: &DefaultStreamProperties{UpdateType: defaultType},
+		}
+	}
+	testCases := []struct {
+		name            string
+		previousDefault UpdateType
+		currentDefault  UpdateType
+		engines         []QueryEngine
+		expected        *string
+	}{
+		{
+			name: "unchanged default stays omitted", previousDefault: UpdateTypeEquality, currentDefault: UpdateTypeEquality,
+			engines: []QueryEngine{QueryEngineSpark}, expected: nil,
+		},
+		{
+			name: "changed default keeps the readable previous format", previousDefault: UpdateTypePosition, currentDefault: UpdateTypeEquality,
+			engines: []QueryEngine{QueryEngineSpark}, expected: new("pos"),
+		},
+		{
+			// Databricks reads deletion vectors only: the switch to dv must be the user's choice.
+			name: "changed default with an unreadable previous format is cleared", previousDefault: UpdateTypeEquality, currentDefault: UpdateTypeDeletionVector,
+			engines: []QueryEngine{QueryEngineDatabricks}, expected: new(""),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			oldCatalog := &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: stream(tc.previousDefault)}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			}
+			newCatalog := &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: stream(tc.currentDefault)}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			}
+
+			merged := mergeCatalogs(oldCatalog, newCatalog, tc.engines)
+			assert.Equal(t, tc.expected, merged.SelectedStreams["public"][0].UpdateType)
+		})
+	}
+}
+
 func TestMergeUpdateType(t *testing.T) {
 	testCases := []struct {
 		name     string

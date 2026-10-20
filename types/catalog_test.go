@@ -1808,6 +1808,13 @@ func TestResolveCatalog(t *testing.T) {
 			expectedCode: codeAvailableStreamsEmpty,
 		},
 		{
+			// an empty stream difference: nothing available and nothing selected, as in an empty streams.json
+			name:      "new format: empty available and selected streams resolve to an empty catalog",
+			available: &Catalog{},
+			selected:  &Catalog{},
+			expected:  &Catalog{SelectedStreams: map[string][]StreamMetadata{}},
+		},
+		{
 			// an empty selected_streams file selects nothing; it must stay a non-nil empty map
 			name:      "new format: empty selected_streams resolves to an empty selection",
 			available: &Catalog{Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}}},

@@ -254,7 +254,8 @@ func streamMapByID(streams []*ConfiguredStream) map[string]*ConfiguredStream {
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
 // 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
-// 4. Everything else: Keep as new catalog
+// 4. UpdateType: Keep the previous delete format while the target query engines can read it
+// 5. Everything else: Keep as new catalog
 func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
@@ -277,6 +278,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 					newStream := newStreams[streamID].Stream
 					if oldConfigured != nil {
 						MergeSelectedColumns(&metadata, oldConfigured.Stream, newStream)
+						pinImplicitUpdateType(&metadata, oldConfigured.Stream, newStream)
 					}
 					mergeUpdateType(&metadata, streamID, engines)
 
@@ -318,6 +320,25 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 	})
 
 	return newCatalog
+}
+
+// pinImplicitUpdateType keeps an omitted update_type on the delete format it resolved to before
+// this discover. An omitted update_type follows default_stream_properties, which discover
+// recomputes from the current target query engines, so a changed engine set would otherwise
+// switch the stream's delete format silently. Pinned, the previous format goes through
+// mergeUpdateType like an explicit choice. Only a format that would change is pinned, so an
+// unchanged stream keeps following its default.
+func pinImplicitUpdateType(metadata *StreamMetadata, oldStream, newStream *Stream) {
+	if metadata.UpdateType != nil {
+		return
+	}
+	previous := (&ConfiguredStream{Stream: oldStream, StreamMetadata: *metadata}).GetUpdateType()
+	current := (&ConfiguredStream{Stream: newStream, StreamMetadata: *metadata}).GetUpdateType()
+	if previous == current {
+		return
+	}
+	pinned := string(previous)
+	metadata.UpdateType = &pinned
 }
 
 // mergeUpdateType keeps a previously configured delete format only while every current

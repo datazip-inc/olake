@@ -160,7 +160,9 @@ func compareStreams() error {
 	}
 
 	diffCatalog := types.GetStreamsDelta(oldStreams, newStreams)
-	// log the difference catalog to stdout
+	if len(diffCatalog.Streams) == 0 && len(diffCatalog.SelectedStreams) == 0 {
+		logger.Infof("No differences found between the old and new catalogs")
+	}
 
 	if differenceSelectedStreamsPath != "" {
 		err = diffCatalog.WriteSplitToFiles(viper.GetString(constants.DifferenceAvailableStreamsPath), viper.GetString(constants.DifferenceSelectedStreamsPath))
