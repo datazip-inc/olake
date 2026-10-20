@@ -12,7 +12,10 @@
           "type": "string",
           "title": "Storage Type",
           "description": "The type of storage to use for the output files",
-          "enum": ["S3", "Azure"],
+          "enum": [
+            "S3",
+            "Azure"
+          ],
           "default": "S3"
         },
         "max_file_size_mb": {
@@ -90,11 +93,6 @@
                   ],
                   "default": "shared-key"
                 },
-                "azure_storage_account_name": {
-                  "type": "string",
-                  "title": "Azure Storage Account Name",
-                  "description": "The name of an existing Azure storage account with appropriate access permissions to store output files"
-                },
                 "azure_container_name": {
                   "type": "string",
                   "title": "Azure Storage Container Name",
@@ -113,7 +111,6 @@
               },
               "required": [
                 "azure_auth_type",
-                "azure_storage_account_name",
                 "azure_container_name"
               ],
               "dependencies": {
@@ -124,6 +121,11 @@
                         "azure_auth_type": {
                           "const": "shared-key"
                         },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "The name of an existing Azure storage account with appropriate access permissions to store output files"
+                        },
                         "azure_storage_account_key": {
                           "type": "string",
                           "title": "Azure Storage Account Key",
@@ -132,6 +134,7 @@
                         }
                       },
                       "required": [
+                        "azure_storage_account_name",
                         "azure_storage_account_key"
                       ]
                     },
@@ -139,6 +142,11 @@
                       "properties": {
                         "azure_auth_type": {
                           "const": "sas-token"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "The name of an existing Azure storage account with appropriate access permissions to store output files"
                         },
                         "azure_sas_token": {
                           "type": "string",
@@ -148,6 +156,7 @@
                         }
                       },
                       "required": [
+                        "azure_storage_account_name",
                         "azure_sas_token"
                       ]
                     },
@@ -171,8 +180,16 @@
                       "properties": {
                         "azure_auth_type": {
                           "const": "managed-identity"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "The name of an existing Azure storage account with appropriate access permissions to store output files"
                         }
-                      }
+                      },
+                      "required": [
+                        "azure_storage_account_name"
+                      ]
                     }
                   ]
                 }
