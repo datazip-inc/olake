@@ -63,6 +63,8 @@ jobs:
           # Anthropic keys go in x-api-key; OCR ignores this for OpenAI-compatible providers.
           llm_auth_header: x-api-key
           llm_extra_body: '{}'
+          # Seconds to wait for each LLM response; the 300 default times out on the deep tier.
+          llm_timeout: 900
           background: ${{ github.event.pull_request.title }}
           sticky_summary: 'true'
           checkpoint_range: 'true'
