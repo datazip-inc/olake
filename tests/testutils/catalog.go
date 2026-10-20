@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
-// The catalog files in a suite's working directory; the container reads them under the same names.
+// The catalog files in a suite's working directory
 const (
 	AvailableStreamsFile = "available_streams.json"
 	SelectedStreamsFile  = "selected_streams.json"
-	// StreamsFile is the streams v1 catalog. Remove with streams v1 support.
+	// StreamsFile is the streams v1 catalog
 	StreamsFile = "streams.json"
 )
 

@@ -17,13 +17,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// isStreamDifferenceCommand reports whether both old and new streams flags were passed
-func isStreamDifferenceCommand() bool {
-	hasOldStreams := streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "")
-	hasNewStreams := differencePath != "" || (differenceAvailableStreamsPath != "" && differenceSelectedStreamsPath != "")
-	return hasOldStreams && hasNewStreams
-}
-
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
@@ -111,6 +104,13 @@ var discoverCmd = &cobra.Command{
 	},
 }
 
+// isStreamDifferenceCommand reports whether both old and new streams flags were passed
+func isStreamDifferenceCommand() bool {
+	hasOldStreams := streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "")
+	hasNewStreams := differencePath != "" || (differenceAvailableStreamsPath != "" && differenceSelectedStreamsPath != "")
+	return hasOldStreams && hasNewStreams
+}
+
 // convertLegacyStreams rewrites the --streams file as available_streams.json and selected_streams.json.
 // used to convert raw file to new format without discovering the source
 func convertLegacyStreams() error {
@@ -147,7 +147,7 @@ func resolveTargetQueryEngines() error {
 
 // compareStreams reads the old and new catalogs, computes the difference, and writes the result to
 // difference_streams.json, or to difference_available_streams.json and difference_selected_streams.json
-// for the available/selected streams format
+// for the v2 format.
 func compareStreams() error {
 	oldStreams, err := types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
 	if err != nil {

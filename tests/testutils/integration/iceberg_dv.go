@@ -83,13 +83,16 @@ func dvStreamEntry(namespace, table, destinationDatabase string) map[string]inte
 
 // dvSelectedEntry builds one `selected_streams[namespace][]` entry. partitionRegex is "" for
 // the unpartitioned table.
-func dvSelectedEntry(table, updateType, partitionRegex string) map[string]interface{} {
+func dvSelectedEntry(table, updateType, partitionRegex, destinationDatabase string) map[string]interface{} {
 	return map[string]interface{}{
-		"stream_name":     table,
-		"update_type":     updateType,
-		"partition_regex": partitionRegex,
-		"normalization":   true,
-		"append_mode":     false,
+		"stream_name":          table,
+		"update_type":          updateType,
+		"partition_regex":      partitionRegex,
+		"normalization":        true,
+		"append_mode":          false,
+		"sync_mode":            "cdc",
+		"destination_database": destinationDatabase,
+		"destination_table":    table,
 	}
 }
 
@@ -106,8 +109,8 @@ func dvCatalogDoc(namespace, destinationDatabase, updateType string) map[string]
 		},
 		"selected_streams": map[string]interface{}{
 			namespace: []interface{}{
-				dvSelectedEntry(DVUnpartTable, updateType, ""),
-				dvSelectedEntry(DVPartTable, updateType, "/{status,identity}"),
+				dvSelectedEntry(DVUnpartTable, updateType, "", destinationDatabase),
+				dvSelectedEntry(DVPartTable, updateType, "/{status,identity}", destinationDatabase),
 			},
 		},
 	}
