@@ -30,11 +30,10 @@ var ddlNoise struct {
 
 // ddlTables are every table the DDL suite creates, shadow and scratch tables included.
 var ddlTables = []string{
-	testutils.DDLBacklogTable, testutils.DDLSwapTable, "_ddl_swap_gho", "_ddl_swap_del",
+	integration.DDLBacklogTable, integration.DDLSwapTable, "_ddl_swap_gho", "_ddl_swap_del",
 	"ddl_other", "ddl_geo", "ddl_noise",
 }
 
-// ExecuteQuery executes MySQL queries for testing based on the operation type
 type seedColumn struct {
 	name     string
 	datatype string
@@ -317,8 +316,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			return
 		}
 		for _, stmt := range []string{
-			fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, a INT, b INT, status ENUM('new', 'paid'))", testutils.DDLBacklogTable),
-			fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, a INT, b INT, status ENUM('new', 'paid'))", testutils.DDLSwapTable),
+			fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, a INT, b INT, status ENUM('new', 'paid'))", integration.DDLBacklogTable),
+			fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, a INT, b INT, status ENUM('new', 'paid'))", integration.DDLSwapTable),
 			"CREATE TABLE ddl_other (x INT)",
 			"CREATE TABLE ddl_noise (id INT AUTO_INCREMENT PRIMARY KEY, v INT)",
 		} {
@@ -328,7 +327,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "ddl-seed":
-		for _, table := range []string{testutils.DDLBacklogTable, testutils.DDLSwapTable} {
+		for _, table := range []string{integration.DDLBacklogTable, integration.DDLSwapTable} {
 			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s VALUES (100, 0, 0, 'new')", table))
 			require.NoError(t, err, "failed to seed %s", table)
 		}
@@ -365,7 +364,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		// Rows between DDL, so each row decodes right only if every DDL before it, and none after
 		// it, reached the saved column metadata. Each statement runs as written, so the binlog
 		// gets the leading "--" comment too (the mysql client would strip it).
-		backlog, swap := testutils.DDLBacklogTable, testutils.DDLSwapTable
+		backlog, swap := integration.DDLBacklogTable, integration.DDLSwapTable
 		for _, stmt := range []string{
 			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (1, 10, 20, 'paid')", backlog),
 			fmt.Sprintf("ALTER TABLE %s MODIFY a INT AFTER b", backlog),
