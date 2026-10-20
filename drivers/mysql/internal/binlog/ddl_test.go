@@ -88,6 +88,8 @@ func TestSchemaCacheApplyDDL(t *testing.T) {
 	t.Run("wipes when unsure", testApplyDDLWipesWhenUnsure)
 	t.Run("several statements", testApplyDDLSeveralStatements)
 	t.Run("recreates the only cached table", testApplyDDLRecreatesOnlyCachedTable)
+	t.Run("create if not exists of an uncached table", testApplyDDLCreateIfNotExistsUncached)
+	t.Run("keeps the database default after the last drop", testApplyDDLKeepsSchemaDefault)
 	t.Run("reports its outcome", testDDLOutcome)
 }
 
@@ -615,4 +617,44 @@ func testApplyDDLRecreatesOnlyCachedTable(t *testing.T) {
 
 	c.applyDDL("ALTER TABLE t ADD COLUMN c INT AFTER id", "shop", ddlPos(202))
 	assert.Equal(t, []string{"id", "c", "b", "a"}, columnNames(c.tables["shop.t"]))
+}
+
+// MySQL logs CREATE TABLE IF NOT EXISTS even when the table exists, where it changes nothing, so it
+// stands in for an uncached table only right after a DROP of it, when it must have created it.
+func testApplyDDLCreateIfNotExistsUncached(t *testing.T) {
+	c := newSchemaCache(nil, Binlog{}, false)
+	c.streamed["shop.t"] = true
+	c.setTable("shop.t", &tableMeta{Columns: []columnMeta{{Name: "id"}, {Name: "b"}, {Name: "a"}}, AnchoredAt: ddlPos(100)})
+
+	c.applyDDL("ALTER TABLE t CONVERT TO CHARACTER SET DEFAULT", "shop", ddlPos(200))
+	require.NotContains(t, cacheKeys(c), "shop.t")
+	c.applyDDL("CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY, a INT, b INT)", "shop", ddlPos(201))
+	assert.NotContains(t, cacheKeys(c), "shop.t", "t still exists, so the CREATE changed nothing")
+
+	c.setTable("shop.t", &tableMeta{Columns: []columnMeta{{Name: "id"}, {Name: "b"}, {Name: "a"}}, AnchoredAt: ddlPos(300)})
+	c.applyDDL("DROP TABLE t", "shop", ddlPos(400))
+	c.applyDDL("CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY, a INT, b INT)", "shop", ddlPos(401))
+	assert.Equal(t, []string{"id", "a", "b"}, columnNames(c.tables["shop.t"]), "right after the DROP the CREATE made t")
+}
+
+// A database's default collation outlives its last cached table, so a CREATE after DROP TABLE of
+// that table can still read a text column that names no charset. DROP DATABASE forgets it.
+func testApplyDDLKeepsSchemaDefault(t *testing.T) {
+	c := newSchemaCache(nil, Binlog{}, false)
+	c.streamed["shop.t"] = true
+	c.setTable("shop.t", &tableMeta{
+		Columns:           []columnMeta{{Name: "id"}},
+		AnchoredAt:        ddlPos(100),
+		SchemaCollationID: mustCollationID(t, "latin1_swedish_ci"),
+	})
+
+	c.applyDDL("DROP TABLE t", "shop", ddlPos(200))
+	c.applyDDL("CREATE TABLE t (id INT PRIMARY KEY, note VARCHAR(10))", "shop", ddlPos(201))
+	require.Contains(t, cacheKeys(c), "shop.t")
+	assert.Equal(t, "latin1", charsetOf(t, column(t, c.tables["shop.t"], "note").CollationID))
+
+	c.applyDDL("DROP TABLE t", "shop", ddlPos(300))
+	c.applyDDL("DROP DATABASE shop", "", ddlPos(301))
+	c.applyDDL("CREATE TABLE shop.t (id INT PRIMARY KEY, note VARCHAR(10))", "", ddlPos(302))
+	assert.NotContains(t, cacheKeys(c), "shop.t", "a recreated database may have another default")
 }

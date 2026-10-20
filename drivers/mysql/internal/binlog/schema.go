@@ -35,13 +35,26 @@ type schemaCache struct {
 	streamed map[string]bool
 	// active is set once the cache has held an entry, and stays set when DDL later drops every one.
 	active bool
+	// dropped are the keys of tables a DROP TABLE removed and nothing has brought back since, so a
+	// CREATE TABLE IF NOT EXISTS of one must have created it.
+	dropped map[string]bool
+	// schemaDefaults keeps a database's default collation from its last dropped table, for a CREATE
+	// in it once no cached table carries the default.
+	schemaDefaults map[string]uint64
 }
 
 // newSchemaCache starts from the previous run's saved schemas, keeping only those valid at or
 // before the resume position. A later anchor may already include DDL the reader has not reached,
 // so that table is reloaded instead. An empty anchor would compare as earliest, so it is skipped.
 func newSchemaCache(client *sqlx.DB, state Binlog, foldCase bool) *schemaCache {
-	c := &schemaCache{client: client, tables: map[string]*tableMeta{}, foldCase: foldCase, streamed: map[string]bool{}}
+	c := &schemaCache{
+		client:         client,
+		tables:         map[string]*tableMeta{},
+		foldCase:       foldCase,
+		streamed:       map[string]bool{},
+		dropped:        map[string]bool{},
+		schemaDefaults: map[string]uint64{},
+	}
 	for key, meta := range state.Schemas {
 		if meta != nil && meta.AnchoredAt.Name != "" && meta.AnchoredAt.Compare(state.Position) <= 0 {
 			if foldCase {
@@ -103,6 +116,7 @@ func (c *schemaCache) getTableLocked(key string) (*tableMeta, bool) {
 func (c *schemaCache) setTableLocked(key string, meta *tableMeta) {
 	c.tables[key] = meta
 	c.active = true
+	delete(c.dropped, key)
 }
 
 func (c *schemaCache) deleteTableLocked(key string) {
@@ -301,7 +315,11 @@ func (c *schemaCache) applyStmtLocked(stmt ast.StmtNode, ev ddlEvent) ddlOutcome
 		return c.renameTablesLocked(ev, stmt.TableToTables)
 	case *ast.DropTableStmt:
 		if !stmt.IsView && stmt.TemporaryKeyword == ast.TemporaryNone {
-			return c.dropTablesLocked(ev, stmt.Tables...)
+			out := c.dropTablesLocked(ev, stmt.Tables...)
+			for _, key := range out.dropped {
+				c.dropped[key] = true
+			}
+			return out
 		}
 	case *ast.CreateTableStmt:
 		return c.createTableLocked(stmt, ev)
@@ -401,7 +419,8 @@ func (c *schemaCache) renameTablesLocked(ev ddlEvent, pairs []*ast.TableToTable)
 // tables; a CREATE of a cached or streamed name is read from its column definitions. Any other CREATE, a
 // temporary table and CREATE ... SELECT load on first use, and a definition that cannot be read
 // without guessing (a text column with no charset and no table default) drops the name. IF NOT
-// EXISTS on a cached table changes nothing. It returns what it did. The caller holds c.mu.
+// EXISTS on a cached table changes nothing, and on an uncached one is read only right after a DROP
+// of it: MySQL logs it even when the table exists. It returns what it did. The caller holds c.mu.
 func (c *schemaCache) createTableLocked(stmt *ast.CreateTableStmt, ev ddlEvent) ddlOutcome {
 	if stmt.TemporaryKeyword != ast.TemporaryNone {
 		return ddlOutcome{}
@@ -415,6 +434,9 @@ func (c *schemaCache) createTableLocked(stmt *ast.CreateTableStmt, ev ddlEvent) 
 	if stmt.IfNotExists && cached {
 		return ddlOutcome{}
 	}
+	// IF NOT EXISTS is logged even when the table exists, so it created the table only right after a DROP.
+	isNewTableCreated := !stmt.IfNotExists || c.dropped[key]
+	useColumnsFromCreate := cached || (c.streamed[key] && isNewTableCreated)
 
 	var meta *tableMeta
 	switch {
@@ -425,7 +447,7 @@ func (c *schemaCache) createTableLocked(stmt *ast.CreateTableStmt, ev ddlEvent) 
 			return c.dropTablesLocked(ev, stmt.Table)
 		}
 		meta = src.clone()
-	case (cached || c.streamed[key]) && stmt.Select == nil:
+	case useColumnsFromCreate && stmt.Select == nil:
 		var err error
 		if meta, err = tableMetaFromDef(stmt, c.schemaCollationLocked(schema, ev.pos)); err != nil {
 			out := c.dropTablesLocked(ev, stmt.Table)
@@ -451,7 +473,10 @@ func (c *schemaCache) dropTablesLocked(ev ddlEvent, names ...*ast.TableName) ddl
 			return ddlOutcome{reset: true, reasons: []string{"DDL names a table without a database"}}
 		}
 		key := c.tableKey(schema, name.Name.O)
-		if _, ok := c.getTableLocked(key); ok {
+		if meta, ok := c.getTableLocked(key); ok {
+			if meta.SchemaCollationID != 0 {
+				c.schemaDefaults[c.tableKey(schema, "")] = meta.SchemaCollationID
+			}
 			c.deleteTableLocked(key)
 			out.dropped = append(out.dropped, key)
 		}
@@ -464,6 +489,7 @@ func (c *schemaCache) dropTablesLocked(ev ddlEvent, names ...*ast.TableName) ddl
 func (c *schemaCache) dropSchemaLocked(schema string) ddlOutcome {
 	var out ddlOutcome
 	prefix := c.tableKey(schema, "")
+	delete(c.schemaDefaults, prefix)
 	for key := range c.tables {
 		if strings.HasPrefix(key, prefix) {
 			c.deleteTableLocked(key)
@@ -500,6 +526,9 @@ func (c *schemaCache) alterSchemaLocked(stmt *ast.AlterDatabaseStmt, ev ddlEvent
 	}
 	var out ddlOutcome
 	prefix := c.tableKey(schema, "")
+	if _, ok := c.schemaDefaults[prefix]; ok {
+		c.schemaDefaults[prefix] = id
+	}
 	for key, meta := range c.tables {
 		if strings.HasPrefix(key, prefix) && meta.AnchoredAt.Compare(ev.pos) < 0 {
 			next := meta.clone()
@@ -512,7 +541,8 @@ func (c *schemaCache) alterSchemaLocked(stmt *ast.AlterDatabaseStmt, ev ddlEvent
 }
 
 // schemaCollationLocked returns a database's default collation as of pos, read from a cached table
-// in it that is anchored before pos, or 0 when none is. The caller holds c.mu.
+// in it that is anchored before pos, else from its last dropped table, or 0 when neither has it.
+// The caller holds c.mu.
 func (c *schemaCache) schemaCollationLocked(schema string, pos mysql.Position) uint64 {
 	prefix := c.tableKey(schema, "")
 	for key, meta := range c.tables {
@@ -520,5 +550,5 @@ func (c *schemaCache) schemaCollationLocked(schema string, pos mysql.Position) u
 			return meta.SchemaCollationID
 		}
 	}
-	return 0
+	return c.schemaDefaults[prefix]
 }
