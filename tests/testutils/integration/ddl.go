@@ -122,7 +122,9 @@ func ddlRows(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTabl
 // COLUMN with no character set, DDL that must leave it alone (CREATE TABLE IF NOT EXISTS of
 // itself, a trigger, DDL on other tables, one the parser cannot read) and a second reorder, with
 // a row after each. ddl_swap takes a gh-ost cutover: a shadow table is altered, a row lands in
-// ddl_swap during the copy, then RENAME swaps the two.
+// ddl_swap during the copy, then RENAME swaps the two. Then ddl_backlog is dropped and created
+// again as the only cached table, and an app's startup CREATE TABLE IF NOT EXISTS replays
+// ddl_swap's layout before the cutover.
 func (th *TestHandler) TestDDL(t *testing.T) {
 	ctx := t.Context()
 	if !hasDDLTest(th.Driver) {
@@ -165,6 +167,8 @@ func (th *TestHandler) TestDDL(t *testing.T) {
 			"4":   {"a": "13", "b": "23", "status": "new", "note": "n4"},        // after ADD COLUMN with no charset
 			"5":   {"a": "14", "b": "24", "status": "paid", "note": "n5"},       // after DDL that must not evict the table
 			"6":   {"a": "15", "b": "25", "status": "refunded", "note": "n6"},   // after the second reorder
+			"7":   {"a": "16", "b": "26", "status": "paid", "note": "n7"},       // recreated as the only cached table
+			"8":   {"a": "17", "b": "27", "status": "new", "note": "n8"},        // after a reorder of the recreated table
 		}, got)
 	})
 	t.Run("gh-ost cutover", func(t *testing.T) {
@@ -174,6 +178,7 @@ func (th *TestHandler) TestDDL(t *testing.T) {
 			"1":   {"a": "10", "b": "20", "status": "paid"}, // before the swap
 			"2":   {"a": "11", "b": "21", "status": "paid"}, // during the copy, between DDLs on the shadow table
 			"3":   {"a": "12", "b": "22", "status": "new"},  // after the swap, in the new layout
+			"4":   {"a": "13", "b": "23", "status": "paid"}, // after a startup CREATE TABLE IF NOT EXISTS with the old layout
 		}, got)
 	})
 }
