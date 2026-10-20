@@ -92,16 +92,15 @@ func (c *Config) validateAzureAuthenticationType() error {
 		if c.AzureConnectionString == "" {
 			return fmt.Errorf("azure_connection_string is required for %s", azure.AuthConnectionString)
 		}
-	case azure.AuthServicePrincipal, azure.AuthManagedIdentity:
+	case azure.AuthManagedIdentity:
 		if c.AzureStorageAccountName == "" {
 			return fmt.Errorf("azure_storage_account_name is required")
 		}
-		// Token client in azure.New. SP: AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET.
-		// MI: identity on the host; optional AZURE_CLIENT_ID for user-assigned.
+		// Token client in azure.New. VM IMDS / AKS workload identity.
+		// Optional AZURE_CLIENT_ID for user-assigned MI.
 	default:
-		return fmt.Errorf("azure_auth_type must be %q, %q, %q, %q, or %q",
-			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString,
-			azure.AuthServicePrincipal, azure.AuthManagedIdentity)
+		return fmt.Errorf("azure_auth_type must be %q, %q, %q, or %q",
+			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString, azure.AuthManagedIdentity)
 	}
 	return nil
 }

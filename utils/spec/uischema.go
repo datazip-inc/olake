@@ -548,7 +548,6 @@ const ParquetUISchema = `{
         "Shared Key",
         "SAS Token",
         "Connection String",
-        "Service Principal",
         "Managed Identity"
       ]
     },

@@ -120,10 +120,10 @@ func TestConfigValidateStore(t *testing.T) {
 			}(),
 		},
 		{
-			name: "azure token auth does not require dest JSON ids",
+			name: "azure managed identity does not require dest JSON ids",
 			cfg: func() *Config {
 				c := azureCfg
-				c.AzureAuthType = azure.AuthServicePrincipal
+				c.AzureAuthType = azure.AuthManagedIdentity
 				return &c
 			}(),
 		},

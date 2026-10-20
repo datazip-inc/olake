@@ -29,7 +29,6 @@ const (
 	AuthSharedKey        = "shared-key"
 	AuthSASToken         = "sas-token"
 	AuthConnectionString = "connection-string"
-	AuthServicePrincipal = "service-principal"
 	AuthManagedIdentity  = "managed-identity"
 )
 
@@ -85,8 +84,8 @@ func newServiceClient(cfg Config, serviceURL string) (*azblob.Client, error) {
 		return getServiceClientSAS(serviceURL, cfg.SharedAccessKeySignature)
 	case AuthSharedKey:
 		return getServiceClientSharedKey(cfg.AccountName, cfg.AccessKey, serviceURL)
-	case AuthServicePrincipal, AuthManagedIdentity:
-		// DefaultAzureCredential: env SP, managed identity, Azure CLI. No dest JSON ids.
+	case AuthManagedIdentity:
+		// Entra, VM (IMDS) and AKS workload identity
 		return getServiceClientTokenCredential(serviceURL)
 	default:
 		return nil, fmt.Errorf("unsupported azure auth type %q", cfg.AuthType)
@@ -244,7 +243,8 @@ func (a *Store) IsRateLimitError(err error) bool {
 	return errors.As(err, &respErr) && (respErr.StatusCode == 429 || respErr.StatusCode == 503)
 }
 
-// DefaultAzureCredential (Entra / MI / AKS workload identity / az CLI). Token refresh is the SDK. Needs a valid serviceURL
+// DefaultAzureCredential: AKS federated token, then VM/App Service MI.
+// Token refresh is the SDK. Needs a valid serviceURL.
 func getServiceClientTokenCredential(accountURL string) (*azblob.Client, error) {
 	// Create a new service client with token credential
 	credential, err := azidentity.NewDefaultAzureCredential(nil)
