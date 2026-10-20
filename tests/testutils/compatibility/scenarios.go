@@ -63,9 +63,9 @@ type syncCase struct {
 // naming the destination config its syncs run against.
 func compatibilityGroupSpecs() []compatibilityGroupSpec {
 	return []compatibilityGroupSpec{
-		{name: "legacy", destination: "iceberg", destinationFile: "iceberg_destination.json"},
-		{name: "arrow", destination: "iceberg", destinationFile: "iceberg_destination_arrow.json"},
-		{name: "pq", destination: "parquet", destinationFile: "parquet_destination.json"},
+		{name: "legacy", destination: "iceberg", destinationFile: "iceberg_s3_destination.json"},
+		{name: "arrow", destination: "iceberg", destinationFile: "iceberg_s3_destination_arrow.json"},
+		{name: "pq", destination: "parquet", destinationFile: "parquet_s3_destination.json"},
 	}
 }
 

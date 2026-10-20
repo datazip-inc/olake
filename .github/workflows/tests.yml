@@ -165,7 +165,7 @@ jobs:
             --add-host host.docker.internal:host-gateway \
             -e TELEMETRY_DISABLED=true \
             "olakego/source-${{ matrix.driver }}:local" \
-            check --destination /testdata/iceberg_destination.json
+            check --destination /testdata/iceberg/iceberg_s3_destination.json
 
       - name: Verify source stack
         run: make ${{ matrix.make_vars }} olake.${{ matrix.driver }}.verify
@@ -278,7 +278,7 @@ jobs:
             --add-host host.docker.internal:host-gateway \
             -e TELEMETRY_DISABLED=true \
             "olakego/source-$driver:local" \
-            check --destination /testdata/iceberg_destination.json
+            check --destination /testdata/iceberg/iceberg_s3_destination.json
 
       - name: Run the compatibility tests
         env:
@@ -399,7 +399,7 @@ jobs:
 
       - name: Create destination
         run: |
-          echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./tests/${{ matrix.driver }}/testdata/iceberg_destination.json
+          echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./tests/${{ matrix.driver }}/testdata/iceberg_s3_destination.json
     
       - name: Get Last Successful Run ID
         id: last_run
