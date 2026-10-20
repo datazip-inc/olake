@@ -30,7 +30,7 @@ type Connection struct {
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
-func NewConnection(_ context.Context, config *Config, state Binlog, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
+func NewConnection(ctx context.Context, config *Config, state Binlog, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
 	syncerConfig := replication.BinlogSyncerConfig{
 		ServerID:        config.ServerID,
 		Flavor:          config.Flavor,
@@ -55,13 +55,19 @@ func NewConnection(_ context.Context, config *Config, state Binlog, streams []ty
 			return config.SSHClient.Dial("tcp", addr)
 		}
 	}
+	var lowerCaseTableNames int
+	if config.SchemaClient != nil {
+		if err := config.SchemaClient.QueryRowContext(ctx, jdbc.MySQLLowerCaseTableNamesQuery()).Scan(&lowerCaseTableNames); err != nil {
+			return nil, fmt.Errorf("failed to read lower_case_table_names: %w", err)
+		}
+	}
 
 	conn := &Connection{
 		ServerID:        config.ServerID,
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
 		CurrentPos:      state.Position,
 		initialWaitTime: config.InitialWaitTime,
-		changeFilter:    NewChangeFilter(config.SchemaClient, state, typeConverter, streams...),
+		changeFilter:    NewChangeFilter(config.SchemaClient, state, lowerCaseTableNames != 0, typeConverter, streams...),
 	}
 	return conn, nil
 }

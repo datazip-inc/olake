@@ -82,7 +82,7 @@ func TestIsDDL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, isDDL([]byte(tt.query)))
+			assert.Equal(t, tt.want, isDDL(tt.query))
 		})
 	}
 }
@@ -99,7 +99,7 @@ func TestSeedKeepsOnlySchemasValidAtResume(t *testing.T) {
 		"shop.empty":  {Columns: []columnMeta{{Name: "id"}}},
 	}
 
-	c := newSchemaCache(nil, Binlog{Position: resume, Schemas: saved})
+	c := newSchemaCache(nil, Binlog{Position: resume, Schemas: saved}, false)
 
 	assert.Contains(t, c.tables, "shop.before")
 	assert.Contains(t, c.tables, "shop.same")
@@ -131,7 +131,7 @@ func TestOldStateWithoutSchemasSeedsNothing(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"position":{"Name":"mysql-bin.000010","Pos":500}}`), &out))
 	assert.Nil(t, out.Schemas)
 
-	c := newSchemaCache(nil, out)
+	c := newSchemaCache(nil, out, false)
 	assert.Empty(t, c.tables)
 }
 
@@ -144,9 +144,9 @@ func TestSeededSchemaAnswersWithoutQuery(t *testing.T) {
 			Columns:    []columnMeta{{Name: "status", EnumValues: []string{"new", "paid"}}},
 			AnchoredAt: mysql.Position{Name: "mysql-bin.000010", Pos: 400},
 		},
-	}})
+	}}, false)
 
-	meta, err := c.get(context.Background(), "shop", "orders", 0, 1)
+	meta, err := c.get(context.Background(), "shop", "orders", 0, []byte{mysql.MYSQL_TYPE_STRING})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"new", "paid"}, meta.Columns[0].EnumValues)
 }
@@ -206,32 +206,41 @@ func TestBinlogJSONFormat(t *testing.T) {
 }
 
 // The cache has no client, so a reload fails: an error proves get tried to reload. The cached
-// entry has one column.
+// entry is (id INT, name VARCHAR).
 func TestSchemaCacheGetTableID(t *testing.T) {
+	intVarchar := []byte{mysql.MYSQL_TYPE_LONG, mysql.MYSQL_TYPE_VARCHAR}
+	varcharInt := []byte{mysql.MYSQL_TYPE_VARCHAR, mysql.MYSQL_TYPE_LONG}
 	tests := []struct {
-		name      string
-		cachedID  uint64
-		eventID   uint64
-		columns   int
-		wantError bool
+		name        string
+		cachedID    uint64
+		cachedTypes []byte
+		eventID     uint64
+		eventTypes  []byte
+		wantError   bool
 	}{
-		{"same id uses cache", 7, 7, 1, false},
-		{"unset id records the new one", 0, 9, 1, false},
-		{"changed id, same column count, keeps cache", 7, 9, 1, false},
-		{"changed id and column count reloads", 7, 9, 2, true},
+		{name: "same id uses cache", cachedID: 7, cachedTypes: intVarchar, eventID: 7, eventTypes: intVarchar},
+		{name: "unset id records the new one", eventID: 9, eventTypes: intVarchar},
+		{name: "changed id, same types, keeps cache", cachedID: 7, cachedTypes: intVarchar, eventID: 9, eventTypes: intVarchar},
+		{name: "changed id and reordered types reloads", cachedID: 7, cachedTypes: intVarchar, eventID: 9, eventTypes: varcharInt, wantError: true},
+		{name: "changed id and column count reloads", cachedID: 7, cachedTypes: intVarchar, eventID: 9, eventTypes: []byte{mysql.MYSQL_TYPE_LONG}, wantError: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := newSchemaCache(nil, Binlog{})
-			c.tables["shop.orders"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, TableID: tt.cachedID}
+			c := newSchemaCache(nil, Binlog{}, false)
+			c.tables["shop.orders"] = &tableMeta{
+				Columns:     []columnMeta{{Name: "id"}, {Name: "name"}},
+				TableID:     tt.cachedID,
+				ColumnTypes: tt.cachedTypes,
+			}
 
-			meta, err := c.get(context.Background(), "shop", "orders", tt.eventID, tt.columns)
+			meta, err := c.get(context.Background(), "shop", "orders", tt.eventID, tt.eventTypes)
 			if tt.wantError {
 				require.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.eventID, meta.TableID)
+			assert.Equal(t, tt.eventTypes, meta.ColumnTypes)
 		})
 	}
 }
@@ -247,8 +256,8 @@ func TestSchemaCacheGetTableIDAfterResume(t *testing.T) {
 	var state Binlog
 	require.NoError(t, json.Unmarshal(raw, &state))
 
-	c := newSchemaCache(nil, state)
-	meta, err := c.get(context.Background(), "shop", "orders", 98, 1)
+	c := newSchemaCache(nil, state, false)
+	meta, err := c.get(context.Background(), "shop", "orders", 98, []byte{mysql.MYSQL_TYPE_LONG})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(98), meta.TableID)
 }
@@ -271,7 +280,7 @@ func TestSchemaCacheSnapshot(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := newSchemaCache(nil, Binlog{})
+			c := newSchemaCache(nil, Binlog{}, false)
 			c.tables = map[string]*tableMeta{"shop.before": before, "shop.at": at, "shop.after": after}
 
 			got := c.snapshot(tt.upTo)
@@ -307,7 +316,7 @@ func TestSchemaCacheMaxAnchor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := newSchemaCache(nil, Binlog{})
+			c := newSchemaCache(nil, Binlog{}, false)
 			for key, anchor := range tt.anchors {
 				c.tables[key] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: anchor}
 			}

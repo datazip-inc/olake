@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/charset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ func ddlPos(offset uint32) mysql.Position {
 
 // ddlCache returns a cache holding three tables, all anchored before the DDL under test.
 func ddlCache() *schemaCache {
-	c := newSchemaCache(nil, Binlog{})
+	c := newSchemaCache(nil, Binlog{}, false)
 	c.tables["shop.orders"] = &tableMeta{
 		Columns: []columnMeta{
 			{Name: "id", Unsigned: true},
@@ -242,8 +243,9 @@ func TestApplyDDLIfExists(t *testing.T) {
 	}
 }
 
-// Statements that change no captured table's columns must leave the cache as it is. The whole
-// cache is compared, so a statement that touches any other entry fails too.
+// Statements that change no captured table's columns must leave the cache as it is. The test
+// compares the whole map against a snapshot, not just column names, so it also fails when an
+// ignored statement drops or adds an entry, re-anchors one, or clears its TableID.
 func TestApplyDDLIgnores(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -266,6 +268,8 @@ func TestApplyDDLIgnores(t *testing.T) {
 		{"unparseable create of another table", "CREATE TABLE geo (id INT PRIMARY KEY, g POINT NOT NULL)"},
 		{"unparseable alter of a $ name", "ALTER TABLE orders$archive WIBBLE"},
 		{"unparseable alter of a non-ASCII name", "ALTER TABLE ordersé WIBBLE"},
+		{"other-case alter on a case-sensitive server", "ALTER TABLE ORDERS ADD c INT"},
+		{"other-case drop on a case-sensitive server", "DROP TABLE shop.CUSTOMERS"},
 		{"unparseable alter of another table", "ALTER TABLE logs WIBBLE"},
 	}
 	for _, tt := range tests {
@@ -301,14 +305,12 @@ func TestApplyDDLDropsNamedTables(t *testing.T) {
 		{"drop table", "DROP TABLE customers", "shop", []string{"shop.orders", "sales.invoices"}},
 		{"drop table list", "/* gh-ost */ DROP TABLE IF EXISTS shop.customers, sales.invoices", "x", []string{"shop.orders"}},
 		{"drop database", "DROP DATABASE shop", "", []string{"sales.invoices"}},
-		{"create table", "CREATE TABLE customers (id INT)", "shop", []string{"shop.orders", "sales.invoices"}},
-		{"gh-ost cutover", "RENAME TABLE orders TO _orders_del, _orders_gho TO orders", "shop", []string{"shop.customers", "sales.invoices"}},
+		{"create table select", "CREATE TABLE customers SELECT id FROM orders", "shop", []string{"shop.orders", "sales.invoices"}},
+		{"create like uncached table", "CREATE TABLE customers LIKE archive", "shop", []string{"shop.orders", "sales.invoices"}},
+		{"gh-ost cutover with uncached shadow", "RENAME TABLE orders TO _orders_del, _orders_gho TO orders", "shop", []string{"shop._orders_del", "shop.customers", "sales.invoices"}},
 		{"rename to cached name", "RENAME TABLE archive TO customers", "shop", []string{"shop.orders", "sales.invoices"}},
 		{"alter rename", "ALTER TABLE orders RENAME TO orders_old", "shop", []string{"shop.customers", "sales.invoices"}},
 		{"set statement prefix", "SET STATEMENT lock_wait_timeout=5 FOR DROP TABLE customers", "shop", []string{"shop.orders", "sales.invoices"}},
-		// lower_case_table_names: the row events' spelling may differ from the DDL's.
-		{"other-case alter", "ALTER TABLE ORDERS ADD c INT", "shop", []string{"shop.customers", "sales.invoices"}},
-		{"other-case drop", "DROP TABLE shop.CUSTOMERS", "x", []string{"shop.orders", "sales.invoices"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -317,6 +319,79 @@ func TestApplyDDLDropsNamedTables(t *testing.T) {
 			assert.ElementsMatch(t, tt.wantKeys, cacheKeys(c))
 		})
 	}
+}
+
+// With lower_case_table_names 1 or 2 names match in any case: an ALTER is applied to the cached
+// entry, not dropped, and a DROP removes it.
+func TestApplyDDLFoldCase(t *testing.T) {
+	c := newSchemaCache(nil, Binlog{}, true)
+	c.tables["shop.orders"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
+	c.tables["shop.customers"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
+
+	c.applyDDL("ALTER TABLE Shop.ORDERS ADD COLUMN c INT", "", ddlPos(200))
+	assert.Equal(t, []string{"id", "c"}, columnNames(c.tables["shop.orders"]))
+
+	c.applyDDL("DROP TABLE SHOP.Customers", "", ddlPos(300))
+	assert.Equal(t, []string{"shop.orders"}, cacheKeys(c))
+}
+
+// MariaDB's /*M!...*/ versioned comment, ALTER ONLINE and CREATE OR REPLACE are applied as the
+// statement they run, as are MySQL's /*!...*/ comments.
+func TestApplyDDLMariaDBSyntax(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{name: "mariadb versioned comment", query: "/*M!100500 ALTER TABLE orders DROP COLUMN name */", want: []string{"id", "status"}},
+		{name: "mysql versioned comment", query: "/*!50700 ALTER TABLE orders DROP COLUMN name */", want: []string{"id", "status"}},
+		{name: "alter online", query: "ALTER ONLINE TABLE orders DROP COLUMN name", want: []string{"id", "status"}},
+		{name: "create or replace", query: "CREATE OR REPLACE TABLE orders (id INT, note VARCHAR(10) CHARACTER SET utf8mb4)", want: []string{"id", "note"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := ddlCache()
+			c.applyDDL(tt.query, "shop", ddlPos(200))
+			c.applyDDL("ALTER TABLE orders ADD COLUMN later INT", "shop", ddlPos(300))
+			assert.Equal(t, append(tt.want, "later"), columnNames(c.tables["shop.orders"]))
+		})
+	}
+}
+
+// A CREATE of a cached name is read from its definition, so a later ALTER in the backlog applies to
+// it. With no charset on a text column and no table default it cannot be read, so the name drops.
+func TestApplyDDLCreateTable(t *testing.T) {
+	c := ddlCache()
+	c.applyDDL("CREATE TABLE customers (id INT UNSIGNED, kind ENUM('a','b'), note TEXT) DEFAULT CHARSET=latin1", "shop", ddlPos(200))
+	got := c.tables["shop.customers"]
+	require.NotNil(t, got)
+	assert.Equal(t, []string{"id", "kind", "note"}, columnNames(got))
+	assert.True(t, got.Columns[0].Unsigned)
+	assert.Equal(t, []string{"a", "b"}, got.Columns[1].EnumValues)
+	assert.Equal(t, "latin1", charsetOf(t, got.Columns[2].CollationID))
+	assert.Equal(t, ddlPos(200), got.AnchoredAt)
+
+	c.applyDDL("CREATE TABLE customers (id INT, note TEXT)", "shop", ddlPos(300))
+	assert.NotContains(t, cacheKeys(c), "shop.customers")
+}
+
+// gh-ost and pt-online-schema-change copy the table with CREATE ... LIKE, alter the copy and swap
+// it in with RENAME. The cache follows the copy, so a later ALTER of t applies to the new layout.
+func TestApplyDDLOnlineSchemaChange(t *testing.T) {
+	c := ddlCache()
+	pos := uint32(200)
+	for _, query := range []string{
+		"CREATE TABLE _orders_gho LIKE orders",
+		"ALTER TABLE _orders_gho ADD COLUMN x INT",
+		"RENAME TABLE orders TO _orders_del, _orders_gho TO orders",
+		"DROP TABLE _orders_del",
+		"ALTER TABLE orders ADD COLUMN y INT",
+	} {
+		c.applyDDL(query, "shop", ddlPos(pos))
+		pos++
+	}
+	assert.Equal(t, []string{"id", "status", "name", "x", "y"}, columnNames(c.tables["shop.orders"]))
+	assert.ElementsMatch(t, []string{"shop.orders", "shop.customers", "sales.invoices"}, cacheKeys(c))
 }
 
 // An ALTER that cannot be applied without guessing drops that table alone, to reload later.
@@ -412,6 +487,19 @@ func TestApplyDDLDropsEntryNewerThanDDL(t *testing.T) {
 	}
 }
 
+// The helpers report what they did instead of logging it.
+func TestDDLOutcome(t *testing.T) {
+	c := ddlCache()
+	stmts, _, err := parser.New().ParseSQL("ALTER TABLE orders ADD c INT; DROP TABLE customers")
+	require.NoError(t, err)
+
+	var out ddlOutcome
+	for _, stmt := range stmts {
+		out.merge(c.applyStmtLocked(stmt, ddlEvent{defaultSchema: "shop", pos: ddlPos(200)}))
+	}
+	assert.Equal(t, ddlOutcome{applied: []string{"shop.orders"}, dropped: []string{"shop.customers"}}, out)
+}
+
 // When a statement cannot be read, or names a table with no database, any cached table
 // could be affected, so the whole cache is dropped.
 func TestApplyDDLWipesWhenUnsure(t *testing.T) {
@@ -421,7 +509,6 @@ func TestApplyDDLWipesWhenUnsure(t *testing.T) {
 		schema string
 	}{
 		{"unparseable non-alter", "CREATE WIBBLE orders", "shop"},
-		{"several statements", "ALTER TABLE orders ADD a INT; ALTER TABLE customers ADD b INT", "shop"},
 		{"no database", "DROP TABLE orders", ""},
 	}
 	for _, tt := range tests {
@@ -431,6 +518,14 @@ func TestApplyDDLWipesWhenUnsure(t *testing.T) {
 			assert.Empty(t, c.tables)
 		})
 	}
+}
+
+// A query that parses into several statements is applied statement by statement.
+func TestApplyDDLSeveralStatements(t *testing.T) {
+	c := ddlCache()
+	c.applyDDL("ALTER TABLE orders ADD a INT; ALTER TABLE customers ADD b INT", "shop", ddlPos(200))
+	assert.Equal(t, []string{"id", "status", "name", "a"}, columnNames(c.tables["shop.orders"]))
+	assert.Equal(t, []string{"id", "b"}, columnNames(c.tables["shop.customers"]))
 }
 
 // snapshot and maxAnchor (State and the stop check) and get (every row) can read the cache while
@@ -457,7 +552,7 @@ func TestSchemaCacheConcurrentAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
-			if _, err := c.get(context.Background(), "shop", "customers", 7, 1); err != nil {
+			if _, err := c.get(context.Background(), "shop", "customers", 7, []byte{mysql.MYSQL_TYPE_LONG}); err != nil {
 				t.Error(err)
 				return
 			}
