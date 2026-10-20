@@ -14,7 +14,7 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-const icebergDestinationFile = "iceberg_destination.json"
+const icebergDestinationFile = "iceberg_s3_destination.json"
 
 const (
 	// BenchmarkThreshold is the share of the recorded average RPS a run must reach to pass.

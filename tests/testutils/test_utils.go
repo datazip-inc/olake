@@ -283,14 +283,14 @@ func (c *TestConfig) isolateSuiteConfigs() error {
 	enableArrowWrites := func(destinationConf map[string]interface{}) error {
 		writer, ok := destinationConf["writer"].(map[string]interface{})
 		if !ok {
-			return fmt.Errorf("no writer object in iceberg_destination.json")
+			return fmt.Errorf("no writer object in iceberg_s3_destination.json")
 		}
 		writer["arrow_writes"] = true
 
 		return nil
 	}
 
-	err := CopyJSONWithEdit(c.GetFilePath("iceberg_destination.json"), c.GetFilePath("iceberg_destination_arrow.json"), enableArrowWrites)
+	err := CopyJSONWithEdit(c.GetFilePath("iceberg_s3_destination.json"), c.GetFilePath("iceberg_s3_destination_arrow.json"), enableArrowWrites)
 	if err != nil {
 		return fmt.Errorf("failed to derive the arrow destination config of driver %q suite %q: %s", c.Driver, c.Suite, err)
 	}
