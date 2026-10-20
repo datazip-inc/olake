@@ -3,10 +3,11 @@ module github.com/datazip-inc/olake/tests/testutils
 go 1.26.9
 
 require (
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
 	github.com/apache/arrow-go/v18 v18.2.0
 	github.com/apache/spark-connect-go/v35 v35.0.0-20250317154112-ffd832059443
 	github.com/minio/minio-go/v7 v7.0.34
-	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
 	github.com/parquet-go/parquet-go v0.29.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/mod v0.41.0
@@ -16,7 +17,6 @@ require (
 require (
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/apache/thrift v0.24.0 // indirect
-	github.com/kr/pretty v0.3.1 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
@@ -25,7 +25,6 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
