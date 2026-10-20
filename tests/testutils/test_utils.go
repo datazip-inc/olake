@@ -254,11 +254,25 @@ func (c *TestConfig) setupWorkingDir(t *testing.T) (err error) {
 	// static committed files(called fixtures) are copied into the working dir.
 	// It contains the source and destination configs, the catalog and the initial state
 	commonFixturesDir := filepath.Join(c.OlakeRootPath, "tests/testdata")
-	driverFixturesDir := filepath.Join(c.OlakeRootPath, "tests", c.Driver, "testdata", c.DataFormat)
-	for _, fixtures := range []string{commonFixturesDir, driverFixturesDir} {
-		if err := CopyDirFiles(fixtures, c.TestWorkingDir); err != nil {
-			return fmt.Errorf("failed to copy the fixtures of %s into %s: %s", fixtures, c.TestWorkingDir, err)
+	if err := CopyDirFiles(commonFixturesDir, c.TestWorkingDir); err != nil {
+		return fmt.Errorf("failed to copy the fixtures of %s into %s: %s", commonFixturesDir, c.TestWorkingDir, err)
+	}
+	entries, err := os.ReadDir(commonFixturesDir)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %s", commonFixturesDir, err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
 		}
+		subdir := filepath.Join(commonFixturesDir, entry.Name())
+		if err := CopyDirFiles(subdir, c.TestWorkingDir); err != nil {
+			return fmt.Errorf("failed to copy the fixtures of %s into %s: %s", subdir, c.TestWorkingDir, err)
+		}
+	}
+	driverFixturesDir := filepath.Join(c.OlakeRootPath, "tests", c.Driver, "testdata", c.DataFormat)
+	if err := CopyDirFiles(driverFixturesDir, c.TestWorkingDir); err != nil {
+		return fmt.Errorf("failed to copy the fixtures of %s into %s: %s", driverFixturesDir, c.TestWorkingDir, err)
 	}
 	return nil
 }

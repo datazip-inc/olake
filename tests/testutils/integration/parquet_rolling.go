@@ -71,7 +71,7 @@ func (th *TestHandler) testParquetRolling(ctx context.Context, t *testing.T, tes
 	}()
 
 	// Full load (no --state) with a small buffer so rolled files hug the threshold.
-	if code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.SyncArgs(false, parquetDestinationFile)...); err != nil || code != 0 {
+	if code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.SyncArgs(false, parquetS3DestinationFile)...); err != nil || code != 0 {
 		return fmt.Errorf("rolling sync failed (%d): %v\n%s", code, err, out)
 	}
 
