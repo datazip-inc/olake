@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/assert"
@@ -247,4 +248,272 @@ func TestConvertRowToMapColumnCountMismatch(t *testing.T) {
 	_, err = convertRowToMap([]interface{}{int64(1), "a"}, view, identityConverter)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "column count mismatch")
+}
+
+func TestIsBinaryCollation(t *testing.T) {
+	testCases := []struct {
+		name        string
+		collationID uint64
+		binary      bool
+	}{
+		{
+			name:        "the binary charset",
+			collationID: 63,
+			binary:      true,
+		},
+		{
+			name:        "utf8mb4 general",
+			collationID: 45,
+			binary:      false,
+		},
+		{
+			name:        "utf8mb4 0900",
+			collationID: 255,
+			binary:      false,
+		},
+		{
+			name:        "latin1 swedish",
+			collationID: 8,
+			binary:      false,
+		},
+		{
+			name:        "unset",
+			collationID: 0,
+			binary:      false,
+		},
+		{
+			name:        "out of range ids are not binary",
+			collationID: 1 << 40,
+			binary:      false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.binary, isBinaryCollation(tc.collationID))
+		})
+	}
+}
+
+func TestBinaryTypeName(t *testing.T) {
+	testCases := []struct {
+		wireType string
+		want     string
+	}{
+		{
+			wireType: "CHAR",
+			want:     "BINARY",
+		},
+		{
+			wireType: "VARCHAR",
+			want:     "VARBINARY",
+		},
+		{
+			wireType: "BLOB",
+			want:     "BLOB",
+		},
+		{
+			wireType: "LONGBLOB",
+			want:     "LONGBLOB",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.wireType, func(t *testing.T) {
+			assert.Equal(t, tc.want, binaryTypeName(tc.wireType))
+		})
+	}
+}
+
+// TestFixedStringWidth pins the declared width unpacked from a CHAR or BINARY column's TableMapEvent
+// meta the three ways it is packed: a bare width, the real type in the high byte with the width
+// below it, and the width's high bits folded into the type byte once the width passes 255.
+func TestFixedStringWidth(t *testing.T) {
+	testCases := []struct {
+		name string
+		meta uint16
+		want int
+	}{
+		{
+			name: "binary(16)",
+			meta: uint16(mysql.MYSQL_TYPE_STRING)<<8 | 16,
+			want: 16,
+		},
+		{
+			name: "binary(255)",
+			meta: uint16(mysql.MYSQL_TYPE_STRING)<<8 | 255,
+			want: 255,
+		},
+		{
+			name: "char(255) utf8mb4 width folded into the type byte",
+			meta: uint16(mysql.MYSQL_TYPE_STRING^((1020&0x300)>>4))<<8 | (1020 & 0xFF),
+			want: 1020,
+		},
+		{
+			name: "bare width",
+			meta: 16,
+			want: 16,
+		},
+		{
+			name: "no width",
+			want: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, fixedWidth(tc.meta))
+		})
+	}
+}
+
+func TestTextTypeName(t *testing.T) {
+	testCases := []struct {
+		wireType string
+		want     string
+	}{
+		{
+			wireType: "TINYBLOB",
+			want:     "TINYTEXT",
+		},
+		{
+			wireType: "BLOB",
+			want:     "TEXT",
+		},
+		{
+			wireType: "MEDIUMBLOB",
+			want:     "MEDIUMTEXT",
+		},
+		{
+			wireType: "LONGBLOB",
+			want:     "LONGTEXT",
+		},
+		{
+			wireType: "VARCHAR",
+			want:     "VARCHAR",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.wireType, func(t *testing.T) {
+			assert.Equal(t, tc.want, textTypeName(tc.wireType))
+		})
+	}
+}
+
+// TestDecodeCollatedValue checks what a collated column's value and wire type become on each side
+// of state version 8.
+func TestDecodeCollatedValue(t *testing.T) {
+	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+
+	testCases := []struct {
+		name         string
+		stateVersion int
+		val          any
+		collationID  uint64
+		width        int
+		columnType   string
+		want         any
+		wantType     string
+	}{
+		{
+			name:         "below v8 binary bytes decode as text under the wire type",
+			stateVersion: 7,
+			val:          []byte{0xFF, 0x05},
+			collationID:  63,
+			width:        16,
+			columnType:   "CHAR",
+			want:         string([]byte{0xFF, 0x05}),
+			wantType:     "CHAR",
+		},
+		{
+			name:         "below v8 latin1 decodes as text under the wire type",
+			stateVersion: 7,
+			val:          []byte{0xE9},
+			collationID:  8,
+			width:        0,
+			columnType:   "BLOB",
+			want:         "é",
+			wantType:     "BLOB",
+		},
+		{
+			name:         "binary CHAR pads to its width as BINARY",
+			stateVersion: 8,
+			val:          string([]byte{0xFF, 0x05}),
+			collationID:  63,
+			width:        16,
+			columnType:   "CHAR",
+			want:         append([]byte{0xFF, 0x05}, make([]byte, 14)...),
+			wantType:     "BINARY",
+		},
+		{
+			name:         "binary VARCHAR keeps its bytes as VARBINARY",
+			stateVersion: 8,
+			val:          string([]byte{0x10, 0x20}),
+			collationID:  63,
+			width:        0,
+			columnType:   "VARCHAR",
+			want:         []byte{0x10, 0x20},
+			wantType:     "VARBINARY",
+		},
+		{
+			name:         "binary BLOB keeps its bytes and type",
+			stateVersion: 8,
+			val:          []byte{0x00, 0x01, 0xFF},
+			collationID:  63,
+			width:        0,
+			columnType:   "BLOB",
+			want:         []byte{0x00, 0x01, 0xFF},
+			wantType:     "BLOB",
+		},
+		{
+			name:         "latin1 BLOB decodes as TEXT",
+			stateVersion: 8,
+			val:          []byte{0xE9},
+			collationID:  8,
+			width:        0,
+			columnType:   "BLOB",
+			want:         "é",
+			wantType:     "TEXT",
+		},
+		{
+			name:         "utf8mb4 CHAR stays text",
+			stateVersion: 8,
+			val:          "héllo",
+			collationID:  45,
+			width:        0,
+			columnType:   "CHAR",
+			want:         "héllo",
+			wantType:     "CHAR",
+		},
+		{
+			name:         "a value that is not bytes is left alone",
+			stateVersion: 8,
+			val:          int64(5),
+			collationID:  63,
+			width:        16,
+			columnType:   "CHAR",
+			want:         int64(5),
+			wantType:     "CHAR",
+		},
+		{
+			name:         "a nil byte slice is left alone",
+			stateVersion: 8,
+			val:          []byte(nil),
+			collationID:  63,
+			width:        16,
+			columnType:   "CHAR",
+			want:         []byte(nil),
+			wantType:     "CHAR",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			got, gotType := decodeCollatedValue(tc.val, tc.collationID, tc.width, tc.columnType)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantType, gotType)
+		})
+	}
 }
