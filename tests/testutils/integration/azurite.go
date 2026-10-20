@@ -46,15 +46,11 @@ func (th *TestHandler) testAzureBlob(ctx context.Context, t *testing.T, testTabl
 	t.Helper()
 
 	client := requireAzurite(t)
+	seed := testutils.Ternary(len(th.DedupKeys) > 0, testutils.Ternary(th.UpsertAddOp != "", th.UpsertAddOp, "upsert_add"), "add").(string)
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "clean")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "add")
-
-	// For DB2, we need to populate the statistics after adding the data to the table
-	if th.TestConfig.Driver == string(constants.DB2) {
-		th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "populate-stats")
-	}
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, seed)
 
 	th.resetCatalog(t)
 	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, "", "", []string{testTable}, []string{th.ColumnToExclude}); err != nil {
