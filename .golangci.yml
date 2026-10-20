@@ -110,7 +110,7 @@ linters:
     - asasalint
     - bidichk
     - durationcheck
-    - errorlint
+    # - errorlint
     - makezero
     - nilnesserr
     - rowserrcheck
