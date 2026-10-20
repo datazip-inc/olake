@@ -394,6 +394,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			fmt.Sprintf("RENAME TABLE %s TO _ddl_swap_del, _ddl_swap_gho TO %s", swap, swap),
 			"DROP TABLE _ddl_swap_del",
 			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (3, 12, 22, 'new')", swap),
+
+			// A clause the parser cannot apply forgets ddl_swap's metadata, so ddl_backlog is the only
+			// cached table when it is dropped and created again with a VARCHAR that names no charset.
+			fmt.Sprintf("ALTER TABLE %s CONVERT TO CHARACTER SET DEFAULT", swap),
+			fmt.Sprintf("DROP TABLE %s", backlog),
+			fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, b INT, a INT, status ENUM('refunded', 'new', 'paid'), note VARCHAR(20))", backlog),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status, note) VALUES (7, 16, 26, 'paid', 'n7')", backlog),
+			fmt.Sprintf("ALTER TABLE %s MODIFY a INT AFTER id", backlog),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status, note) VALUES (8, 17, 27, 'new', 'n8')", backlog),
+			// An app's startup CREATE with ddl_swap's layout before the cutover: MySQL logs it, though
+			// ddl_swap exists and nothing changes.
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, a INT, b INT, status ENUM('new', 'paid'))", swap),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (4, 13, 23, 'paid')", swap),
 		} {
 			_, err = db.ExecContext(ctx, stmt)
 			require.NoError(t, err, "failed to run %q", stmt)
