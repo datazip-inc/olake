@@ -10,15 +10,10 @@ import (
 // Delete this file when streams v1 support is removed.
 
 func TestMySQLStreamsV1Discover(t *testing.T) {
-	cfg := mysqlBaseConfig(t)
-	cfg.TestConfig.StreamsV1 = true
-	cfg.TestDiscover(t)
+	mysqlBaseConfig(t, testutils.WithStreamsV1()).TestDiscover(t)
 }
 
 func TestMySQLStreamsV1Sync(t *testing.T) {
 	t.Parallel()
-	cfg := mysqlSyncConfig(t)
-	cfg.TestConfig.StreamsV1 = true
-	cfg.IsolateSuite(t, testutils.StreamsV1Suite)
-	cfg.TestSync(t)
+	mysqlSyncConfig(t, testutils.WithStreamsV1()).TestSync(t)
 }

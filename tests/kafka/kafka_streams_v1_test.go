@@ -10,22 +10,19 @@ import (
 // Delete this file when streams v1 support is removed.
 
 func TestKafkaStreamsV1Discover(t *testing.T) {
-	for _, format := range kafkaFormats(t) {
+	for _, format := range kafkaFormats {
 		t.Run(format.name, func(t *testing.T) {
-			format.cfg.TestConfig.StreamsV1 = true
-			format.cfg.TestDiscover(t)
+			format.newTestHandler(t, testutils.WithStreamsV1()).TestDiscover(t)
 		})
 	}
 }
 
 func TestKafkaStreamsV1Sync(t *testing.T) {
 	t.Parallel()
-	for _, format := range kafkaFormats(t) {
+	for _, format := range kafkaFormats {
 		t.Run(format.name, func(t *testing.T) {
 			t.Parallel()
-			format.cfg.TestConfig.StreamsV1 = true
-			format.cfg.IsolateSuite(t, testutils.StreamsV1Suite)
-			format.cfg.TestSync(t)
+			format.newTestHandler(t, testutils.WithStreamsV1()).TestSync(t)
 		})
 	}
 }

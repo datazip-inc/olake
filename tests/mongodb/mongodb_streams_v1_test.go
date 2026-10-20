@@ -10,15 +10,10 @@ import (
 // Delete this file when streams v1 support is removed.
 
 func TestMongodbStreamsV1Discover(t *testing.T) {
-	cfg := mongodbBaseConfig(t)
-	cfg.TestConfig.StreamsV1 = true
-	cfg.TestDiscover(t)
+	mongodbBaseConfig(t, testutils.WithStreamsV1()).TestDiscover(t)
 }
 
 func TestMongodbStreamsV1Sync(t *testing.T) {
 	t.Parallel()
-	cfg := mongodbSyncConfig(t)
-	cfg.TestConfig.StreamsV1 = true
-	cfg.IsolateSuite(t, testutils.StreamsV1Suite)
-	cfg.TestSync(t)
+	mongodbSyncConfig(t, testutils.WithStreamsV1()).TestSync(t)
 }

@@ -96,19 +96,22 @@ func (t *TypeSchema) UnmarshalJSON(data []byte) error {
 
 	// Populate sync.Map with the data from temporary map
 	for key, value := range aux.Properties {
+		value.applyStateVersionChecks()
 		t.Properties.Store(key, value)
 	}
 
 	return nil
 }
 
+// GetType returns the type a column's values are handled as, so a fixed_binary(n) column reads
+// as binary.
 func (t *TypeSchema) GetType(column string) (DataType, error) {
 	column = utils.Ternary(t.HasDestinationColumnName(), column, utils.Reformat(column)).(string)
 	p, found := t.Properties.Load(column)
 	if !found {
 		return "", fmt.Errorf("column [%s] missing from type schema", column)
 	}
-	return p.(*Property).DataType(), nil
+	return p.(*Property).DataType().ValueType(), nil
 }
 
 func (t *TypeSchema) AddTypes(column string, isOlakeColumn bool, types ...DataType) {
@@ -251,6 +254,20 @@ func (p *Property) DataType() DataType {
 	return commonType
 }
 
+// applyStateVersionChecks rewrites the property's types for the state version this sync is pinned at.
+func (p *Property) applyStateVersionChecks() {
+	switch {
+	case !utils.IsBinarySupported():
+		types := p.Type.Array()
+		for i, d := range types {
+			if d.ValueType() == Binary {
+				types[i] = String
+			}
+		}
+		p.Type = NewSet(types...)
+	}
+}
+
 func (p *Property) Nullable() bool {
 	_, found := utils.ArrayContains(p.Type.Array(), func(elem DataType) bool {
 		return elem == Null
@@ -267,34 +284,42 @@ type typeNode struct {
 	right *typeNode
 }
 
+// Binary sits above String as every value can be carried as raw bytes; FixedBinary widens only to
+// Binary, never to text.
 var typecastTree = &typeNode{
-	t: String,
+	t: Binary,
 	left: &typeNode{
-		t: Float64,
+		t: String,
 		left: &typeNode{
-			t: Int64,
+			t: Float64,
 			left: &typeNode{
-				t: Int32,
+				t: Int64,
 				left: &typeNode{
-					t: Bool,
+					t: Int32,
+					left: &typeNode{
+						t: Bool,
+					},
 				},
+			},
+			right: &typeNode{
+				t: Float32,
 			},
 		},
 		right: &typeNode{
-			t: Float32,
-		},
-	},
-	right: &typeNode{
-		t: TimestampNano,
-		left: &typeNode{
-			t: TimestampMicro,
+			t: TimestampNano,
 			left: &typeNode{
-				t: TimestampMilli,
+				t: TimestampMicro,
 				left: &typeNode{
-					t: Timestamp,
+					t: TimestampMilli,
+					left: &typeNode{
+						t: Timestamp,
+					},
 				},
 			},
 		},
+	},
+	right: &typeNode{
+		t: FixedBinary,
 	},
 }
 
@@ -303,24 +328,27 @@ func GetCommonAncestorType(t1, t2 DataType) DataType {
 	return lowestCommonAncestor(typecastTree, t1, t2)
 }
 
+// lowestCommonAncestor walks down from root to the node where t1 and t2 split. A type without a weight,
+// one OLake does not declare, falls back to fallbackType.
 func lowestCommonAncestor(
 	root *typeNode,
 	t1, t2 DataType,
 ) DataType {
+	if t1 == t2 {
+		return t1
+	}
+
+	wt1, t1Exist := typeWeight(t1)
+	wt2, t2Exist := typeWeight(t2)
+	if !t1Exist || !t2Exist {
+		return fallbackType
+	}
+
 	node := root
-
 	for node != nil {
-		wt1, t1Exist := TypeWeights[t1]
-		wt2, t2Exist := TypeWeights[t2]
 		rootW, rootExist := TypeWeights[node.t]
-
 		if !rootExist {
 			return Unknown
-		}
-
-		// If any type is not found in weights map, return Unknown
-		if !t1Exist || !t2Exist {
-			return node.t
 		}
 
 		if wt1 > rootW && wt2 > rootW {
@@ -335,4 +363,16 @@ func lowestCommonAncestor(
 		}
 	}
 	return Unknown
+}
+
+// typeWeight is t's weight in typecastTree, a parameterised type weighing as its family. Null,
+// Unknown, Object and Array are not in the tree; they weigh as String, the type they promote to.
+func typeWeight(t DataType) (int, bool) {
+	switch base := BaseOf(t); base {
+	case Null, Unknown, Object, Array:
+		return TypeWeights[String], true
+	default:
+		weight, found := TypeWeights[base]
+		return weight, found
+	}
 }

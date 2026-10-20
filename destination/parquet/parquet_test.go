@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,5 +229,68 @@ func TestRollsPerPartition(t *testing.T) {
 	}
 	if got, want := totalRows(t, files), int64(batches*perBatch); got != want {
 		t.Fatalf("row count mismatch: got %d want %d", got, want)
+	}
+}
+
+// TestWriteRejectsWrongFixedBinaryWidth writes a 16-byte value into a fixed_binary(8) column, which
+// Write must reject with an error rather than let parquet-go panic.
+func TestWriteRejectsWrongFixedBinaryWidth(t *testing.T) {
+	stream := newStream(true, "", map[string]types.DataType{"id": types.Int64, "name": types.String, "code": types.FixedBinaryOf(8)})
+	p := newParquet(t, t.TempDir(), stream, 0, 0)
+	_, buf, _, err := p.FlattenAndCleanData(context.Background(), []types.RawRecord{rec(1, map[string]any{"code": make([]byte, 16)})})
+	if err != nil {
+		t.Fatalf("FlattenAndCleanData: %v", err)
+	}
+	want := "field[code]: fixed_binary(8) holds exactly 8 bytes, got 16"
+	if err := p.Write(context.Background(), buf); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("Write error = %v, want it to contain %q", err, want)
+	}
+}
+
+// TestParquetGetPartitionedFilePath checks the directory each partition value renders to. Bytes
+// render as escaped base64, the arrow writer's identity form, so a '/' in the encoding stays inside
+// one directory.
+func TestParquetGetPartitionedFilePath(t *testing.T) {
+	testCases := []struct {
+		name    string
+		pattern string
+		values  map[string]any
+		want    string
+	}{
+		{
+			name:    "bytes render as escaped base64",
+			pattern: "/{pk, default, }",
+			values:  map[string]any{"pk": []byte("k0000001")},
+			want:    "azAwMDAwMDE%3D",
+		},
+		{
+			name:    "a slash in the base64 stays in one directory",
+			pattern: "/{pk, default, }",
+			values:  map[string]any{"pk": []byte{0xff, 0xfe, 0xfb}},
+			want:    "%2F%2F77",
+		},
+		{
+			name:    "text renders as itself",
+			pattern: "/{pk, default, }",
+			values:  map[string]any{"pk": "k0000001"},
+			want:    "k0000001",
+		},
+		{
+			name:    "a missing value takes the default",
+			pattern: "/{pk, default, }",
+			values:  map[string]any{},
+			want:    "default",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := newStream(false, tc.pattern, map[string]types.DataType{"pk": types.Binary})
+			p := newParquet(t, t.TempDir(), stream, 0, 0)
+			got := p.getPartitionedFilePath(tc.values, time.Unix(0, 0).UTC())
+			if want := filepath.Join(p.basePath, tc.want); got != want {
+				t.Fatalf("getPartitionedFilePath() = %q, want %q", got, want)
+			}
+		})
 	}
 }

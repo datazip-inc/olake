@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -139,16 +140,17 @@ func PostgresServerVersionNum() string {
 	return `SELECT current_setting('server_version_num')::int`
 }
 
-// PostgresPartitionPagesPG12 returns leaf-partition page counts using pg_partition_tree (PG 12+).
+// PostgresPartitionPagesPG12 returns leaf-partition heap and table (heap + TOAST) sizes using pg_partition_tree (PG 12+).
 // Intermediate partitions are excluded via isleaf=true; works for any partition depth.
 func PostgresPartitionPagesPG12(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
         SELECT
             pt.relid::text AS name,
-            CEIL(1.05 * (pg_relation_size(pt.relid::oid) / current_setting('block_size')::int))::bigint AS pages
+            pg_relation_size(pt.relid::oid) AS heap_bytes,
+            pg_table_size(pt.relid::oid) AS table_bytes
         FROM pg_partition_tree('%s.%s') pt
         WHERE pt.isleaf = true
-        ORDER BY pages DESC;
+        ORDER BY heap_bytes DESC;
     `,
 		stream.Namespace(),
 		stream.Name(),
@@ -156,15 +158,14 @@ func PostgresPartitionPagesPG12(stream types.StreamInterface) string {
 }
 
 // TODO:check this query might be more optimized for performance
-// PostgresPartitionPages returns leaf-partition page counts using a recursive CTE over
-// pg_inherits. Works on all Postgres versions (10+); used as fallback for PG < 12.
+// PostgresPartitionPages returns leaf-partition heap and table (heap + TOAST) sizes using a recursive CTE
+// over pg_inherits. Works on all Postgres versions (10+); used as fallback for PG < 12.
 func PostgresPartitionPages(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
         WITH RECURSIVE partition_tree AS (
             SELECT
                 c.oid,
-                c.relname AS name,
-                CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int))::bigint AS pages
+                c.relname AS name
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = '%s'
@@ -174,20 +175,20 @@ func PostgresPartitionPages(stream types.StreamInterface) string {
 
             SELECT
                 child.oid,
-                child.relname AS name,
-                CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int))::bigint AS pages
+                child.relname AS name
             FROM pg_inherits i
             JOIN pg_class child ON child.oid = i.inhrelid
             JOIN partition_tree pt ON pt.oid = i.inhparent
         )
         SELECT
             name,
-            pages
+            pg_relation_size(oid) AS heap_bytes,
+            pg_table_size(oid) AS table_bytes
         FROM partition_tree
         WHERE NOT EXISTS (
             SELECT 1 FROM pg_inherits WHERE inhparent = partition_tree.oid
         )
-        ORDER BY pages DESC;
+        ORDER BY heap_bytes DESC;
     `,
 		stream.Namespace(),
 		stream.Name(),
@@ -211,9 +212,9 @@ func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
 	)
 }
 
-// PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
-func PostgresRelPageCount(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
+// PostgresRelationSizeQuery returns the query to fetch a relation's heap size and table size (heap + TOAST) in PostgreSQL
+func PostgresRelationSizeQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT pg_relation_size(oid), pg_table_size(oid) FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
 }
 
 // PostgresWalLSNQuery returns the query to fetch the current WAL LSN in PostgreSQL
@@ -421,6 +422,7 @@ func MySQLTableSchemaQuery() string {
 			COLUMN_NAME, 
 			COLUMN_TYPE,
 			DATA_TYPE, 
+			CHARACTER_MAXIMUM_LENGTH,
 			IS_NULLABLE,
 			COLUMN_KEY
 		FROM 
@@ -1383,7 +1385,16 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		}
 
 		// New JSON filter path: use the real Go type coming from JSON decoding.
-		switch v := cond.Value.(type) {
+		value := cond.Value
+		if columnType, err := stream.Schema().GetType(cond.Column); err == nil && columnType == types.Binary {
+			if value, err = typeutils.ParseFilterValue(columnType, cond.Value); err != nil {
+				return "", err
+			}
+		}
+		switch v := value.(type) {
+		case []byte:
+			// MySQL's hex literal; only MySQL maps a column to binary
+			valueSQL = fmt.Sprintf("X'%x'", v)
 		case string:
 			// TODO: Audit Unicode handling of string filters with special characters (Ω, ⚡, emoji, etc.) for all JDBC drivers (MSSQL, Postgres, MySQL, Oracle, DB2).
 			// default: treat as escaped string
@@ -1475,8 +1486,16 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err := abstract.DecodeCursorValue(cursorField, cursorType, lastCursorValue)
+		if err != nil {
+			return "", nil, err
+		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
-		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
+		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), cursorValue, nil
 	}
 
 	// Build primary cursor condition
@@ -1516,13 +1535,21 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
-	bytesConverter := func(value any) any {
+	bytesConverter := func(cursorType types.DataType, value any) any {
 		switch v := value.(type) {
 		case []byte:
+			if driverType == constants.MySQL && cursorType == types.Binary {
+				return v
+			}
 			return string(v)
 		default:
 			return v
 		}
+	}
+
+	primaryCursorType, err := stream.Schema().GetType(primaryCursor)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", primaryCursor, err)
 	}
 
 	cursorValueQuery := utils.Ternary(secondaryCursor == "",
@@ -1530,18 +1557,22 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable)).(string)
 
 	if secondaryCursor != "" {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		secondaryCursorType, err := stream.Schema().GetType(secondaryCursor)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", secondaryCursor, err)
+		}
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %w", err)
 		}
-		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
+		maxSecondaryCursorValue = bytesConverter(secondaryCursorType, maxSecondaryCursorValue)
 	} else {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %w", err)
 		}
 	}
-	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
+	return bytesConverter(primaryCursorType, maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
@@ -1557,6 +1588,14 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		}
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err = abstract.DecodeCursorValue(cursorField, cursorType, cursorValue)
+		if err != nil {
+			return "", nil, err
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil

@@ -10,15 +10,10 @@ import (
 // Delete this file when streams v1 support is removed.
 
 func TestDB2StreamsV1Discover(t *testing.T) {
-	cfg := db2BaseConfig(t)
-	cfg.TestConfig.StreamsV1 = true
-	cfg.TestDiscover(t)
+	db2BaseConfig(t, testutils.WithStreamsV1()).TestDiscover(t)
 }
 
 func TestDB2StreamsV1Sync(t *testing.T) {
 	t.Parallel()
-	cfg := db2SyncConfig(t)
-	cfg.TestConfig.StreamsV1 = true
-	cfg.IsolateSuite(t, testutils.StreamsV1Suite)
-	cfg.TestSync(t)
+	db2SyncConfig(t, testutils.WithStreamsV1()).TestSync(t)
 }

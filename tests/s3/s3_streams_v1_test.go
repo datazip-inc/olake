@@ -12,9 +12,7 @@ import (
 func TestS3StreamsV1Discover(t *testing.T) {
 	for _, variant := range S3TestVariants {
 		t.Run(variant.Name, func(t *testing.T) {
-			cfg := s3BaseConfig(t, variant)
-			cfg.TestConfig.StreamsV1 = true
-			cfg.TestDiscover(t)
+			s3BaseConfig(t, variant, testutils.WithStreamsV1()).TestDiscover(t)
 		})
 	}
 }
@@ -24,10 +22,7 @@ func TestS3StreamsV1Sync(t *testing.T) {
 	for _, variant := range S3TestVariants {
 		t.Run(variant.Name, func(t *testing.T) {
 			t.Parallel()
-			cfg := s3SyncConfig(t, variant)
-			cfg.TestConfig.StreamsV1 = true
-			cfg.IsolateSuite(t, variant.Name+"_"+testutils.StreamsV1Suite)
-			cfg.TestSync(t)
+			s3SyncConfig(t, variant, testutils.WithStreamsV1()).TestSync(t)
 		})
 	}
 }
