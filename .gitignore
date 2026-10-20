@@ -20,3 +20,4 @@ tests/*/testdata/**/logs
 .cocoindex_code/
 CLAUDE.local.md
 
+coverage.out
