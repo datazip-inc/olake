@@ -100,9 +100,27 @@ func (th *TestHandler) verifyAzureParquetSync(t *testing.T, table string) {
 	t.Logf("azure parquet OK: %d files, %d rows, prefix %s", len(objects), totalRows, prefix)
 }
 
+type azureParquetBlob struct {
+	name string
+	size int64
+}
+
 func listParquetObjectsAzureClient(ctx context.Context, client *azblob.Client, destDB, table string) ([]string, error) {
+	blobs, err := listAzureParquetBlobs(ctx, client, destDB, table)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(blobs))
+	for _, blob := range blobs {
+		names = append(names, blob.name)
+	}
+	return names, nil
+}
+
+// listAzureParquetBlobs lists .parquet blobs written directly into the table folder.
+func listAzureParquetBlobs(ctx context.Context, client *azblob.Client, destDB, table string) ([]azureParquetBlob, error) {
 	prefix := azureParquetPrefix(destDB, table)
-	var objects []string
+	var objects []azureParquetBlob
 	pager := client.NewListBlobsFlatPager(testutils.AzuriteContainer, &container.ListBlobsFlatOptions{
 		Prefix: &prefix,
 	})
@@ -112,9 +130,17 @@ func listParquetObjectsAzureClient(ctx context.Context, client *azblob.Client, d
 			return nil, err
 		}
 		for _, item := range page.Segment.BlobItems {
-			if item.Name != nil && strings.HasSuffix(*item.Name, ".parquet") {
-				objects = append(objects, *item.Name)
+			if item.Name == nil || !strings.HasSuffix(*item.Name, ".parquet") {
+				continue
 			}
+			// Flat listing includes _olake_2pc. Rolling assertions count only the promoted files.
+			if strings.Contains(strings.TrimPrefix(*item.Name, prefix), "/") {
+				continue
+			}
+			if item.Properties == nil || item.Properties.ContentLength == nil {
+				return nil, fmt.Errorf("blob %s has no content length", *item.Name)
+			}
+			objects = append(objects, azureParquetBlob{name: *item.Name, size: *item.Properties.ContentLength})
 		}
 	}
 	return objects, nil
