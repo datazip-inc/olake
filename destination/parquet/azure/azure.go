@@ -33,14 +33,14 @@ const (
 )
 
 type Config struct {
-	AuthType                 string
-	AccountName              string
-	AccessKey                string
-	Container                string
-	Prefix                   string // optional prefix for the blob path
-	ServiceURL               string
-	SharedAccessKeySignature string // user client SAS with own expiration time
-	ConnectionString         string
+	AuthType         string
+	AccountName      string
+	AccountKey       string
+	Container        string
+	Prefix           string // optional prefix for the blob path
+	Endpoint         string
+	SASToken         string // user client SAS with own expiration time
+	ConnectionString string
 }
 
 // Store is the implementation of the ObjectStore interface for Azure Blob Storage.
@@ -66,8 +66,8 @@ func New(cfg Config) (*Store, error) {
 }
 
 func blobServiceURL(cfg Config) string {
-	if cfg.ServiceURL != "" {
-		return cfg.ServiceURL
+	if cfg.Endpoint != "" {
+		return cfg.Endpoint
 	}
 	if cfg.AccountName == "" {
 		return ""
@@ -80,9 +80,9 @@ func newServiceClient(cfg Config, serviceURL string) (*azblob.Client, error) {
 	case AuthConnectionString:
 		return getServiceClientConnectionString(cfg.ConnectionString)
 	case AuthSASToken:
-		return getServiceClientSAS(serviceURL, cfg.SharedAccessKeySignature)
+		return getServiceClientSAS(serviceURL, cfg.SASToken)
 	case AuthSharedKey:
-		return getServiceClientSharedKey(cfg.AccountName, cfg.AccessKey, serviceURL)
+		return getServiceClientSharedKey(cfg.AccountName, cfg.AccountKey, serviceURL)
 	case AuthManagedIdentity:
 		// Entra, VM (IMDS) and AKS workload identity
 		return getServiceClientTokenCredential(serviceURL)

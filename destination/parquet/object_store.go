@@ -11,14 +11,14 @@ func newObjectStore(cfg *Config) (objectStore, error) {
 	switch {
 	case cfg.usingAzure():
 		return azure.New(azure.Config{
-			AuthType:                 cfg.AzureAuthType,
-			AccountName:              cfg.AzureStorageAccountName,
-			AccessKey:                cfg.AzureStorageAccountKey,
-			Container:                cfg.AzureContainerName,
-			Prefix:                   cfg.AzurePath,
-			ServiceURL:               cfg.AzureEndpoint,
-			SharedAccessKeySignature: cfg.AzureSASToken,
-			ConnectionString:         cfg.AzureConnectionString,
+			AuthType:         cfg.AzureAuthType,
+			AccountName:      cfg.AzureStorageAccountName,
+			AccountKey:       cfg.AzureStorageAccountKey,
+			Container:        cfg.AzureContainerName,
+			Prefix:           cfg.AzurePath,
+			Endpoint:         cfg.AzureEndpoint,
+			SASToken:         cfg.AzureSASToken,
+			ConnectionString: cfg.AzureConnectionString,
 		})
 	case cfg.usingS3():
 		return s3.New(s3.Config{
