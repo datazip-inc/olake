@@ -538,7 +538,7 @@ func testDDLOutcome(t *testing.T) {
 
 	var out ddlOutcome
 	for _, stmt := range stmts {
-		out.merge(c.applyStmtLocked(stmt, ddlEvent{defaultSchema: "shop", pos: ddlPos(200)}))
+		out.merge(c.applyStmtNoLock(stmt, ddlEvent{defaultSchema: "shop", pos: ddlPos(200)}))
 	}
 	assert.Equal(t, ddlOutcome{applied: []string{"shop.orders"}, dropped: []string{"shop.customers"}}, out)
 }

@@ -79,18 +79,18 @@ func (c *schemaCache) tableKey(schema, table string) string {
 }
 
 // Single reads and writes of c.tables go through these. getTable and setTable take c.mu
-// themselves. The Locked variants are for a step that reads and changes several entries as one
+// themselves. The NoLock variants are for a step that reads and changes several entries as one
 // change (applyDDL): the caller holds c.mu.
 func (c *schemaCache) getTable(key string) (*tableMeta, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.getTableLocked(key)
+	return c.getTableNoLock(key)
 }
 
 func (c *schemaCache) setTable(key string, meta *tableMeta) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.setTableLocked(key, meta)
+	c.setTableNoLock(key, meta)
 }
 
 // idle reports whether the cache has never held an entry. With binlog_row_metadata=FULL every
@@ -100,30 +100,30 @@ func (c *schemaCache) setTable(key string, meta *tableMeta) {
 func (c *schemaCache) idle() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.idleLocked()
+	return c.idleNoLock()
 }
 
-// idleLocked is idle for a caller that holds c.mu.
-func (c *schemaCache) idleLocked() bool {
+// idleNoLock is idle for a caller that holds c.mu.
+func (c *schemaCache) idleNoLock() bool {
 	return !c.active && len(c.tables) == 0
 }
 
-func (c *schemaCache) getTableLocked(key string) (*tableMeta, bool) {
+func (c *schemaCache) getTableNoLock(key string) (*tableMeta, bool) {
 	meta, ok := c.tables[key]
 	return meta, ok
 }
 
-func (c *schemaCache) setTableLocked(key string, meta *tableMeta) {
+func (c *schemaCache) setTableNoLock(key string, meta *tableMeta) {
 	c.tables[key] = meta
 	c.active = true
 	delete(c.dropped, key)
 }
 
-func (c *schemaCache) deleteTableLocked(key string) {
+func (c *schemaCache) deleteTableNoLock(key string) {
 	delete(c.tables, key)
 }
 
-func (c *schemaCache) resetLocked() {
+func (c *schemaCache) resetNoLock() {
 	c.tables = map[string]*tableMeta{}
 }
 
@@ -275,12 +275,12 @@ func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position) 
 	}
 
 	// One lock for the whole change, from the idle check to the last write, so get() never sees
-	// it half done. Everything below is a Locked helper.
+	// it half done. Everything below is a NoLock helper.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Checked again under the lock, so the change applies to the cache it checked.
-	if c.idleLocked() {
+	if c.idleNoLock() {
 		return
 	}
 
@@ -291,68 +291,68 @@ func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position) 
 	var out ddlOutcome
 	if err != nil || len(stmts) == 0 {
 		if name, ok := tableOfUnparsedDDL(query); ok {
-			out = c.dropTablesLocked(ev, name)
+			out = c.dropTablesNoLock(ev, name)
 			out.reasons = append(out.reasons, "cannot parse DDL")
 		} else {
-			c.resetLocked()
+			c.resetNoLock()
 			out = ddlOutcome{reset: true, reasons: []string{"cannot parse DDL"}}
 		}
 	} else {
 		for _, stmt := range stmts {
-			out.merge(c.applyStmtLocked(stmt, ev))
+			out.merge(c.applyStmtNoLock(stmt, ev))
 		}
 	}
 	out.log(ev.query)
 }
 
-// applyStmtLocked applies one parsed statement to the cache and returns what it did. The caller
+// applyStmtNoLock applies one parsed statement to the cache and returns what it did. The caller
 // holds c.mu.
-func (c *schemaCache) applyStmtLocked(stmt ast.StmtNode, ev ddlEvent) ddlOutcome {
+func (c *schemaCache) applyStmtNoLock(stmt ast.StmtNode, ev ddlEvent) ddlOutcome {
 	switch stmt := stmt.(type) {
 	case *ast.AlterTableStmt:
-		return c.alterTableLocked(stmt, ev)
+		return c.alterTableNoLock(stmt, ev)
 	case *ast.RenameTableStmt:
-		return c.renameTablesLocked(ev, stmt.TableToTables)
+		return c.renameTablesNoLock(ev, stmt.TableToTables)
 	case *ast.DropTableStmt:
 		if !stmt.IsView && stmt.TemporaryKeyword == ast.TemporaryNone {
-			out := c.dropTablesLocked(ev, stmt.Tables...)
+			out := c.dropTablesNoLock(ev, stmt.Tables...)
 			for _, key := range out.dropped {
 				c.dropped[key] = true
 			}
 			return out
 		}
 	case *ast.CreateTableStmt:
-		return c.createTableLocked(stmt, ev)
+		return c.createTableNoLock(stmt, ev)
 	case *ast.DropDatabaseStmt:
-		return c.dropSchemaLocked(stmt.Name.O)
+		return c.dropSchemaNoLock(stmt.Name.O)
 	case *ast.AlterDatabaseStmt:
-		return c.alterSchemaLocked(stmt, ev)
+		return c.alterSchemaNoLock(stmt, ev)
 	case *ast.CreateDatabaseStmt, *ast.CreateIndexStmt, *ast.DropIndexStmt, *ast.CreateViewStmt,
 		*ast.TruncateTableStmt, *ast.OptimizeTableStmt, *ast.AnalyzeTableStmt, *ast.RepairTableStmt:
 		// No table's columns change.
 	default:
 		// A statement type this file does not know: forget any cached table it names.
-		return c.dropTablesLocked(ev, referencedTables(stmt)...)
+		return c.dropTablesNoLock(ev, referencedTables(stmt)...)
 	}
 	return ddlOutcome{}
 }
 
-// alterTableLocked applies an ALTER TABLE to the cached schema of its table, if cached, and
+// alterTableNoLock applies an ALTER TABLE to the cached schema of its table, if cached, and
 // returns what it did. The caller holds c.mu.
-func (c *schemaCache) alterTableLocked(stmt *ast.AlterTableStmt, ev ddlEvent) ddlOutcome {
+func (c *schemaCache) alterTableNoLock(stmt *ast.AlterTableStmt, ev ddlEvent) ddlOutcome {
 	for _, spec := range stmt.Specs {
 		if spec.Tp == ast.AlterTableRenameTable {
 			// The table moves to a new name: forget both, so each reloads fresh if streamed.
-			return c.dropTablesLocked(ev, stmt.Table, spec.NewTable)
+			return c.dropTablesNoLock(ev, stmt.Table, spec.NewTable)
 		}
 	}
 
 	schema, known := tableSchema(ev.defaultSchema, stmt.Table)
 	if !known {
-		return c.dropTablesLocked(ev, stmt.Table)
+		return c.dropTablesNoLock(ev, stmt.Table)
 	}
 	key := c.tableKey(schema, stmt.Table.Name.O)
-	meta, cached := c.getTableLocked(key)
+	meta, cached := c.getTableNoLock(key)
 	if !cached {
 		return ddlOutcome{}
 	}
@@ -360,7 +360,7 @@ func (c *schemaCache) alterTableLocked(stmt *ast.AlterTableStmt, ev ddlEvent) dd
 	// An entry anchored at or after this DDL was read from information_schema later, and may
 	// already include it; applying the DDL again would corrupt the entry.
 	if meta.AnchoredAt.Compare(ev.pos) >= 0 {
-		c.deleteTableLocked(key)
+		c.deleteTableNoLock(key)
 		return ddlOutcome{dropped: []string{key}, reasons: []string{"cached metadata may already include this DDL"}}
 	}
 
@@ -369,38 +369,38 @@ func (c *schemaCache) alterTableLocked(stmt *ast.AlterTableStmt, ev ddlEvent) dd
 	next.TableID, next.ColumnTypes = 0, nil
 	for _, spec := range stmt.Specs {
 		if err := next.applyAlterSpec(spec); err != nil {
-			c.deleteTableLocked(key)
+			c.deleteTableNoLock(key)
 			return ddlOutcome{dropped: []string{key}, reasons: []string{"cannot apply: " + err.Error()}}
 		}
 	}
 	next.AnchoredAt = ev.pos
-	c.setTableLocked(key, next)
+	c.setTableNoLock(key, next)
 	return ddlOutcome{applied: []string{key}}
 }
 
-// renameTablesLocked moves each renamed table's entry to its new name, pair by pair, so a swap such
+// renameTablesNoLock moves each renamed table's entry to its new name, pair by pair, so a swap such
 // as gh-ost's cutover (RENAME TABLE t TO _t_del, _t_gho TO t) leaves t with the shadow table's
 // schema. An entry anchored at or after the RENAME was loaded later, when another table may have
 // held its name, so it is dropped instead of moved. It returns what it did. The caller holds c.mu.
-func (c *schemaCache) renameTablesLocked(ev ddlEvent, pairs []*ast.TableToTable) ddlOutcome {
+func (c *schemaCache) renameTablesNoLock(ev ddlEvent, pairs []*ast.TableToTable) ddlOutcome {
 	var out ddlOutcome
 	for _, pair := range pairs {
 		oldSchema, oldKnown := tableSchema(ev.defaultSchema, pair.OldTable)
 		newSchema, newKnown := tableSchema(ev.defaultSchema, pair.NewTable)
 		if !oldKnown || !newKnown {
-			c.resetLocked()
+			c.resetNoLock()
 			return ddlOutcome{reset: true, reasons: []string{"DDL names a table without a database"}}
 		}
 		oldKey := c.tableKey(oldSchema, pair.OldTable.Name.O)
 		newKey := c.tableKey(newSchema, pair.NewTable.Name.O)
-		meta, hadOld := c.getTableLocked(oldKey)
-		_, hadNew := c.getTableLocked(newKey)
-		c.deleteTableLocked(oldKey)
-		c.deleteTableLocked(newKey)
+		meta, hadOld := c.getTableNoLock(oldKey)
+		_, hadNew := c.getTableNoLock(newKey)
+		c.deleteTableNoLock(oldKey)
+		c.deleteTableNoLock(newKey)
 
 		moved := hadOld && meta.AnchoredAt.Compare(ev.pos) < 0
 		if moved {
-			c.setTableLocked(newKey, meta)
+			c.setTableNoLock(newKey, meta)
 			out.applied = append(out.applied, newKey)
 		}
 		if hadOld && !moved {
@@ -413,7 +413,7 @@ func (c *schemaCache) renameTablesLocked(ev ddlEvent, pairs []*ast.TableToTable)
 	return out
 }
 
-// createTableLocked records the schema a CREATE TABLE gives a name, so DDL after it in the backlog
+// createTableNoLock records the schema a CREATE TABLE gives a name, so DDL after it in the backlog
 // applies to that schema instead of to a reload that already has the DDL. CREATE ... LIKE copies
 // the source's cached schema, which is how gh-ost and pt-online-schema-change start their shadow
 // tables; a CREATE of a cached or streamed name is read from its column definitions. Any other CREATE, a
@@ -421,16 +421,16 @@ func (c *schemaCache) renameTablesLocked(ev ddlEvent, pairs []*ast.TableToTable)
 // without guessing (a text column with no charset and no table default) drops the name. IF NOT
 // EXISTS on a cached table changes nothing, and on an uncached one is read only right after a DROP
 // of it: MySQL logs it even when the table exists. It returns what it did. The caller holds c.mu.
-func (c *schemaCache) createTableLocked(stmt *ast.CreateTableStmt, ev ddlEvent) ddlOutcome {
+func (c *schemaCache) createTableNoLock(stmt *ast.CreateTableStmt, ev ddlEvent) ddlOutcome {
 	if stmt.TemporaryKeyword != ast.TemporaryNone {
 		return ddlOutcome{}
 	}
 	schema, known := tableSchema(ev.defaultSchema, stmt.Table)
 	if !known {
-		return c.dropTablesLocked(ev, stmt.Table)
+		return c.dropTablesNoLock(ev, stmt.Table)
 	}
 	key := c.tableKey(schema, stmt.Table.Name.O)
-	_, cached := c.getTableLocked(key)
+	_, cached := c.getTableNoLock(key)
 	if stmt.IfNotExists && cached {
 		return ddlOutcome{}
 	}
@@ -442,68 +442,68 @@ func (c *schemaCache) createTableLocked(stmt *ast.CreateTableStmt, ev ddlEvent) 
 	switch {
 	case stmt.ReferTable != nil:
 		srcSchema, srcKnown := tableSchema(ev.defaultSchema, stmt.ReferTable)
-		src, srcCached := c.getTableLocked(c.tableKey(srcSchema, stmt.ReferTable.Name.O))
+		src, srcCached := c.getTableNoLock(c.tableKey(srcSchema, stmt.ReferTable.Name.O))
 		if !srcKnown || !srcCached || src.AnchoredAt.Compare(ev.pos) >= 0 {
-			return c.dropTablesLocked(ev, stmt.Table)
+			return c.dropTablesNoLock(ev, stmt.Table)
 		}
 		meta = src.clone()
 	case useColumnsFromCreate && stmt.Select == nil:
 		var err error
-		if meta, err = tableMetaFromDef(stmt, c.schemaCollationLocked(schema, ev.pos)); err != nil {
-			out := c.dropTablesLocked(ev, stmt.Table)
+		if meta, err = tableMetaFromDef(stmt, c.schemaCollationNoLock(schema, ev.pos)); err != nil {
+			out := c.dropTablesNoLock(ev, stmt.Table)
 			out.reasons = append(out.reasons, "cannot read CREATE TABLE: "+err.Error())
 			return out
 		}
 	default:
-		return c.dropTablesLocked(ev, stmt.Table)
+		return c.dropTablesNoLock(ev, stmt.Table)
 	}
 	meta.AnchoredAt, meta.TableID, meta.ColumnTypes = ev.pos, 0, nil
-	c.setTableLocked(key, meta)
+	c.setTableNoLock(key, meta)
 	return ddlOutcome{applied: []string{key}}
 }
 
-// dropTablesLocked forgets each named table. A name that resolves to no database wipes the cache,
+// dropTablesNoLock forgets each named table. A name that resolves to no database wipes the cache,
 // since any cached table could be the one meant. It returns what it did. The caller holds c.mu.
-func (c *schemaCache) dropTablesLocked(ev ddlEvent, names ...*ast.TableName) ddlOutcome {
+func (c *schemaCache) dropTablesNoLock(ev ddlEvent, names ...*ast.TableName) ddlOutcome {
 	var out ddlOutcome
 	for _, name := range names {
 		schema, ok := tableSchema(ev.defaultSchema, name)
 		if !ok {
-			c.resetLocked()
+			c.resetNoLock()
 			return ddlOutcome{reset: true, reasons: []string{"DDL names a table without a database"}}
 		}
 		key := c.tableKey(schema, name.Name.O)
-		if meta, ok := c.getTableLocked(key); ok {
+		if meta, ok := c.getTableNoLock(key); ok {
 			if meta.SchemaCollationID != 0 {
 				c.schemaDefaults[c.tableKey(schema, "")] = meta.SchemaCollationID
 			}
-			c.deleteTableLocked(key)
+			c.deleteTableNoLock(key)
 			out.dropped = append(out.dropped, key)
 		}
 	}
 	return out
 }
 
-// dropSchemaLocked forgets every cached table in a dropped database and returns them. The caller
+// dropSchemaNoLock forgets every cached table in a dropped database and returns them. The caller
 // holds c.mu.
-func (c *schemaCache) dropSchemaLocked(schema string) ddlOutcome {
+func (c *schemaCache) dropSchemaNoLock(schema string) ddlOutcome {
 	var out ddlOutcome
 	prefix := c.tableKey(schema, "")
 	delete(c.schemaDefaults, prefix)
 	for key := range c.tables {
 		if strings.HasPrefix(key, prefix) {
-			c.deleteTableLocked(key)
+			c.deleteTableNoLock(key)
 			out.dropped = append(out.dropped, key)
 		}
 	}
 	return out
 }
 
-// alterSchemaLocked records a database's new default charset or collation on each of its cached
+// alterSchemaNoLock records a database's new default charset or collation on each of its cached
 // tables, so a table created in it later without a charset takes the new default. An entry
 // anchored at or after the ALTER was loaded later and already has it. It returns what it did. The
 // caller holds c.mu.
-func (c *schemaCache) alterSchemaLocked(stmt *ast.AlterDatabaseStmt, ev ddlEvent) ddlOutcome {
+func (c *schemaCache) alterSchemaNoLock(stmt *ast.AlterDatabaseStmt, ev ddlEvent) ddlOutcome {
 	var cs, collate string
 	for _, opt := range stmt.Options {
 		switch opt.Tp {
@@ -533,17 +533,17 @@ func (c *schemaCache) alterSchemaLocked(stmt *ast.AlterDatabaseStmt, ev ddlEvent
 		if strings.HasPrefix(key, prefix) && meta.AnchoredAt.Compare(ev.pos) < 0 {
 			next := meta.clone()
 			next.SchemaCollationID, next.AnchoredAt = id, ev.pos
-			c.setTableLocked(key, next)
+			c.setTableNoLock(key, next)
 			out.applied = append(out.applied, key)
 		}
 	}
 	return out
 }
 
-// schemaCollationLocked returns a database's default collation as of pos, read from a cached table
+// schemaCollationNoLock returns a database's default collation as of pos, read from a cached table
 // in it that is anchored before pos, else from its last dropped table, or 0 when neither has it.
 // The caller holds c.mu.
-func (c *schemaCache) schemaCollationLocked(schema string, pos mysql.Position) uint64 {
+func (c *schemaCache) schemaCollationNoLock(schema string, pos mysql.Position) uint64 {
 	prefix := c.tableKey(schema, "")
 	for key, meta := range c.tables {
 		if strings.HasPrefix(key, prefix) && meta.SchemaCollationID != 0 && meta.AnchoredAt.Compare(pos) < 0 {
