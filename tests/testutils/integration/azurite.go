@@ -45,6 +45,7 @@ func azureParquetPrefix(destDB, table string) string {
 func (th *TestHandler) testAzureBlob(ctx context.Context, t *testing.T, testTable string) error {
 	t.Helper()
 
+	client := requireAzurite(t)
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "clean")
@@ -64,7 +65,6 @@ func (th *TestHandler) testAzureBlob(ctx context.Context, t *testing.T, testTabl
 		return fmt.Errorf("failed to set sync mode %s: %s", syncMode, err)
 	}
 
-	client := requireAzurite(t)
 	prefix := azureParquetPrefix(th.DestinationDB, testTable)
 	if err := deleteAzureParquetPrefix(ctx, client, prefix); err != nil {
 		return fmt.Errorf("failed to reset azurite prefix %s: %w", prefix, err)
