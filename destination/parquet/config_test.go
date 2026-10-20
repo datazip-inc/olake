@@ -79,6 +79,24 @@ func TestConfigValidateStore(t *testing.T) {
 			},
 		},
 		{
+			name: "storage_type s3 is case-insensitive",
+			cfg: &Config{
+				StorageType: "s3",
+				Bucket:      "my-bucket",
+				Region:      "us-east-1",
+			},
+		},
+		{
+			name: "storage_type azure is case-insensitive",
+			cfg: func() *Config {
+				c := azureCfg
+				c.StorageType = "azure"
+				c.AzureAuthType = azure.AuthSharedKey
+				c.AzureStorageAccountKey = "mykey"
+				return &c
+			}(),
+		},
+		{
 			name: "azure fields without storage_type skip azure validate",
 			cfg: &Config{
 				AzureStorageAccountName: "myaccount",
@@ -242,6 +260,16 @@ func TestConfigUsingObjectStore(t *testing.T) {
 				AzureContainerName:      "mycontainer",
 				Bucket:                  "my-bucket",
 				Region:                  "us-east-1",
+			},
+			wantAzure: true,
+			wantKind:  storageTypeAzure,
+		},
+		{
+			name: "storage_type azure is case-insensitive",
+			cfg: &Config{
+				StorageType:             "AZURE",
+				AzureStorageAccountName: "myaccount",
+				AzureContainerName:      "mycontainer",
 			},
 			wantAzure: true,
 			wantKind:  storageTypeAzure,

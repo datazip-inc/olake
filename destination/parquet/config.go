@@ -2,6 +2,7 @@ package parquet
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/datazip-inc/olake/destination/parquet/azure"
 	"github.com/datazip-inc/olake/utils"
@@ -51,9 +52,9 @@ func (c *Config) usingS3() bool {
 
 // storageKind is Azure only when storage_type is Azure. Anything else is S3
 func (c *Config) storageKind() string {
-	switch c.StorageType {
-	case storageTypeAzure:
-		return c.StorageType
+	switch strings.ToLower(strings.TrimSpace(c.StorageType)) {
+	case "azure":
+		return storageTypeAzure
 	default:
 		return storageTypeS3
 	}
@@ -64,10 +65,10 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	switch c.StorageType {
-	case storageTypeAzure:
+	switch strings.ToLower(strings.TrimSpace(c.StorageType)) {
+	case "azure":
 		return c.validateAzureAuthenticationType()
-	case "", storageTypeS3:
+	case "", "s3":
 		return nil
 	default:
 		return fmt.Errorf("storage_type must be %q or %q", storageTypeS3, storageTypeAzure)
