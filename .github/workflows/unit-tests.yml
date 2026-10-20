@@ -2,6 +2,9 @@ name: Unit Tests
 
 on:
   pull_request:
+  push:
+    branches:
+      - master
 
 permissions:
   contents: read
@@ -26,6 +29,7 @@ jobs:
         run: make test.unit
 
       - name: Upload coverage to Codecov
+        if: github.event_name == 'push'
         uses: codecov/codecov-action@v7
         with:
           files: coverage.out
