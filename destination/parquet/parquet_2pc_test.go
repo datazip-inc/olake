@@ -793,18 +793,17 @@ func testS3ParquetWithStore(t *testing.T, store *memoryS3, threadID string, back
 }
 
 func setStorePrefix(p *Parquet, prefix string) {
-	trimmed := strings.TrimSuffix(prefix, "/")
 	switch s := p.store.(type) {
 	case *s3store.Store:
 		p.config.Prefix = prefix
-		s.SetPrefix(prefix)
+		p.store = s.WithPrefix(prefix)
 	case *memoryStore:
 		if s.kind == "azure" {
 			p.config.AzurePath = prefix
 		} else {
 			p.config.Prefix = prefix
 		}
-		s.prefix = trimmed
+		s.prefix = strings.Trim(prefix, "/")
 	}
 }
 

@@ -43,7 +43,7 @@ type Store struct {
 	gcs      bool
 }
 
-// New creates a new AWS S3 client with shared key credential and returns a new Store.
+// New creates a new AWS S3 client
 func New(cfg Config) (*Store, error) {
 	clientCfg := aws.Config{Region: aws.String(cfg.Region)}
 	if cfg.S3Endpoint != "" {
@@ -75,8 +75,12 @@ func NewWithClient(client s3iface.S3API, uploader s3manageriface.UploaderAPI, bu
 	}
 }
 
-func (s *Store) SetPrefix(prefix string) {
-	s.prefix = strings.TrimSuffix(prefix, "/")
+// WithPrefix returns a store that shares this store's clients and bucket and applies prefix
+// with the same trim as New. gcs is copied so a GCS store stays on individual deletes.
+func (s *Store) WithPrefix(prefix string) *Store {
+	next := NewWithClient(s.client, s.uploader, s.bucket, prefix)
+	next.gcs = s.gcs
+	return next
 }
 
 func (s *Store) Kind() string {
