@@ -421,11 +421,10 @@ $(foreach d,$(DRIVERS),$(eval $(call COMPATIBILITY_TEST_template,$(d))))
 .PHONY: test.compatibility
 test.compatibility: $(addprefix test.compatibility.,$(DRIVERS))
 
-# Unit tests across every module in the go.work workspace. Directory patterns
-# ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
-# like <module>/... prefix-matches into sibling modules.
+# Unit tests across every module in the go.work workspace, with a merged cover profile
+# (coverage.out) and a per-package coverage table; see the script for details.
 test.unit: $(addprefix prepare.,$(DRIVERS))
-	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1
+	@$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) .github/scripts/test-unit.sh
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
