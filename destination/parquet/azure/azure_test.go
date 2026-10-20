@@ -139,6 +139,20 @@ func TestNewAzureStore(t *testing.T) {
 				ConnectionString: conn,
 			},
 			wantContainer: "container",
+			wantURL:       "https://olakeaccount.blob.core.windows.net/",
+		},
+		{
+			name: "connection string uses BlobEndpoint for Azurite copy check",
+			cfg: Config{
+				AuthType:  AuthConnectionString,
+				Container: "container",
+				ConnectionString: fmt.Sprintf(
+					"DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=%s;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;",
+					key,
+				),
+			},
+			wantContainer: "container",
+			wantURL:       "http://127.0.0.1:10000/devstoreaccount1/",
 		},
 		{
 			name: "rejects invalid connection string",

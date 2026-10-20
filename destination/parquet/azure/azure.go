@@ -52,8 +52,7 @@ type Store struct {
 }
 
 func New(cfg Config) (*Store, error) {
-	serviceURL := blobServiceURL(cfg)
-	client, err := newServiceClient(cfg, serviceURL)
+	client, err := newServiceClient(cfg, blobServiceURL(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +61,7 @@ func New(cfg Config) (*Store, error) {
 		client:     client,
 		container:  cfg.Container,
 		prefix:     strings.Trim(cfg.Prefix, "/"),
-		serviceURL: serviceURL,
+		serviceURL: client.ServiceClient().URL(), // serviceURL from the client
 	}, nil
 }
 
