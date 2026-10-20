@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -520,7 +519,7 @@ func TestAzureStagingPaths(t *testing.T) {
 	p, _ := testAzureParquet(t, "thread", false)
 	setStorePrefix(p, "root")
 
-	require.Equal(t, "azure", p.store.Kind())
+	require.Equal(t, "azure", p.store.(*memoryStore).kind)
 	require.Equal(t, "root/namespace/table/_olake_2pc/", p.currentStagingPrefix())
 	require.Equal(t, "root/namespace/table/_olake_2pc/partition/data.parquet", p.stagingObjectKey("partition/data.parquet"))
 	require.Equal(t, "root/namespace/table/_olake_2pc/finish.json", p.sharedFinishObjectKey())
@@ -807,15 +806,11 @@ func setStorePrefix(p *Parquet, prefix string) {
 	}
 }
 
-var errMemoryNotFound = errors.New("object not found")
-
 type memoryStore struct {
 	kind   string
 	prefix string
 	inner  *memoryS3
 }
-
-func (m *memoryStore) Kind() string { return m.kind }
 
 func (m *memoryStore) ObjectKey(relativePath string) string {
 	if m.prefix == "" {
@@ -847,7 +842,7 @@ func (m *memoryStore) UploadFile(_ context.Context, key string, file *os.File) e
 func (m *memoryStore) Get(_ context.Context, key string) ([]byte, error) {
 	data := m.inner.get(key)
 	if data == nil {
-		return nil, errMemoryNotFound
+		return nil, errObjectNotFound
 	}
 	return data, nil
 }
@@ -862,7 +857,7 @@ func (m *memoryStore) Copy(_ context.Context, srcKey, dstKey string) error {
 	}
 	data := m.inner.get(srcKey)
 	if data == nil {
-		return errMemoryNotFound
+		return errObjectNotFound
 	}
 	m.inner.put(dstKey, data)
 	return nil
@@ -885,14 +880,6 @@ func (m *memoryStore) DeletePrefix(ctx context.Context, prefix string) error {
 		}
 	}
 	return nil
-}
-
-func (m *memoryStore) IsNotFound(err error) bool {
-	return errors.Is(err, errMemoryNotFound)
-}
-
-func (m *memoryStore) IsRateLimitError(error) bool {
-	return false
 }
 
 func testAzureParquet(t *testing.T, threadID string, backfill bool) (*Parquet, *memoryS3) {

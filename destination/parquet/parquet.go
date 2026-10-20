@@ -318,10 +318,10 @@ func (p *Parquet) Check(ctx context.Context) error {
 	case p.store != nil:
 		testKey := p.store.ObjectKey(path.Join("olake_writer_test", utils.TimestampedFileName(".txt")))
 		if err := p.store.Put(ctx, testKey, []byte("write test")); err != nil {
-			return fmt.Errorf("failed to write test file to %s: %w", p.store.Kind(), err)
+			return fmt.Errorf("failed to write test file to %s: %w", storeKind(p.store), err)
 		}
 		p.config.Path = os.TempDir()
-		logger.Infof("Thread[%s]: %s writer configuration found", p.options.ThreadID, p.store.Kind())
+		logger.Infof("Thread[%s]: %s writer configuration found", p.options.ThreadID, storeKind(p.store))
 	case p.config.Path != "":
 		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
 	default:
@@ -403,7 +403,7 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []*FileMetadata) 
 			}
 			defer file.Close()
 			if err := p.store.UploadFile(retryCtx, stagingKey, file); err != nil {
-				return fmt.Errorf("failed to upload file to %s (%s): %w", p.store.Kind(), stagingKey, err)
+				return fmt.Errorf("failed to upload file to %s (%s): %w", storeKind(p.store), stagingKey, err)
 			}
 			return nil
 		})
@@ -413,9 +413,9 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []*FileMetadata) 
 		}
 
 		if err := os.Remove(info.path); err != nil {
-			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to %s): %s", p.options.ThreadID, info.path, p.store.Kind(), err)
+			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to %s): %s", p.options.ThreadID, info.path, storeKind(p.store), err)
 		}
-		logger.Infof("Thread[%s]: successfully uploaded file to /%s : /%s", p.options.ThreadID, p.store.Kind(), stagingKey)
+		logger.Infof("Thread[%s]: successfully uploaded file to /%s : /%s", p.options.ThreadID, storeKind(p.store), stagingKey)
 		return nil
 	})
 }
@@ -690,7 +690,7 @@ func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.Strea
 		}
 	} else {
 		if err := p.clearRemoteFiles(ctx, paths); err != nil {
-			return fmt.Errorf("failed to clear %s files: %w", p.store.Kind(), err)
+			return fmt.Errorf("failed to clear %s files: %w", storeKind(p.store), err)
 		}
 	}
 	return nil
@@ -729,11 +729,11 @@ func (p *Parquet) clearRemoteFiles(ctx context.Context, paths []string) error {
 			continue
 		}
 		prefix := p.store.ObjectKey(path.Join(parts[0], parts[1])) + "/"
-		logger.Debugf("clearing %s prefix: %s", p.store.Kind(), prefix)
+		logger.Debugf("clearing %s prefix: %s", storeKind(p.store), prefix)
 		if err := p.store.DeletePrefix(ctx, prefix); err != nil {
-			return fmt.Errorf("failed to clear %s prefix %s: %w", p.store.Kind(), prefix, err)
+			return fmt.Errorf("failed to clear %s prefix %s: %w", storeKind(p.store), prefix, err)
 		}
-		logger.Debugf("successfully cleared %s prefix: %s", p.store.Kind(), prefix)
+		logger.Debugf("successfully cleared %s prefix: %s", storeKind(p.store), prefix)
 	}
 	return nil
 }

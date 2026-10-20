@@ -73,7 +73,7 @@ func TestNewS3Store(t *testing.T) {
 	t.Run("trims s3 path", func(t *testing.T) {
 		store, err := New(Config{Bucket: "bucket", Region: "us-east-1", Prefix: "/root/"})
 		require.NoError(t, err)
-		require.Equal(t, "s3", store.Kind())
+		require.Equal(t, "s3", store.Kind)
 		require.Equal(t, "bucket", store.bucket)
 		require.Equal(t, "root", store.prefix)
 		require.Equal(t, "root/namespace/table", store.ObjectKey("namespace/table"))

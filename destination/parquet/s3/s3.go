@@ -41,6 +41,7 @@ type Store struct {
 	bucket   string
 	prefix   string
 	gcs      bool
+	Kind     string
 }
 
 // New creates a new AWS S3 client
@@ -63,6 +64,7 @@ func New(cfg Config) (*Store, error) {
 		bucket:   cfg.Bucket,
 		prefix:   strings.Trim(cfg.Prefix, "/"),
 		gcs:      strings.Contains(cfg.S3Endpoint, "googleapis.com"),
+		Kind:     "s3",
 	}, nil
 }
 
@@ -72,6 +74,7 @@ func NewWithClient(client s3iface.S3API, uploader s3manageriface.UploaderAPI, bu
 		uploader: uploader,
 		bucket:   bucket,
 		prefix:   strings.Trim(prefix, "/"),
+		Kind:     "s3",
 	}
 }
 
@@ -80,11 +83,8 @@ func NewWithClient(client s3iface.S3API, uploader s3manageriface.UploaderAPI, bu
 func (s *Store) WithPrefix(prefix string) *Store {
 	next := NewWithClient(s.client, s.uploader, s.bucket, prefix)
 	next.gcs = s.gcs
+	next.Kind = s.Kind
 	return next
-}
-
-func (s *Store) Kind() string {
-	return "s3"
 }
 
 func (s *Store) ObjectKey(relativePath string) string {

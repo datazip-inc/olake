@@ -173,7 +173,7 @@ func TestNewAzureStore(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, "azure", store.Kind())
+			require.Equal(t, "azure", store.Kind)
 			if tt.wantPrefix != "" {
 				require.Equal(t, tt.wantPrefix, store.prefix)
 			}

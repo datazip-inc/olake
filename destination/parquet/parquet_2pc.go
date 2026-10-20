@@ -284,7 +284,7 @@ func jsonObject(value any) (map[string]any, bool) {
 func (p *Parquet) readMetadata(ctx context.Context) (*types.MetadataState, error) {
 	data, err := p.readObject(ctx, p.metadataObjectKey())
 	if err != nil {
-		if p.store.IsNotFound(err) {
+		if objectNotFound(p.store, err) {
 			return nil, nil //nolint:nilnil // missing metadata denotes a fresh table
 		}
 		return nil, fmt.Errorf("failed to read parquet 2pc metadata: %s", err)
@@ -427,7 +427,9 @@ func (p *Parquet) readObject(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (p *Parquet) retryRemote(ctx context.Context, fn func(context.Context) error) error {
-	return utils.RetryWithSkip(ctx, 3, time.Minute, p.store.IsRateLimitError, fn)
+	return utils.RetryWithSkip(ctx, 3, time.Minute, func(err error) bool {
+		return objectRateLimited(p.store, err)
+	}, fn)
 }
 
 func (p *Parquet) stagingRootPrefix() string {

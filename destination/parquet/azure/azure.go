@@ -49,6 +49,7 @@ type Store struct {
 	container  string
 	prefix     string
 	serviceURL string
+	Kind       string
 }
 
 func New(cfg Config) (*Store, error) {
@@ -62,6 +63,7 @@ func New(cfg Config) (*Store, error) {
 		container:  cfg.Container,
 		prefix:     strings.Trim(cfg.Prefix, "/"),
 		serviceURL: client.ServiceClient().URL(), // serviceURL from the client
+		Kind:       "azure",
 	}, nil
 }
 
@@ -89,10 +91,6 @@ func newServiceClient(cfg Config, serviceURL string) (*azblob.Client, error) {
 	default:
 		return nil, fmt.Errorf("unsupported azure auth type %q", cfg.AuthType)
 	}
-}
-
-func (a *Store) Kind() string {
-	return "azure"
 }
 
 func (a *Store) ObjectKey(relativePath string) string {
