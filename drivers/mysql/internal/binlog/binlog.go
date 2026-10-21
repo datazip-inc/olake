@@ -30,7 +30,7 @@ type Connection struct {
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
-func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
+func NewConnection(ctx context.Context, config *Config, state Binlog, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
 	syncerConfig := replication.BinlogSyncerConfig{
 		ServerID:        config.ServerID,
 		Flavor:          config.Flavor,
@@ -55,18 +55,47 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 			return config.SSHClient.Dial("tcp", addr)
 		}
 	}
+	var lowerCaseTableNames int
+	if config.SchemaClient != nil {
+		if err := config.SchemaClient.QueryRowContext(ctx, jdbc.MySQLLowerCaseTableNamesQuery()).Scan(&lowerCaseTableNames); err != nil {
+			return nil, fmt.Errorf("failed to read lower_case_table_names: %w", err)
+		}
+	}
 
-	return &Connection{
+	conn := &Connection{
 		ServerID:        config.ServerID,
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
-		CurrentPos:      pos,
+		CurrentPos:      state.Position,
 		initialWaitTime: config.InitialWaitTime,
-		changeFilter:    NewChangeFilter(config.SchemaClient, typeConverter, streams...),
-	}, nil
+		changeFilter:    NewChangeFilter(config.SchemaClient, state, lowerCaseTableNames != 0, typeConverter, streams...),
+	}
+	return conn, nil
+}
+
+// isRecovery reports whether the caller fixed the stop position, as a recovery run does: it must
+// end exactly there, where a previous run already committed to the destination.
+func isRecovery(stop mysql.Position) bool {
+	return stop.Name != "" && stop.Pos != 0
+}
+
+// lastPosToRead is the position the run reads to. A recovery run stops exactly at latestBinlogPos.
+// Otherwise it reads on to the newest cached schema's anchor when that is later (the server head
+// when that table was loaded), so State can save every schema: the next run resumes there and
+// drops schemas anchored later. Tables load while the run reads, so the answer can move.
+func (c *Connection) lastPosToRead(latestBinlogPos mysql.Position, recovery bool) mysql.Position {
+	if recovery {
+		return latestBinlogPos
+	}
+	if anchor := c.changeFilter.schema.maxAnchor(); anchor.Compare(latestBinlogPos) > 0 {
+		return anchor
+	}
+	return latestBinlogPos
 }
 
 func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestBinlogPos mysql.Position, callback abstract.CDCMsgFn) error {
-	if latestBinlogPos.Name == "" || latestBinlogPos.Pos == 0 {
+	// Decided before latestBinlogPos is replaced below, which would make it look caller-given.
+	recovery := isRecovery(latestBinlogPos)
+	if !recovery {
 		var err error
 		latestBinlogPos, err = GetCurrentBinlogPosition(ctx, client)
 		if err != nil {
@@ -94,8 +123,10 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 				return nil
 			}
 
-			// if the current position has reached or passed the latest binlog position, stop the syncer
-			if c.CurrentPos.Compare(latestBinlogPos) >= 0 {
+			// Stop once past the latest binlog position. Outside recovery, first read on past every
+			// cached schema's anchor, which is the server head when that table was loaded, so State
+			// can save it: the next run resumes here and drops schemas anchored later.
+			if c.CurrentPos.Compare(latestBinlogPos) >= 0 && c.CurrentPos.Compare(c.lastPosToRead(latestBinlogPos, recovery)) >= 0 {
 				logger.Infof("Reached the configured latest binlog position %s:%d; stopping CDC sync", c.CurrentPos.Name, c.CurrentPos.Pos)
 				return nil
 			}
@@ -134,15 +165,17 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 				}
 
 			case *replication.QueryEvent:
-				// QueryEvent carries DDL even under binlog_format=ROW. Any DDL may have
-				// reshaped a cached table, so drop the cache and reload lazily.
-				if isDDL(e.Query) {
-					logger.Infof("DDL observed in binlog, invalidating cached column metadata: %s", string(e.Query))
-					c.changeFilter.schema.invalidate()
-				}
+				// QueryEvent carries DDL even under binlog_format=ROW. Apply it to the cached
+				// schemas in stream order, so they keep matching the rows that follow.
+				c.changeFilter.schema.applyDDL(string(e.Query), string(e.Schema), c.CurrentPos)
 			}
 		}
 	}
+}
+
+// State is the position to resume from, with the column metadata valid at it
+func (c *Connection) State() Binlog {
+	return Binlog{Position: c.CurrentPos, Schemas: c.changeFilter.schema.snapshot(c.CurrentPos)}
 }
 
 // Cleanup terminates the binlog syncer.
