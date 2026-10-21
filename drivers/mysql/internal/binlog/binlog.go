@@ -47,6 +47,13 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 			return nil, err
 		}
 	}
+	var lowerCaseTableNames int
+	// Completed destination recovery has no streams to replay and needs no live source.
+	if config.SchemaClient != nil && len(streams) > 0 {
+		if err := config.SchemaClient.QueryRowContext(ctx, jdbc.MySQLLowerCaseTableNamesQuery()).Scan(&lowerCaseTableNames); err != nil {
+			return nil, fmt.Errorf("failed to read lower_case_table_names: %w", err)
+		}
+	}
 	connectionCtx, cancel := context.WithCancel(ctx)
 	c := &Connection{
 		ServerID:        config.ServerID,
@@ -56,7 +63,7 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 		gtidSet:         gtidSet,
 		readTimeout:     2 * config.HeartbeatPeriod,
 		initialWaitTime: config.InitialWaitTime,
-		changeFilter:    NewChangeFilter(config.SchemaClient, typeConverter, streams...),
+		changeFilter:    NewChangeFilter(config.SchemaClient, state, lowerCaseTableNames != 0, typeConverter, streams...),
 	}
 	syncerConfig := replication.BinlogSyncerConfig{
 		ServerID:        config.ServerID,
@@ -153,8 +160,26 @@ func newBinlogDialer(connectionCtx context.Context, config *Config) client.Diale
 	}
 }
 
+// isRecovery reports whether the caller fixed the stop position, as a recovery run does: it must
+// end exactly there, where a previous run already committed to the destination.
+func isRecovery(stop mysql.Position) bool {
+	return stop.Name != "" && stop.Pos != 0
+}
+
+// lastPosToRead includes newly loaded schemas' anchors only for normal file-position syncs.
+// Recovery boundaries and GTID targets must remain fixed.
+func (c *Connection) lastPosToRead(latestBinlogPos mysql.Position, recovery bool) mysql.Position {
+	if recovery || c.gtidSet != nil {
+		return latestBinlogPos
+	}
+	if anchor := c.changeFilter.schema.maxAnchor(); anchor.Compare(latestBinlogPos) > 0 {
+		return anchor
+	}
+	return latestBinlogPos
+}
+
 func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestState Binlog, callback abstract.CDCMsgFn) error {
-	recovering := latestState.GTIDSet != nil
+	recovering := latestState.GTIDSet != nil || isRecovery(latestState.Position)
 	latestState, err := c.prepareSyncTarget(ctx, client, latestState)
 	if err != nil {
 		return err
@@ -196,6 +221,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 			return nil
 		default:
 		}
+		latestState.Position = c.lastPosToRead(latestState.Position, recovering)
 		reached, err := c.reachedTarget(latestState, rebuild, recovering)
 		if err != nil || reached {
 			return err
@@ -285,11 +311,10 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 			if migrating && withinTarget && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(string(e.Query))), "XA ") {
 				return fmt.Errorf("%w: XA transactions are not supported during MySQL GTID migration", constants.ErrNonRetryable)
 			}
-			// QueryEvent carries DDL even under binlog_format=ROW. Any DDL may have
-			// reshaped a cached table, so drop the cache and reload lazily.
-			if withinTarget && isDDL(e.Query) {
-				logger.Infof("DDL observed in binlog, invalidating cached column metadata: %s", string(e.Query))
-				c.changeFilter.schema.invalidate()
+			// Apply DDL in stream order, excluding already processed migration history
+			// and transactions outside the fixed GTID target.
+			if withinTarget {
+				c.changeFilter.schema.applyDDL(string(e.Query), string(e.Schema), c.CurrentPos, transaction.gtid)
 			}
 		}
 		if completed != nil && withinTarget {
@@ -353,7 +378,7 @@ func (c *Connection) reachedTarget(target Binlog, rebuild *gtidRebuild, recoveri
 
 // Checkpoint returns progress for destination metadata and source state persistence.
 func (c *Connection) Checkpoint() Binlog {
-	state := Binlog{Position: c.CurrentPos, ServerUUID: c.ServerUUID}
+	state := Binlog{Position: c.CurrentPos, ServerUUID: c.ServerUUID, Schemas: c.changeFilter.schema.snapshot(c.CurrentPos, c.gtidSet)}
 	if c.gtidSet != nil {
 		value := c.gtidSet.String()
 		state.GTIDSet = &value

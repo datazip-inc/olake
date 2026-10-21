@@ -40,14 +40,15 @@ type ChangeFilter struct {
 
 // NewChangeFilter creates a filter for the given streams. schemaClient backs the
 // information_schema fallback for servers that omit binlog row metadata.
-func NewChangeFilter(schemaClient *sqlx.DB, typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
+func NewChangeFilter(schemaClient *sqlx.DB, state Binlog, foldCase bool, typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
 	filter := ChangeFilter{
 		streams:   make(map[string]types.StreamInterface),
 		converter: typeConverter,
-		schema:    newSchemaCache(schemaClient),
+		schema:    newSchemaCache(schemaClient, state, foldCase),
 	}
 	for _, stream := range streams {
 		filter.streams[fmt.Sprintf("%s.%s", stream.Namespace(), stream.Name())] = stream
+		filter.schema.streamed[filter.schema.tableKey(stream.Namespace(), stream.Name())] = true
 	}
 	return filter
 }
@@ -156,7 +157,7 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 	var meta *tableMeta
 	if namesMissing || signednessMissing {
 		var err error
-		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table))
+		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table), tableMap.TableID, tableMap.ColumnType)
 		if err != nil {
 			return nil, err
 		}

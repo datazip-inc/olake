@@ -38,7 +38,7 @@ func TestConnection_FinishMigration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			target, err := parseGTIDSet(tt.target)
 			require.NoError(t, err)
-			conn := &Connection{targetGTIDSet: target}
+			conn := &Connection{targetGTIDSet: target, changeFilter: NewChangeFilter(nil, Binlog{}, false, nil)}
 			err = conn.finishMigration(progress, tt.recovering)
 			if tt.invalid {
 				require.ErrorIs(t, err, constants.ErrNonRetryable)

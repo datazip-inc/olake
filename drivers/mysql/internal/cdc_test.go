@@ -12,7 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/pkg/binlog"
+	"github.com/datazip-inc/olake/drivers/mysql/internal/binlog"
 	"github.com/datazip-inc/olake/types"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/spf13/viper"
@@ -40,7 +40,7 @@ func TestMySQL_StreamChanges(t *testing.T) {
 			if !errors.Is(err, constants.ErrNonRetryable) || !strings.Contains(err.Error(), "invalid metadata for stream[orders]") {
 				t.Fatalf("expected rejection before opening a connection, got %v", err)
 			}
-			if got := m.state.GetGlobal().State; got != state {
+			if got := m.state.GetGlobal().State; !reflect.DeepEqual(got, state) {
 				t.Fatalf("source state changed: got %+v, want %+v", got, state)
 			}
 		})
@@ -88,7 +88,7 @@ func TestMySQL_PostCDC(t *testing.T) {
 				}
 				state.State.Position.Pos = 300
 			}
-			if got := m.state.GetGlobal().State; got != state {
+			if got := m.state.GetGlobal().State; !reflect.DeepEqual(got, state) {
 				t.Fatalf("got checkpoint %+v, want %+v", got, state)
 			}
 		})
@@ -130,10 +130,11 @@ func TestMySQL_GTIDRecovery(t *testing.T) {
 				}
 				metadata[streamID] = string(data)
 			}
-			m := &MySQL{config: &Config{Port: 3306},
-				state:   &types.State{RWMutex: &sync.RWMutex{}, Global: &types.GlobalState{State: initial}},
-				streams: []types.StreamInterface{orders, other}}
-			// No SQL client: completed destination commits must recover without reading old binlogs.
+			m, _ := newMockMySQL(t)
+			m.config = &Config{Port: 3306}
+			m.state = &types.State{RWMutex: &sync.RWMutex{}, Global: &types.GlobalState{State: initial}}
+			m.streams = []types.StreamInterface{orders, other}
+			// No SQL queries: completed destination commits must recover without a live source.
 			got, err := m.StreamChanges(context.Background(), 0, metadata, nil)
 			if tt.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantError) {

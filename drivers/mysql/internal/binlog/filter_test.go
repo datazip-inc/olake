@@ -93,7 +93,7 @@ func fixtureMeta() *tableMeta {
 // filterWithCacheFor pre-populates the cache for one table, so resolveColumns exercises
 // the fallback without a live server.
 func filterWithCacheFor(key string, meta *tableMeta) ChangeFilter {
-	f := NewChangeFilter(nil, identityConverter)
+	f := NewChangeFilter(nil, Binlog{}, false, identityConverter)
 	if meta != nil {
 		f.schema.tables[key] = meta
 	}
