@@ -265,8 +265,10 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 		if ObjectIDPresent {
 			chunks, err := splitVectorStrategy()
-			// fallback to bucket-auto strategy if authorization error occurs
-			if err != nil && (strings.Contains(err.Error(), "not authorized") ||
+			code, _ := serverCode(err)
+			// When Timestamp is not selected, fall back if splitVector is unauthorized or unsupported.
+			if err != nil && (code == 13 || code == 59 || code == 115 ||
+				strings.Contains(err.Error(), "not authorized") ||
 				strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
 				logger.Warnf("failed to get chunks via split vector strategy: %s", err)
 				return bucketAutoStrategy(storageSize)
