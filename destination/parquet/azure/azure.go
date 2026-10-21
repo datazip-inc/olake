@@ -173,19 +173,7 @@ func isADLSFolder(metadata map[string]*string) bool {
 
 func (a *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 	// 2PC: same account, same container (staging key - dest key).
-
-	// Azurite does not support StartCopyFromURL, so we need to download and upload the blob instead.
-	if strings.HasPrefix(a.serviceURL, "http://") {
-		out, err := a.client.DownloadStream(ctx, a.container, srcKey, nil)
-		if err != nil {
-			return fmt.Errorf("failed to read azure copy source %s: %w", srcKey, err)
-		}
-		defer out.Body.Close()
-		if _, err := a.client.UploadStream(ctx, a.container, dstKey, out.Body, nil); err != nil {
-			return fmt.Errorf("failed to write azure copy dest %s: %w", dstKey, err)
-		}
-		return nil
-	}
+	// Azurite supports this for a same-account copy with no SAS on the source URL.
 
 	// Copy a blob from a URL to another blob
 	// Large blobs need asynchronous copy. StartCopyFromURL returns immediately, but the copy operation may take time to complete
