@@ -155,6 +155,11 @@ func TestMySQLIcebergDV(t *testing.T) {
 	mysqlBaseConfig(t).TestIcebergDV(t)
 }
 
+func TestMySQLDDL(t *testing.T) {
+	t.Parallel()
+	mysqlBaseConfig(t).TestDDL(t)
+}
+
 func TestMySQLPerformance(t *testing.T) {
 	cfg, err := testutils.NewTestConfig(t, constants.MySQL, "benchmark", ExecuteQuery)
 	require.NoError(t, err, "failed to build the test config")
