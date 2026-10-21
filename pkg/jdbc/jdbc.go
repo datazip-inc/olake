@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -139,16 +140,17 @@ func PostgresServerVersionNum() string {
 	return `SELECT current_setting('server_version_num')::int`
 }
 
-// PostgresPartitionPagesPG12 returns leaf-partition page counts using pg_partition_tree (PG 12+).
+// PostgresPartitionPagesPG12 returns leaf-partition heap and table (heap + TOAST) sizes using pg_partition_tree (PG 12+).
 // Intermediate partitions are excluded via isleaf=true; works for any partition depth.
 func PostgresPartitionPagesPG12(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
         SELECT
             pt.relid::text AS name,
-            CEIL(1.05 * (pg_relation_size(pt.relid::oid) / current_setting('block_size')::int))::bigint AS pages
+            pg_relation_size(pt.relid::oid) AS heap_bytes,
+            pg_table_size(pt.relid::oid) AS table_bytes
         FROM pg_partition_tree('%s.%s') pt
         WHERE pt.isleaf = true
-        ORDER BY pages DESC;
+        ORDER BY heap_bytes DESC;
     `,
 		stream.Namespace(),
 		stream.Name(),
@@ -156,15 +158,14 @@ func PostgresPartitionPagesPG12(stream types.StreamInterface) string {
 }
 
 // TODO:check this query might be more optimized for performance
-// PostgresPartitionPages returns leaf-partition page counts using a recursive CTE over
-// pg_inherits. Works on all Postgres versions (10+); used as fallback for PG < 12.
+// PostgresPartitionPages returns leaf-partition heap and table (heap + TOAST) sizes using a recursive CTE
+// over pg_inherits. Works on all Postgres versions (10+); used as fallback for PG < 12.
 func PostgresPartitionPages(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
         WITH RECURSIVE partition_tree AS (
             SELECT
                 c.oid,
-                c.relname AS name,
-                CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int))::bigint AS pages
+                c.relname AS name
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = '%s'
@@ -174,20 +175,20 @@ func PostgresPartitionPages(stream types.StreamInterface) string {
 
             SELECT
                 child.oid,
-                child.relname AS name,
-                CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int))::bigint AS pages
+                child.relname AS name
             FROM pg_inherits i
             JOIN pg_class child ON child.oid = i.inhrelid
             JOIN partition_tree pt ON pt.oid = i.inhparent
         )
         SELECT
             name,
-            pages
+            pg_relation_size(oid) AS heap_bytes,
+            pg_table_size(oid) AS table_bytes
         FROM partition_tree
         WHERE NOT EXISTS (
             SELECT 1 FROM pg_inherits WHERE inhparent = partition_tree.oid
         )
-        ORDER BY pages DESC;
+        ORDER BY heap_bytes DESC;
     `,
 		stream.Namespace(),
 		stream.Name(),
@@ -211,9 +212,9 @@ func PostgresIsPartitionedQuery(stream types.StreamInterface) string {
 	)
 }
 
-// PostgresRelPageCount returns the query to fetch relation page count in PostgreSQL
-func PostgresRelPageCount(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
+// PostgresRelationSizeQuery returns the query to fetch a relation's heap size and table size (heap + TOAST) in PostgreSQL
+func PostgresRelationSizeQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT pg_relation_size(oid), pg_table_size(oid) FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
 }
 
 // PostgresWalLSNQuery returns the query to fetch the current WAL LSN in PostgreSQL
@@ -421,6 +422,7 @@ func MySQLTableSchemaQuery() string {
 			COLUMN_NAME, 
 			COLUMN_TYPE,
 			DATA_TYPE, 
+			CHARACTER_MAXIMUM_LENGTH,
 			IS_NULLABLE,
 			COLUMN_KEY
 		FROM 
@@ -511,22 +513,59 @@ func MySQLMasterStatusQueryNew() string {
 
 // MySQLLogBinQuery returns the query to fetch the log_bin variable in MySQL
 func MySQLLogBinQuery() string {
-	return "SHOW VARIABLES LIKE 'log_bin'"
+	return "SHOW GLOBAL VARIABLES LIKE 'log_bin'"
 }
 
-// MySQLBinlogFormatQuery returns the query to fetch the binlog_format variable in MySQL
+// MySQLBinlogFormatQuery returns the query to fetch the binlog_format variable in MySQL.
+// GLOBAL scope: replication reads the global value, and a session may override binlog_format.
 func MySQLBinlogFormatQuery() string {
-	return "SHOW VARIABLES LIKE 'binlog_format'"
+	return "SHOW GLOBAL VARIABLES LIKE 'binlog_format'"
 }
 
 // MySQLBinlogRowMetadataQuery returns the query to fetch the binlog_row_metadata variable in MySQL
 func MySQLBinlogRowMetadataQuery() string {
-	return "SHOW VARIABLES LIKE 'binlog_row_metadata'"
+	return "SHOW GLOBAL VARIABLES LIKE 'binlog_row_metadata'"
 }
 
 // MySQLBinlogRowImageQuery returns the query to fetch the binlog_row_image variable in MySQL
 func MySQLBinlogRowImageQuery() string {
-	return "SHOW VARIABLES LIKE 'binlog_row_image'"
+	return "SHOW GLOBAL VARIABLES LIKE 'binlog_row_image'"
+}
+
+// PostgresWalLevelQuery returns the query to fetch the wal_level setting
+func PostgresWalLevelQuery() string {
+	return "SHOW wal_level"
+}
+
+// PostgresWalSenderTimeoutQuery returns wal_sender_timeout in milliseconds; pg_settings gives the
+// raw value, so there is no unit string ("1min") to parse.
+func PostgresWalSenderTimeoutQuery() string {
+	return "SELECT setting::bigint FROM pg_settings WHERE name = 'wal_sender_timeout'"
+}
+
+// PostgresReplicationAttrQuery reports whether the current role can open replication connections
+func PostgresReplicationAttrQuery() string {
+	return "SELECT rolsuper OR rolreplication FROM pg_roles WHERE rolname = current_user"
+}
+
+// PostgresRDSReplicationRoleQuery reports rds_replication membership; it errors when the role does not exist.
+func PostgresRDSReplicationRoleQuery() string {
+	return "SELECT pg_has_role(current_user, 'rds_replication', 'member')"
+}
+
+// MySQLRDSBinlogRetentionQuery returns the RDS/Aurora binlog retention setting; it errors on other servers.
+func MySQLRDSBinlogRetentionQuery() string {
+	return "SELECT name, value FROM mysql.rds_configuration WHERE name = 'binlog retention hours'"
+}
+
+// MySQLBinlogExpireSecondsQuery returns the query to fetch the binlog_expire_logs_seconds variable
+func MySQLBinlogExpireSecondsQuery() string {
+	return "SHOW GLOBAL VARIABLES LIKE 'binlog_expire_logs_seconds'"
+}
+
+// MySQLExpireLogsDaysQuery returns the query to fetch the expire_logs_days variable
+func MySQLExpireLogsDaysQuery() string {
+	return "SHOW GLOBAL VARIABLES LIKE 'expire_logs_days'"
 }
 
 // MySQLCDCColumnMetadataQuery returns the per-column metadata needed to decode binlog rows
@@ -542,6 +581,32 @@ func MySQLCDCColumnMetadataQuery() string {
 		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
 		ORDER BY ORDINAL_POSITION
 	`
+}
+
+// MySQLCDCTableCollationQuery returns the query for a table's default collation, which a
+// column added later without a charset or collation takes.
+func MySQLCDCTableCollationQuery() string {
+	return `
+		SELECT COALESCE(TABLE_COLLATION, '')
+		FROM INFORMATION_SCHEMA.TABLES
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+	`
+}
+
+// MySQLCDCSchemaCollationQuery returns the query for a database's default collation, which a table
+// created later without a charset or collation takes.
+func MySQLCDCSchemaCollationQuery() string {
+	return `
+		SELECT COALESCE(DEFAULT_COLLATION_NAME, '')
+		FROM INFORMATION_SCHEMA.SCHEMATA
+		WHERE SCHEMA_NAME = ?
+	`
+}
+
+// MySQLLowerCaseTableNamesQuery returns the query for lower_case_table_names: 0 compares table
+// names case-sensitively, 1 and 2 case-insensitively.
+func MySQLLowerCaseTableNamesQuery() string {
+	return `SELECT @@lower_case_table_names`
 }
 
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
@@ -787,6 +852,11 @@ func MSSQLCDCDiscoverQuery(streamIDs []string) string {
 	)
 }
 
+// MSSQLIsDBOwnerQuery reports whether the current user is a member of db_owner
+func MSSQLIsDBOwnerQuery() string {
+	return "SELECT CAST(ISNULL(IS_ROLEMEMBER('db_owner'), 0) AS bit)"
+}
+
 // MSSQLViewDatabaseStatePermissionQuery checks for VIEW DATABASE STATE (all versions) or
 // VIEW DATABASE PERFORMANCE STATE (SQL Server 2022+). Either permission grants access to
 // sys.dm_cdc_log_scan_sessions.
@@ -813,7 +883,8 @@ func MSSQLCDCLatestScanSessionQuery() string {
 
 // MSSQLCDCCaptureJobConfigQuery returns maxtrans and pollinginterval settings for the CDC capture job.
 func MSSQLCDCCaptureJobConfigQuery() string {
-	return "SELECT maxtrans, pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID()"
+	// cdc_jobs also holds the cleanup job, whose row must not be read here
+	return "SELECT maxtrans, pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID() AND job_type = N'capture'"
 }
 
 // MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance
@@ -1346,7 +1417,16 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		}
 
 		// New JSON filter path: use the real Go type coming from JSON decoding.
-		switch v := cond.Value.(type) {
+		value := cond.Value
+		if columnType, err := stream.Schema().GetType(cond.Column); err == nil && columnType == types.Binary {
+			if value, err = typeutils.ParseFilterValue(columnType, cond.Value); err != nil {
+				return "", err
+			}
+		}
+		switch v := value.(type) {
+		case []byte:
+			// MySQL's hex literal; only MySQL maps a column to binary
+			valueSQL = fmt.Sprintf("X'%x'", v)
 		case string:
 			// TODO: Audit Unicode handling of string filters with special characters (Ω, ⚡, emoji, etc.) for all JDBC drivers (MSSQL, Postgres, MySQL, Oracle, DB2).
 			// default: treat as escaped string
@@ -1438,8 +1518,16 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err := abstract.DecodeCursorValue(cursorField, cursorType, lastCursorValue)
+		if err != nil {
+			return "", nil, err
+		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
-		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
+		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), cursorValue, nil
 	}
 
 	// Build primary cursor condition
@@ -1479,13 +1567,21 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
-	bytesConverter := func(value any) any {
+	bytesConverter := func(cursorType types.DataType, value any) any {
 		switch v := value.(type) {
 		case []byte:
+			if driverType == constants.MySQL && cursorType == types.Binary {
+				return v
+			}
 			return string(v)
 		default:
 			return v
 		}
+	}
+
+	primaryCursorType, err := stream.Schema().GetType(primaryCursor)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", primaryCursor, err)
 	}
 
 	cursorValueQuery := utils.Ternary(secondaryCursor == "",
@@ -1493,18 +1589,22 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable)).(string)
 
 	if secondaryCursor != "" {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		secondaryCursorType, err := stream.Schema().GetType(secondaryCursor)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", secondaryCursor, err)
+		}
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %w", err)
 		}
-		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
+		maxSecondaryCursorValue = bytesConverter(secondaryCursorType, maxSecondaryCursorValue)
 	} else {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %w", err)
 		}
 	}
-	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
+	return bytesConverter(primaryCursorType, maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
@@ -1520,6 +1620,14 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		}
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err = abstract.DecodeCursorValue(cursorField, cursorType, cursorValue)
+		if err != nil {
+			return "", nil, err
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil

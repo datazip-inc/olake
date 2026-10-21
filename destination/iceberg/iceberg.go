@@ -279,7 +279,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				detectedIcebergType := detectedType.ToIceberg()
 				if _, existInIceberg := threadSchema[key]; existInIceberg {
 					// Column exists in iceberg table: restrict to valid promotions only
-					valid := isValidTransition(finalSchema[key], detectedIcebergType)
+					valid := isValidTypeForColumn(finalSchema[key], detectedIcebergType)
 					if !valid {
 						return false, fmt.Errorf(
 							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
@@ -394,7 +394,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if filterErr != nil {
 			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %w", filterErr)
 		}
-		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName, i.options.KeepDeletesThroughFilter)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %w", err)
 		}
@@ -519,18 +519,14 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 	return partitionInfo, nil
 }
 
-// isValidTransition checks if type transition is valid using lookup table
-func isValidTransition(oldType, newType string) bool {
-	if oldType == newType {
+// isValidTypeForColumn reports whether a column of iceberg type columnType can take a value of
+// iceberg type valueType, as its value type or through an iceberg promotion. A fixed[n] value of
+// the wrong length fails on write.
+func isValidTypeForColumn(columnType, valueType string) bool {
+	if types.IcebergValueType(columnType) == valueType || validTypeTransitions[columnType][valueType] {
 		return true
 	}
-	if transitions, ok := validTypeTransitions[oldType]; ok {
-		if transitions[newType] {
-			return true
-		}
-	}
-
-	return getCommonAncestorType(oldType, newType) == oldType
+	return getCommonAncestorType(columnType, valueType) == columnType
 }
 
 // isPromotionRequired checks if promotion is needed using lookup table

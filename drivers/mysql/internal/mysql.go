@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -14,11 +13,10 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/pkg/binlog"
+	"github.com/datazip-inc/olake/drivers/mysql/internal/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
@@ -49,6 +47,12 @@ type MySQL struct {
 	// effectiveTZ is the resolved timezone (e.g. for CDC binlog TimestampStringLocation).
 	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
 	effectiveTZ *time.Location
+	// typeMapping is mysqlTypeToDataTypes for the loaded state version, built once in Setup so the
+	// per-value conversion never rebuilds it.
+	typeMapping map[string]types.DataType
+	// prerequisites holds the CDC setup checks evaluated in Setup; when the config selects CDC,
+	// unmet required checks fail Setup via abstract.RequireCDCPrerequisites.
+	prerequisites types.PrerequisiteResults
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
@@ -78,6 +82,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %w", err)
 	}
+	m.typeMapping = mysqlTypeToDataTypes()
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
@@ -122,12 +127,13 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			return fmt.Errorf("failed to open database connection: %w", err)
 		}
 	}
-	// Test connection
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Test connection. Only the ping and timezone detection share this timeout; the prerequisites
+	// below run under ctx, since RunPrerequisites bounds each check on its own.
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
-	if err := client.PingContext(ctx); err != nil {
+	if err := client.PingContext(pingCtx); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -138,7 +144,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if resolved == nil {
 		query := jdbc.MySQLTimeZoneQuery()
 		var sessionTimezone, globalTimezone, systemTimezone string
-		if err := client.QueryRowxContext(ctx, query).Scan(&sessionTimezone, &globalTimezone, &systemTimezone); err != nil {
+		if err := client.QueryRowxContext(pingCtx, query).Scan(&sessionTimezone, &globalTimezone, &systemTimezone); err != nil {
 			logger.Warnf("mysql timezone detection failed; defaulting to UTC: %s", err)
 			resolved = time.UTC
 		} else {
@@ -161,19 +167,16 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			cdc.InitialWaitTime = minCDCInitialWaitTime
 		}
 
-		// Enable CDC support if binlog is configured
-		cdcSupported, err := m.IsCDCSupported(ctx)
-		if err != nil {
+		// The config selects CDC, so an unmet requirement fails the connection test rather than
+		// leaving a source that cannot sync.
+		m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks())
+		if err := abstract.RequireCDCPrerequisites(m.Type(), m.prerequisites); err != nil {
 			return err
 		}
-		if !cdcSupported {
-			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("failed to setup CDC: binlog is not configured correctly"))
-		}
 
-		m.CDCSupport = cdcSupported
+		m.CDCSupport = true
 		m.cdcConfig = *cdc
 	}
-	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	return nil
 }
 
@@ -230,18 +233,19 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 
 		for rows.Next() {
 			var columnName, columnType, dataType, isNullable, columnKey string
-			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
+			var dataMaxLength sql.NullInt64
+			if err := rows.Scan(&columnName, &columnType, &dataType, &dataMaxLength, &isNullable, &columnKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			stream.WithCursorField(columnName)
-			var datatype types.DataType
-			if val, found := mysqlTypeToDataTypes[dataType]; found {
-				datatype = val
+			var olakeDataType types.DataType
+			if val, found := m.typeMapping[dataType]; found {
+				olakeDataType = resolveColumnType(dataType, dataMaxLength, val)
 			} else {
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
-				datatype = types.String
+				olakeDataType = types.String
 			}
-			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable), false)
+			stream.UpsertField(columnName, olakeDataType, strings.EqualFold("yes", isNullable), false)
 
 			// Mark primary keys
 			if columnKey == "PRI" {
@@ -293,7 +297,7 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		}
 	}
 
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
+	olakeType := typeutils.ExtractAndMapColumnType(columnType, m.typeMapping)
 	return typeutils.ReformatValue(olakeType, value)
 }
 
@@ -313,71 +317,6 @@ func (m *MySQL) Close() error {
 		}
 	}
 	return nil
-}
-
-// binlogRowMetadataFull reports whether the server emits full optional TableMapEvent
-// metadata. The variable is absent before MySQL 8.0.1 and on MariaDB, where false is the
-// right answer anyway: the decoder falls back to information_schema.
-func (m *MySQL) binlogRowMetadataFull(ctx context.Context) bool {
-	var name, value string
-	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLBinlogRowMetadataQuery()).Scan(&name, &value); err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			logger.Warnf("failed to read binlog_row_metadata, assuming MINIMAL: %s", err)
-		}
-		return false
-	}
-	return strings.EqualFold(value, "FULL")
-}
-
-func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
-	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
-	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
-		return false, fmt.Errorf("failed to get binlog position: %w", err)
-	}
-
-	// checkMySQLConfig checks a MySQL configuration value against an expected value
-	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
-		var name, value string
-		if err := m.client.QueryRowxContext(ctx, query).Scan(&name, &value); err != nil {
-			return false, fmt.Errorf("failed to check %s: %w", name, err)
-		}
-
-		if strings.ToUpper(value) != expectedValue {
-			logger.Warn(warnMessage)
-			return false, nil
-		}
-
-		return true, nil
-	}
-
-	// Check binlog configurations
-	configChecks := []struct {
-		query         string
-		expectedValue string
-		errMessage    string
-	}{
-		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
-		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
-		// At MINIMAL or NOBLOB the binlog carries only some columns per row, which cannot
-		// be mapped back to a complete record.
-		{jdbc.MySQLBinlogRowImageQuery(), "FULL", "binlog_row_image is not set to FULL"},
-	}
-
-	for _, check := range configChecks {
-		if ok, err := checkMySQLConfig(ctx, check.query, check.expectedValue, check.errMessage); err != nil || !ok {
-			return ok, err
-		}
-	}
-
-	// FULL puts column names, ENUM/SET members, charsets and signedness in the binlog
-	// itself. Without it, that metadata is rebuilt from information_schema: one query per
-	// table, and blind to a rename the reader has not reached yet.
-	if !m.binlogRowMetadataFull(ctx) {
-		logger.Warn("binlog_row_metadata is not FULL; falling back to information_schema for " +
-			"column metadata. Set binlog_row_metadata=FULL (MySQL 8.0.1+) for best fidelity.")
-	}
-
-	return true, nil
 }
 
 // TODO: Add consistent timezone detection for CDC of other drivers as well.

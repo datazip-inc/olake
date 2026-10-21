@@ -153,7 +153,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		// add default stream properties
 		convStream.DefaultStreamProperties = &types.DefaultStreamProperties{
 			Normalization: types.IsDriverRelational(a.driver.Type()),
-			AppendMode:    a.driver.Type() == string(constants.Kafka),
+			AppendMode:    types.IsDriverAppendOnly(a.driver.Type()),
 			UpdateType:    types.UpdateTypeEquality,
 		}
 
@@ -245,6 +245,7 @@ func unsampledStreams(streams []types.StreamID, streamMap *sync.Map) []string {
 	return unsampled
 }
 
+// TODO: move prerequisite handling out of each driver's Setup and into this layer.
 func (a *AbstractDriver) Setup(ctx context.Context) error {
 	return a.driver.Setup(ctx)
 }

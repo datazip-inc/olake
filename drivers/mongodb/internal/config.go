@@ -28,6 +28,9 @@ type Config struct {
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
 	AdditionalParams map[string]string `json:"additional_params"`
+	// UpdateMethod selects CDC (change streams) or standard replication. Configs saved before
+	// this field existed leave it empty, which keeps change streams available.
+	UpdateMethod interface{} `json:"update_method"`
 }
 
 const (
@@ -113,12 +116,12 @@ func (c *Config) Validate() error {
 		// MongoDB rejects at connect time if the mechanism actually needs a password.
 	}
 
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	if c.SSLConfiguration == nil {
