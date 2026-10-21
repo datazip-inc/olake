@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -50,7 +49,7 @@ func ddlColumnSchema() map[string]interface{} {
 	}
 }
 
-// ddlCatalogDoc builds a streams.json selecting both DDL tables under CDC. Like dvCatalogDoc it
+// ddlCatalogDoc builds a catalog selecting both DDL tables under CDC. Like dvCatalogDoc it
 // sets destination_database itself.
 func ddlCatalogDoc(namespace, destinationDatabase string) map[string]interface{} {
 	streams := []interface{}{}
@@ -139,9 +138,7 @@ func (th *TestHandler) TestDDL(t *testing.T) {
 	}
 
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "ddl-create")
-	raw, err := json.MarshalIndent(ddlCatalogDoc(th.Namespace, th.TestConfig.DestinationDB), "", "  ")
-	require.NoError(t, err, "failed to build the DDL catalog")
-	require.NoError(t, testutils.WriteHostFile(th.TestConfig.GetFilePath("streams.json"), raw), "failed to write the DDL catalog")
+	require.NoError(t, th.TestConfig.Catalog().Write(ddlCatalogDoc(th.Namespace, th.TestConfig.DestinationDB)), "failed to write the DDL catalog")
 
 	th.ddlSync(ctx, t, false, "initial")
 

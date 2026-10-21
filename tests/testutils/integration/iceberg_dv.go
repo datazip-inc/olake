@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -84,17 +83,20 @@ func dvStreamEntry(namespace, table, destinationDatabase string) map[string]inte
 
 // dvSelectedEntry builds one `selected_streams[namespace][]` entry. partitionRegex is "" for
 // the unpartitioned table.
-func dvSelectedEntry(table, updateType, partitionRegex string) map[string]interface{} {
+func dvSelectedEntry(table, updateType, partitionRegex, destinationDatabase string) map[string]interface{} {
 	return map[string]interface{}{
-		"stream_name":     table,
-		"update_type":     updateType,
-		"partition_regex": partitionRegex,
-		"normalization":   true,
-		"append_mode":     false,
+		"stream_name":          table,
+		"update_type":          updateType,
+		"partition_regex":      partitionRegex,
+		"normalization":        true,
+		"append_mode":          false,
+		"sync_mode":            "cdc",
+		"destination_database": destinationDatabase,
+		"destination_table":    table,
 	}
 }
 
-// dvCatalogDoc builds a whole streams.json selecting both dv tables under CDC, in the given
+// dvCatalogDoc builds a whole catalog selecting both dv tables under CDC, in the given
 // update_type, with DVPartTable's stream carrying a partition_regex (identity on `status`) and
 // DVUnpartTable's carrying none. Written directly rather than derived from a discover run or a
 // checked-in fixture, since the shape needed here (two narrow, purpose-built tables) has nothing
@@ -107,8 +109,8 @@ func dvCatalogDoc(namespace, destinationDatabase, updateType string) map[string]
 		},
 		"selected_streams": map[string]interface{}{
 			namespace: []interface{}{
-				dvSelectedEntry(DVUnpartTable, updateType, ""),
-				dvSelectedEntry(DVPartTable, updateType, "/{status,identity}"),
+				dvSelectedEntry(DVUnpartTable, updateType, "", destinationDatabase),
+				dvSelectedEntry(DVPartTable, updateType, "/{status,identity}", destinationDatabase),
 			},
 		},
 	}
@@ -133,11 +135,7 @@ func (th *TestHandler) prepareDVSync(ctx context.Context, t *testing.T, updateTy
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-seed")
 
 	doc := dvCatalogDoc(th.Namespace, th.TestConfig.DestinationDB, updateType)
-	raw, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to build dv catalog: %w", err)
-	}
-	if err := testutils.WriteHostFile(th.TestConfig.GetFilePath("streams.json"), raw); err != nil {
+	if err := th.TestConfig.Catalog().Write(doc); err != nil {
 		return fmt.Errorf("failed to write dv catalog: %w", err)
 	}
 
