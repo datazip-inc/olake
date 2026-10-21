@@ -62,6 +62,20 @@ func TestMongodbSync(t *testing.T) {
 	cfg.TestSync(t)
 }
 
+func TestMongodbDenormalizedSync(t *testing.T) {
+	t.Parallel()
+	normalization := false
+	cfg := mongodbBaseConfig(t)
+	cfg.Normalization = &normalization
+	cfg.FilterConfig = ""
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedMongoToDestinationSchema
+	cfg.TestCommonSync(t)
+	if !testutils.KeepTestData() {
+		cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+	}
+}
+
 func TestMongodb2PC(t *testing.T) {
 	t.Parallel()
 	mongodbBaseConfig(t).Test2PCIntegration(t)

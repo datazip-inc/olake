@@ -75,7 +75,7 @@ func (th *TestHandler) TestCommonSync(t *testing.T) {
 	// 2. Give the catalog this suite's own destination namespace, then enable normalization,
 	// partition regex, filter and column exclusion in streams.json
 	th.resetCatalog(t)
-	t.Logf("Enabled normalization and added partition regex in %s", th.GetFilePath("streams.json"))
+	t.Logf("Configured normalization=%t and partition regex in %s", !th.isDenormalized(), th.GetFilePath("streams.json"))
 
 	writerTypes := []struct {
 		name     string

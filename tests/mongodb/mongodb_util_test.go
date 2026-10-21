@@ -19,6 +19,7 @@ import (
 
 var (
 	nestedDoc = bson.M{
+		"nested_array":     bson.A{"nested_value", int32(7), bson.M{"nested_object": "value"}},
 		"nested_string":    "nested_value",
 		"nested_int":       42,
 		"nested_timestamp": time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
@@ -76,7 +77,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		require.NoError(t, err, "Failed to clean collection")
 
 	case "add":
-		insertTestData(ctx, t, collection)
+		insertTestData(ctx, t, collection, conf.FilterConfig != "")
 		return
 
 	case "insert":
@@ -100,17 +101,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert document")
 		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
-		filteredDoc := bson.M{
-			"id":             999,
-			"id_cursor":      -1,
-			"id_bigint":      int64(111111111111111),
-			"id_int":         int32(0),
-			"id_timestamp":   time.Date(2022, 6, 15, 10, 0, 0, 0, time.UTC),
-			"id_double":      float64(50.123),
-			"excludedColumn": 200,
+		if conf.FilterConfig != "" {
+			filteredDoc := bson.M{
+				"id":             999,
+				"id_cursor":      -1,
+				"id_bigint":      int64(111111111111111),
+				"id_int":         int32(0),
+				"id_timestamp":   time.Date(2022, 6, 15, 10, 0, 0, 0, time.UTC),
+				"id_double":      float64(50.123),
+				"excludedColumn": 200,
+			}
+			_, err = collection.InsertOne(ctx, filteredDoc)
+			require.NoError(t, err, "Failed to insert filtered test data row")
 		}
-		_, err = collection.InsertOne(ctx, filteredDoc)
-		require.NoError(t, err, "Failed to insert filtered test data row")
 
 	case "insert_2pc":
 		doc2 := bson.M{
@@ -244,7 +247,7 @@ func seedColumnTypes() map[string][]string {
 	return types
 }
 
-func insertTestData(ctx context.Context, t *testing.T, collection *mongo.Collection) {
+func insertTestData(ctx context.Context, t *testing.T, collection *mongo.Collection, includeFilteredRow bool) {
 	t.Helper()
 	for i := 1; i <= 5; i++ {
 		doc := seedDocument()
@@ -253,6 +256,9 @@ func insertTestData(ctx context.Context, t *testing.T, collection *mongo.Collect
 
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
+	}
+	if !includeFilteredRow {
+		return
 	}
 	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 	filteredDoc := bson.M{
@@ -276,7 +282,7 @@ var ExpectedMongoData = map[string]interface{}{
 	"id_bool":           true,
 	"created_timestamp": int32(1754905992),
 	"id_regex":          `{"Pattern":"test.*","Options":"i"}`,
-	"id_nested":         `{"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
+	"id_nested":         `{"nested_array":["nested_value",7,{"nested_object":"value"}],"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "varchar_val",
@@ -290,7 +296,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"id_bool":           false,
 	"created_timestamp": int32(1754905699),
 	"id_regex":          `{"Pattern":"updated.*","Options":"i"}`,
-	"id_nested":         `{"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
+	"id_nested":         `{"nested_array":["nested_value",7,{"nested_object":"value"}],"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "updated varchar",
