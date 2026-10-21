@@ -44,10 +44,10 @@ func (p *Postgres) prerequisiteChecks(cdc *CDC) []abstract.Prerequisite {
 		})
 	}
 	checks = append(checks, abstract.Prerequisite{
-		Name: "wal_sender_timeout", Recommended: "0 (disabled)",
-		Description: "Recommended to set to 0. Postgres closes a replication connection that sends no status " +
-			"update within this time, so a CDC sync that pauses while writing to the destination can be disconnected.",
-		Check: p.checkWalSenderTimeout,
+		Name:        "wal_sender_timeout",
+		Recommended: "Set to 0 to disable the timeout, or configure a higher value based on your expected job sync duration",
+		Description: "Prevents Postgres from dropping the CDC connection during a long sync.",
+		Check:       p.checkWalSenderTimeout,
 	})
 	return checks
 }
