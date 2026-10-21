@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -41,7 +43,25 @@ func (p *Postgres) prerequisiteChecks(cdc *CDC) []abstract.Prerequisite {
 			Check:       p.checkPublication(cdc.Publication),
 		})
 	}
+	checks = append(checks, abstract.Prerequisite{
+		Name:        "wal_sender_timeout",
+		Recommended: "Set to 0 to disable the timeout, or configure a higher value based on your expected job sync duration",
+		Description: "Prevents Postgres from dropping the CDC connection during a long sync.",
+		Check:       p.checkWalSenderTimeout,
+	})
 	return checks
+}
+
+// checkWalSenderTimeout passes only when the timeout is disabled (0).
+func (p *Postgres) checkWalSenderTimeout(ctx context.Context) (string, bool, error) {
+	var timeoutMs int64
+	if err := p.client.QueryRowContext(ctx, jdbc.PostgresWalSenderTimeoutQuery()).Scan(&timeoutMs); err != nil {
+		return "", false, err
+	}
+	if timeoutMs == 0 {
+		return "0 (disabled)", true, nil
+	}
+	return utils.HumanDuration(time.Duration(timeoutMs) * time.Millisecond), false, nil
 }
 
 func (p *Postgres) checkWalLevel(ctx context.Context) (string, bool, error) {
