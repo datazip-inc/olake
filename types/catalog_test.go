@@ -311,7 +311,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetWrappedCatalog(tc.streams, tc.driver, nil)
+			result := GetWrappedCatalog(tc.streams, tc.driver, UpdateTypeConstraints{})
 			compareCatalogs(t, tc.expected, result, tc.name)
 
 			if len(tc.streams) > 0 {
@@ -817,7 +817,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog, nil)
+			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog, UpdateTypeConstraints{})
 			compareCatalogs(t, tc.expected, result, tc.name)
 		})
 	}
@@ -1184,7 +1184,7 @@ func TestCatalogS3JSONSerialization(t *testing.T) {
 			Schema:    &TypeSchema{Properties: sync.Map{}},
 		},
 	}
-	catalog := GetWrappedCatalog(streams, "s3", nil)
+	catalog := GetWrappedCatalog(streams, "s3", UpdateTypeConstraints{})
 
 	// Verify the default catalog contains AppendMode: true
 	assert.True(t, catalog.SelectedStreams["namespace1"][0].AppendMode, "S3 stream should default to AppendMode: true")
