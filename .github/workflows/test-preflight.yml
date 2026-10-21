@@ -104,7 +104,9 @@ jobs:
           GO_CHECK_PATHS: |
             tests/**/*.go
             tests/**/go.mod
+            tests/**/go.sum
             tests/go.work
+            tests/go.work.sum
             Makefile
             drivers/*/driver.mk
             .golangci.yml
