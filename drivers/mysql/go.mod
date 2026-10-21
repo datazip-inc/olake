@@ -144,7 +144,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mitchellh/hashstructure v1.1.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
