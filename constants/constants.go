@@ -22,10 +22,24 @@ const (
 	StringifiedData        = "data"
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
+	EnvStorageMode         = "OLAKE_STORAGE_MODE"
+	StorageModeS3          = "s3"
+	EnvS3Region            = "OLAKE_S3_REGION"
+	EnvS3AccessKeyID       = "OLAKE_S3_ACCESS_KEY_ID"
+	EnvS3SecretAccessKey   = "OLAKE_S3_SECRET_ACCESS_KEY" // #nosec G101 -- env var name, not a credential
+	EnvS3Endpoint          = "OLAKE_S3_ENDPOINT"
+	EnvS3ConfigFolder      = "OLAKE_S3_CONFIG_FOLDER"
 	ConfigFolder           = "CONFIG_FOLDER"
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
+	// RecommendedCDCLogRetention is the change-log retention (binlog, oplog) recommended so a
+	// paused sync can resume without a full resync.
+	RecommendedCDCLogRetention = 7 * 24 * time.Hour
+	// UpdateMethodCDC and UpdateMethodStandalone are the "type" values of the update_method
+	// config object, which is how a source selects CDC.
+	UpdateMethodCDC        = "CDC"
+	UpdateMethodStandalone = "Standalone"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
@@ -83,6 +97,14 @@ const (
 
 // Drivers where filters are applied in memory after full refresh data is read.
 var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
+
+// Kafka tombstones have no filter columns, so CDC delete records (op "d") bypass
+// condition matching in FilterRecords and pass through unfiltered.
+var CDCKeepDeletesThroughFilterDrivers = []DriverType{Kafka}
+
+// DefaultAppendModeDrivers are drivers whose discovered streams default to append-only sync.
+var DefaultAppendModeDrivers = []DriverType{S3, Kafka}
+
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
