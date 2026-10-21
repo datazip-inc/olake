@@ -157,7 +157,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		}
 		filteredData := filterDataBySelectedColumnsFn(change.Data)
 
-		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns), change.Bytes)
+		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns, change.UnavailableColumns), change.Bytes)
 	})
 
 	return err

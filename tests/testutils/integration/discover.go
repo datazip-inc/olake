@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
@@ -45,6 +46,40 @@ func (th *TestHandler) TestDiscover(t *testing.T) {
 	}
 
 	verifyDiscoveredStreams(t, th.GetFilePath("expected_discover_streams.json"), th.GetFilePath("streams.json"))
+
+	// 4. With preserve_toast_values on, only the update types that keep a row index (pos, dv) are offered
+	if th.TestConfig.Driver == string(constants.Postgres) {
+		require.NoError(t, enablePreserveToastValues(th.TestConfig), "failed enabling preserve_toast_values")
+		require.NoError(t, testutils.CopyJSONWithEdit(th.GetFilePath("expected_discover_streams.json"),
+			th.GetFilePath("expected_discover_streams_preserve_toast.json"), offerIndexUpdateTypesOnly),
+			"failed to generate the expected preserve_toast_values discover catalog")
+		code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.DiscoverArgs()...)
+		if err != nil || code != 0 {
+			t.Fatal(testutils.RenderOlakeFailure(code, err, out))
+		}
+		verifyDiscoveredStreams(t, th.GetFilePath("expected_discover_streams_preserve_toast.json"), th.GetFilePath("streams.json"))
+	}
+}
+
+// offerIndexUpdateTypesOnly is what discover writes when the source reads rows back through the
+// table index: equality deletes keep none, so only pos and dv are offered and pos is the default.
+func offerIndexUpdateTypesOnly(doc map[string]interface{}) error {
+	entries, _ := doc["streams"].([]interface{})
+	for _, raw := range entries {
+		stream, _ := raw.(map[string]interface{})["stream"].(map[string]interface{})
+		stream["available_update_types"] = []interface{}{"pos", "dv"}
+		if defaults, ok := stream["default_stream_properties"].(map[string]interface{}); ok {
+			defaults["update_type"] = "pos"
+		}
+	}
+	byNamespace, _ := doc["selected_streams"].(map[string]interface{})
+	for _, raw := range byNamespace {
+		selected, _ := raw.([]interface{})
+		for _, entry := range selected {
+			entry.(map[string]interface{})["update_type"] = "pos"
+		}
+	}
+	return nil
 }
 
 // verifyDiscoveredStreams asserts the discovered catalog holds exactly the streams expected_streams.json

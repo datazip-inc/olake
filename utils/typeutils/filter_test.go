@@ -19,7 +19,7 @@ import (
 func makeRecord(data map[string]any) types.RawRecord {
 	return types.CreateRawRecord(data, map[string]any{
 		constants.OpType: "c",
-	})
+	}, nil)
 }
 
 func makeIcebergSchema(cols map[string]string) map[string]string {
@@ -110,9 +110,9 @@ func TestFilterRecords_EmptyRecords(t *testing.T) {
 func TestFilterRecords_AllDeletes(t *testing.T) {
 	ctx := context.Background()
 	records := []types.RawRecord{
-		types.CreateRawRecord(map[string]any{"_kafka_key": "k1"}, map[string]any{constants.OpType: "d"}),
-		types.CreateRawRecord(map[string]any{"_kafka_key": "k2"}, map[string]any{constants.OpType: "d"}),
-		types.CreateRawRecord(map[string]any{"_kafka_key": "k3"}, map[string]any{constants.OpType: "d"}),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k1"}, map[string]any{constants.OpType: "d"}, nil),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k2"}, map[string]any{constants.OpType: "d"}, nil),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k3"}, map[string]any{constants.OpType: "d"}, nil),
 	}
 	filter := types.FilterConfig{
 		LogicalOperator: "AND",
@@ -134,10 +134,10 @@ func TestFilterRecords_AllDeletes(t *testing.T) {
 func TestFilterRecords_MixedRecords(t *testing.T) {
 	ctx := context.Background()
 	records := []types.RawRecord{
-		types.CreateRawRecord(map[string]any{"_kafka_key": "k1"}, map[string]any{constants.OpType: "d"}),
-		types.CreateRawRecord(map[string]any{"_kafka_key": "k2"}, map[string]any{constants.OpType: "d"}),
-		types.CreateRawRecord(map[string]any{"_kafka_key": "k3", "id": int64(1), "name": "Alice", "float_value": float64(100)}, map[string]any{constants.OpType: "c"}),
-		types.CreateRawRecord(map[string]any{"_kafka_key": "k4", "id": int64(2), "name": "Bob", "float_value": float64(50)}, map[string]any{constants.OpType: "c"}),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k1"}, map[string]any{constants.OpType: "d"}, nil),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k2"}, map[string]any{constants.OpType: "d"}, nil),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k3", "id": int64(1), "name": "Alice", "float_value": float64(100)}, map[string]any{constants.OpType: "c"}, nil),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k4", "id": int64(2), "name": "Bob", "float_value": float64(50)}, map[string]any{constants.OpType: "c"}, nil),
 	}
 	filter := types.FilterConfig{
 		LogicalOperator: "AND",
@@ -169,10 +169,12 @@ func TestFilterRecords_RelationalDeletesDoesNotSkipFiltering(t *testing.T) {
 		types.CreateRawRecord(
 			map[string]any{"id": int64(1), "float_value": float64(200)},
 			map[string]any{constants.OpType: "d"},
+			nil,
 		),
 		types.CreateRawRecord(
 			map[string]any{"id": int64(2), "float_value": float64(50)},
 			map[string]any{constants.OpType: "c"},
+			nil,
 		),
 	}
 	filter := types.FilterConfig{

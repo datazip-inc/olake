@@ -93,10 +93,14 @@ func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 }
 
 // AvailableUpdateTypes returns the writable delete formats every engine can read, cheapest
-// first. No engines means the choice is unconstrained.
-func AvailableUpdateTypes(engines []QueryEngine) []UpdateType {
+// first. No engines means the choice is unconstrained. indexRequired keeps only the formats
+// that maintain a table index, for a source that reads rows back through it.
+func AvailableUpdateTypes(engines []QueryEngine, indexRequired bool) []UpdateType {
 	available := make([]UpdateType, 0, len(writableUpdateTypes))
 	for _, updateType := range writableUpdateTypes {
+		if indexRequired && !updateType.NeedsTableIndex(Iceberg) {
+			continue
+		}
 		if readableByAll(engines, updateType) {
 			available = append(available, updateType)
 		}

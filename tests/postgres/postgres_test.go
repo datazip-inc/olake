@@ -65,10 +65,19 @@ func TestPostgresDiscover(t *testing.T) {
 	cfg.TestDiscover(t)
 }
 
+func TestPostgresUnchangedToastRecovery(t *testing.T) {
+	t.Parallel()
+	cfg := postgresBaseConfig(t)
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+	createReplicationSlot(t, cfg.TestConfig)
+	cfg.TestUnchangedToastRecovery(t)
+}
+
 func TestPostgresSync(t *testing.T) {
 	t.Parallel()
 	cfg := postgresBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.ExpectedCDCUpdatedData = ExpectedCDCUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
 	createReplicationSlot(t, cfg.TestConfig)
 	cfg.TestSync(t)

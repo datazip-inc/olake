@@ -79,6 +79,10 @@ const (
 	DefaultCacheSize          = 128 * 1024 * 1024 // 128 MB default block cache
 	DefaultMemTableSize       = 64 * 1024 * 1024  // 64 MB default memtable
 	DefaultMaxOpenFiles       = 1000
+
+	// UnavailableValue is written for a column the source could not send
+	// (Postgres unchanged TOAST when the replica identity is not FULL).
+	UnavailableValue = "__olake_unavailable_value__"
 )
 
 // DriverType identifies a source/destination driver.

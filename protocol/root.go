@@ -186,6 +186,9 @@ const (
 	// codeQueryEngineInvalid marks a target query engine selection the CLI cannot serve.
 	codeQueryEngineInvalid = "catalog.query_engine_invalid"
 	codeNoStreams          = "catalog.no_streams_discovered"
+	// codeUpdateTypeWithoutIndex marks a CDC stream whose update type keeps no table index while
+	// the source reads rows back through it.
+	codeUpdateTypeWithoutIndex = "catalog.update_type_without_table_index"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )
