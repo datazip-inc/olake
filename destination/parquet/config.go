@@ -90,9 +90,7 @@ func (c *Config) validateAzureAuthenticationType() error {
 			return fmt.Errorf("azure_sas_token and azure_storage_account_name are required for %s", azure.AuthSASToken)
 		}
 	case azure.AuthConnectionString:
-		if c.AzureConnectionString == "" {
-			return fmt.Errorf("azure_connection_string is required for %s", azure.AuthConnectionString)
-		}
+		return c.validateConnectionString()
 	case azure.AuthManagedIdentity:
 		if c.AzureStorageAccountName == "" {
 			return fmt.Errorf("azure_storage_account_name is required")
@@ -104,4 +102,37 @@ func (c *Config) validateAzureAuthenticationType() error {
 			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString, azure.AuthManagedIdentity)
 	}
 	return nil
+}
+
+// validateConnectionString checks the pairs the Azure client reads from the string.
+// azure_storage_account_name and azure_endpoint are ignored; the UI says so.
+func (c *Config) validateConnectionString() error {
+	fields, err := connectionStringFields(c.AzureConnectionString)
+	if err != nil {
+		return err
+	}
+	// Same requirements as azblob ParseConnectionString. BlobEndpoint is optional on Azure.
+	if fields["AccountName"] == "" && fields["BlobEndpoint"] == "" {
+		return fmt.Errorf("azure_connection_string needs AccountName or BlobEndpoint")
+	}
+	if fields["AccountKey"] == "" && fields["SharedAccessSignature"] == "" {
+		return fmt.Errorf("azure_connection_string needs AccountKey or SharedAccessSignature")
+	}
+	return nil
+}
+
+func connectionStringFields(connectionString string) (map[string]string, error) {
+	raw := strings.TrimRight(strings.TrimSpace(connectionString), ";")
+	if raw == "" {
+		return nil, fmt.Errorf("azure_connection_string is required for %s", azure.AuthConnectionString)
+	}
+	fields := make(map[string]string)
+	for _, part := range strings.Split(raw, ";") {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			return nil, fmt.Errorf("azure_connection_string is malformed")
+		}
+		fields[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return fields, nil
 }

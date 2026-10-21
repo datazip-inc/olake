@@ -190,6 +190,46 @@ func TestConfigValidateStore(t *testing.T) {
 			},
 		},
 		{
+			name: "azure connection string ignores account name and endpoint",
+			cfg: &Config{
+				StorageType:             storageTypeAzure,
+				AzureAuthType:           azure.AuthConnectionString,
+				AzureContainerName:      "mycontainer",
+				AzureStorageAccountName: "otheraccount",
+				AzureEndpoint:           "http://127.0.0.1:10000/devstoreaccount1",
+				AzureConnectionString:   "AccountName=myaccount;AccountKey=key",
+			},
+		},
+		{
+			name: "azure connection string accepts a SAS and blob endpoint",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;SharedAccessSignature=sv=2023-11-03&sig=fake",
+			},
+		},
+		{
+			name: "azure connection string needs an account or blob endpoint",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "AccountKey=key",
+			},
+			wantErr: "azure_connection_string needs AccountName or BlobEndpoint",
+		},
+		{
+			name: "azure connection string needs a key or SAS",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "AccountName=myaccount",
+			},
+			wantErr: "azure_connection_string needs AccountKey or SharedAccessSignature",
+		},
+		{
 			name: "azure connection string requires connection string",
 			cfg: func() *Config {
 				c := azureCfg

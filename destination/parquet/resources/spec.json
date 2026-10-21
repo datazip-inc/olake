@@ -102,11 +102,6 @@
                   "type": "string",
                   "title": "Azure Path",
                   "description": "Specify the Azure path where data files will be written, typically starting with a '/' (e.g., '/data')"
-                },
-                "azure_endpoint": {
-                  "type": "string",
-                  "title": "Azure Endpoint",
-                  "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/. Use http://host:port/account for Azurite"
                 }
               },
               "required": [
@@ -131,6 +126,11 @@
                           "title": "Azure Storage Account Key",
                           "description": "The Azure storage account key for authenticating Azure requests",
                           "format": "password"
+                        },
+                        "azure_endpoint": {
+                          "type": "string",
+                          "title": "Azure Endpoint",
+                          "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/. Use http://host:port/account for Azurite"
                         }
                       },
                       "required": [
@@ -153,6 +153,11 @@
                           "title": "Azure SAS Token",
                           "description": "User-supplied SAS query string. Expiry is defined on the token",
                           "format": "password"
+                        },
+                        "azure_endpoint": {
+                          "type": "string",
+                          "title": "Azure Endpoint",
+                          "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/. Use http://host:port/account for Azurite"
                         }
                       },
                       "required": [
@@ -185,6 +190,11 @@
                           "type": "string",
                           "title": "Azure Storage Account Name",
                           "description": "The name of an existing Azure storage account with appropriate access permissions to store output files"
+                        },
+                        "azure_endpoint": {
+                          "type": "string",
+                          "title": "Azure Endpoint",
+                          "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/. Use http://host:port/account for Azurite"
                         }
                       },
                       "required": [
