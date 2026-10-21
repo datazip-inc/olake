@@ -559,7 +559,7 @@ const ParquetUISchema = `{
     },
     "azure_connection_string": {
       "ui:widget": "password",
-      "ui:help": "This string needs AccountName or BlobEndpoint, and AccountKey or SharedAccessSignature."
+      "ui:help": "This string needs AccountName or BlobEndpoint, and AccountKey or SharedAccessSignature. UseDevelopmentStorage=true is not supported."
     },
     "ui:options": {
       "label": false

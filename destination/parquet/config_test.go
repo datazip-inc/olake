@@ -210,6 +210,16 @@ func TestConfigValidateStore(t *testing.T) {
 			},
 		},
 		{
+			name: "azure connection string rejects UseDevelopmentStorage alone",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "UseDevelopmentStorage=true",
+			},
+			wantErr: "UseDevelopmentStorage=true is not supported; set AccountName, AccountKey, and BlobEndpoint",
+		},
+		{
 			name: "azure connection string needs an account or blob endpoint",
 			cfg: &Config{
 				StorageType:           storageTypeAzure,

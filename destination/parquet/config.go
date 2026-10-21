@@ -105,11 +105,16 @@ func (c *Config) validateAzureAuthenticationType() error {
 }
 
 // validateConnectionString checks the pairs the Azure client reads from the string.
-// azure_storage_account_name and azure_endpoint are ignored; the UI says so.
+// azure_storage_account_name and azure_endpoint are ignored
 func (c *Config) validateConnectionString() error {
 	fields, err := connectionStringFields(c.AzureConnectionString)
 	if err != nil {
 		return err
+	}
+	// The SDK does not expand UseDevelopmentStorage=true. Azurite needs the three explicit fields.
+	if strings.EqualFold(fields["UseDevelopmentStorage"], "true") &&
+		(fields["AccountName"] == "" || fields["AccountKey"] == "" || fields["BlobEndpoint"] == "") {
+		return fmt.Errorf("UseDevelopmentStorage=true is not supported; set AccountName, AccountKey, and BlobEndpoint")
 	}
 	// Same requirements as azblob ParseConnectionString. BlobEndpoint is optional on Azure.
 	if fields["AccountName"] == "" && fields["BlobEndpoint"] == "" {
