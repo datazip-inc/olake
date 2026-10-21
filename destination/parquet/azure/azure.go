@@ -23,6 +23,8 @@ const (
 	// Olake waits for 10 minutes for a copy operation to complete
 	azureCopyTimeout = 10 * time.Minute
 	azureCopyPoll    = 200 * time.Millisecond
+	// ADLS Gen2 flat listings mark a directory with this metadata entry.
+	azureFolderMetadataKey = "hdi_isfolder"
 )
 
 const (
@@ -127,10 +129,12 @@ func (a *Store) Get(ctx context.Context, key string) ([]byte, error) {
 
 // Use a flat listing
 // By default, a listing operation returns blobs in a flat listing. In a flat listing, blobs aren't organized by virtual directory.
+// ADLS Gen2 also returns directory entries. Those are omitted here so callers do not copy them as files.
 func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
 	pager := a.client.NewListBlobsFlatPager(a.container, &container.ListBlobsFlatOptions{
-		Prefix: &prefix,
+		Prefix:  &prefix,
+		Include: container.ListBlobsInclude{Metadata: true},
 	})
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
@@ -138,12 +142,23 @@ func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
 			return nil, err
 		}
 		for _, item := range page.Segment.BlobItems {
-			if item.Name != nil {
-				keys = append(keys, *item.Name)
+			if item.Name == nil || isADLSFolder(item.Metadata) {
+				continue
 			}
+			keys = append(keys, *item.Name)
 		}
 	}
 	return keys, nil
+}
+
+// isADLSFolder reports a hierarchical-namespace directory. The metadata value is set true
+func isADLSFolder(metadata map[string]*string) bool {
+	for key, value := range metadata {
+		if strings.EqualFold(key, azureFolderMetadataKey) && value != nil && strings.EqualFold(*value, "true") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Store) Copy(ctx context.Context, srcKey, dstKey string) error {

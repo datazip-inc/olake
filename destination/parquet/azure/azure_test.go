@@ -186,3 +186,43 @@ func TestNewAzureStore(t *testing.T) {
 		})
 	}
 }
+
+func TestAzureIsADLSFolder(t *testing.T) {
+	trueValue := "true"
+	falseValue := "false"
+	tests := []struct {
+		name     string
+		metadata map[string]*string
+		want     bool
+	}{
+		{
+			name:     "hdi_isfolder true",
+			metadata: map[string]*string{"hdi_isfolder": &trueValue},
+			want:     true,
+		},
+		{
+			name:     "metadata key is case insensitive",
+			metadata: map[string]*string{"Hdi_IsFolder": &trueValue},
+			want:     true,
+		},
+		{
+			name:     "hdi_isfolder false",
+			metadata: map[string]*string{"hdi_isfolder": &falseValue},
+			want:     false,
+		},
+		{
+			name: "missing metadata",
+			want: false,
+		},
+		{
+			name:     "unrelated metadata",
+			metadata: map[string]*string{"other": &trueValue},
+			want:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isADLSFolder(tt.metadata))
+		})
+	}
+}
