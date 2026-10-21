@@ -2,7 +2,9 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +17,58 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
+
+func verifyDenormalizedData(t *testing.T, raw interface{}, expected map[string]interface{}) {
+	t.Helper()
+	payload, ok := raw.(string)
+	require.True(t, ok, "denormalized data column must be a JSON string, got %T", raw)
+	var actual map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(payload), &actual), "data column does not contain valid JSON")
+
+	for key, want := range expected {
+		got, exists := actual[key]
+		if !exists {
+			for actualKey, value := range actual {
+				if strings.EqualFold(actualKey, key) {
+					got, exists = value, true
+					break
+				}
+			}
+		}
+		require.Truef(t, exists, "expected source field %q missing from denormalized data", key)
+		if expectedTimestamp, ok := want.(arrow.Timestamp); ok {
+			actualTimestamp, ok := got.(string)
+			require.Truef(t, ok, "denormalized timestamp field %q has type %T, expected string", key, got)
+			parsedTimestamp, err := time.Parse(time.RFC3339Nano, actualTimestamp)
+			require.NoError(t, err, "denormalized timestamp field %q is not RFC3339", key)
+			require.Equal(t, int64(expectedTimestamp), parsedTimestamp.UTC().UnixMicro(), "denormalized timestamp field %q mismatch", key)
+			continue
+		}
+		var wantJSON interface{}
+		if text, isString := want.(string); isString && json.Valid([]byte(text)) {
+			_ = json.Unmarshal([]byte(text), &wantJSON)
+		} else {
+			encoded, err := json.Marshal(want)
+			require.NoError(t, err, "failed to encode expected field %q", key)
+			_ = json.Unmarshal(encoded, &wantJSON)
+		}
+		if text, isString := got.(string); isString && json.Valid([]byte(text)) {
+			var decoded interface{}
+			if json.Unmarshal([]byte(text), &decoded) == nil {
+				got = decoded
+			}
+		}
+		require.Truef(t, reflect.DeepEqual(wantJSON, got), "denormalized field %q mismatch: got %#v, want %#v", key, got, wantJSON)
+	}
+}
+
+func stringMapKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	return keys
+}
 
 // requireExpectations fails a verification that has nothing to assert.
 func requireExpectations(t *testing.T, datatypeSchema, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool) {
@@ -30,10 +84,11 @@ func requireExpectations(t *testing.T, datatypeSchema, defaultCDCColumnsSchema m
 
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string, denormalized ...bool) {
 	t.Helper()
 	requireExpectations(t, datatypeSchema, defaultCDCColumnsSchema, schema, opSymbol, driver, isCDC)
 	ctx := t.Context()
+	isDenormalized := len(denormalized) > 0 && denormalized[0]
 	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 
@@ -110,6 +165,16 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
 
 	for rowIdx, row := range selectRows {
+		if isDenormalized {
+			verifyDenormalizedData(t, row.Value("data"), schema)
+			if isCDC {
+				for key := range defaultCDCColumnsSchema {
+					value := row.Value(key)
+					require.NotEmpty(t, value, "Row %d: expected CDC column %q to be populated", rowIdx, key)
+				}
+			}
+			continue
+		}
 		icebergMap := make(map[string]interface{}, len(schema)+1)
 		for _, col := range row.FieldNames() {
 			icebergMap[col] = row.Value(col)
@@ -147,6 +212,12 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
 	icebergSchema, describeRows := testutils.DescribeSchema(ctx, t, spark, fullTableName)
+	if isDenormalized {
+		for _, col := range append([]string{"data", "_olake_id", "_op_type", "_olake_timestamp"}, stringMapKeys(defaultCDCColumnsSchema)...) {
+			_, found := icebergSchema[col]
+			require.True(t, found, "denormalized Iceberg schema is missing column %q", col)
+		}
+	}
 
 	if excludedColumn != "" {
 		_, ok := icebergSchema[testutils.Reformat(excludedColumn)]
@@ -155,6 +226,9 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 
 	require.NotEmpty(t, typeMapping, "the %s suite declares no type mapping; set Test.TypeMapping", driver)
 	for col, dbType := range datatypeSchema {
+		if isDenormalized {
+			break
+		}
 		iceType, found := icebergSchema[col]
 		require.True(t, found, "Column %s not found in Iceberg schema", col)
 
@@ -164,7 +238,9 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
-	verifyIcebergBinaryTypes(ctx, t, spark, fullTableName, datatypeSchema, typeMapping)
+	if !isDenormalized {
+		verifyIcebergBinaryTypes(ctx, t, spark, fullTableName, datatypeSchema, typeMapping)
+	}
 	// Verify datatypes for CDC/default columns as well
 	if isCDC {
 		for col, expectedIceType := range defaultCDCColumnsSchema {
@@ -249,10 +325,11 @@ func VerifyIcebergNoDuplicates(ctx context.Context, t *testing.T, tableName, ice
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string, denormalized ...bool) {
 	t.Helper()
 	requireExpectations(t, datatypeSchema, defaultCDCColumnsSchema, schema, opSymbol, driver, isCDC)
 	ctx := t.Context()
+	isDenormalized := len(denormalized) > 0 && denormalized[0]
 
 	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
@@ -311,6 +388,16 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	require.NotEmpty(t, rows, "No rows returned for _op_type = '%s'", opSymbol)
 
 	for rowIdx, row := range rows {
+		if isDenormalized {
+			verifyDenormalizedData(t, row.Value("data"), schema)
+			if isCDC {
+				for key := range defaultCDCColumnsSchema {
+					value := row.Value(key)
+					require.NotEmpty(t, value, "Row %d: expected CDC column %q to be populated", rowIdx, key)
+				}
+			}
+			continue
+		}
 		parquetMap := make(map[string]interface{}, len(schema)+1)
 		for _, col := range row.FieldNames() {
 			parquetMap[col] = row.Value(col)
@@ -350,6 +437,12 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
 
 	parquetSchema, _ := testutils.DescribeSchema(ctx, t, spark, viewName)
+	if isDenormalized {
+		for _, col := range append([]string{"data", "_olake_id", "_op_type", "_olake_timestamp"}, stringMapKeys(defaultCDCColumnsSchema)...) {
+			_, found := parquetSchema[col]
+			require.True(t, found, "denormalized Parquet schema is missing column %q", col)
+		}
+	}
 	if excludedColumn != "" {
 		_, ok := parquetSchema[testutils.Reformat(excludedColumn)]
 		require.Falsef(t, ok, "Excluded column %q should not exist in Parquet schema", excludedColumn)
@@ -357,6 +450,9 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 
 	require.NotEmpty(t, typeMapping, "the %s suite declares no type mapping; set Test.TypeMapping", driver)
 	for col, dbType := range datatypeSchema {
+		if isDenormalized {
+			break
+		}
 		pqType, found := parquetSchema[col]
 		require.True(t, found, "Column %s not found in Parquet schema", col)
 
@@ -366,7 +462,9 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
 	}
 	t.Logf("Verified datatypes in Parquet after sync")
-	verifyParquetBinaryTypes(ctx, t, parquetDB, tableName, datatypeSchema, typeMapping)
+	if !isDenormalized {
+		verifyParquetBinaryTypes(ctx, t, parquetDB, tableName, datatypeSchema, typeMapping)
+	}
 	// Verify datatypes for CDC/default columns as well
 	if isCDC {
 		for col, expectedPqType := range defaultCDCColumnsSchema {

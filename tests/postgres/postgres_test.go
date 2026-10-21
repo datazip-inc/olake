@@ -74,6 +74,21 @@ func TestPostgresSync(t *testing.T) {
 	cfg.TestSync(t)
 }
 
+func TestPostgresDenormalizedSync(t *testing.T) {
+	t.Parallel()
+	normalization := false
+	cfg := postgresBaseConfig(t)
+	cfg.Normalization = &normalization
+	cfg.FilterConfig = ""
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+	createReplicationSlot(t, cfg.TestConfig)
+	cfg.TestCommonSync(t)
+	if !testutils.KeepTestData() {
+		cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+	}
+}
+
 func TestPostgres2PC(t *testing.T) {
 	t.Parallel()
 	cfg := postgresBaseConfig(t)
