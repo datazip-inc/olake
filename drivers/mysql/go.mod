@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/mysql
 
-go 1.26.9
+go 1.26.10
 
 replace (
 	github.com/datazip-inc/olake => ../../
@@ -145,7 +145,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mitchellh/hashstructure v1.1.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
