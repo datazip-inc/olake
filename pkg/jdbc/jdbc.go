@@ -537,6 +537,12 @@ func PostgresWalLevelQuery() string {
 	return "SHOW wal_level"
 }
 
+// PostgresWalSenderTimeoutQuery returns wal_sender_timeout in milliseconds; pg_settings gives the
+// raw value, so there is no unit string ("1min") to parse.
+func PostgresWalSenderTimeoutQuery() string {
+	return "SELECT setting::bigint FROM pg_settings WHERE name = 'wal_sender_timeout'"
+}
+
 // PostgresReplicationAttrQuery reports whether the current role can open replication connections
 func PostgresReplicationAttrQuery() string {
 	return "SELECT rolsuper OR rolreplication FROM pg_roles WHERE rolname = current_user"
