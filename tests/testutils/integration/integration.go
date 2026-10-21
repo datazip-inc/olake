@@ -33,6 +33,11 @@ type TestHandler struct {
 	UpsertAddOp                      string
 	UpsertUpdateOp                   string
 	SkipTombstone                    bool
+	Normalization                    *bool
+}
+
+func (th *TestHandler) isDenormalized() bool {
+	return th.Normalization != nil && !*th.Normalization
 }
 
 // reset table and add back data to the table, then reset the catalog so the scenario starts fresh
@@ -57,7 +62,15 @@ func (th *TestHandler) resetCatalog(t *testing.T) {
 	if len(th.DedupKeys) > 0 {
 		require.NoError(t, setStreamUpsert(th.TestConfig, th.Namespace, testTable, th.DedupKeys), "failed to set stream upsert")
 	}
-	require.NoError(t, testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}), "failed to enable normalization and partition regex in the catalog")
+	normalization := true
+	if th.Normalization != nil {
+		normalization = *th.Normalization
+	}
+	partitionRegex := th.PartitionRegex
+	if !normalization {
+		partitionRegex = ""
+	}
+	require.NoError(t, testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, partitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}, normalization), "failed to configure normalization and partition regex in streams.json")
 	require.NoError(t, os.RemoveAll(th.tableIndexHostDir()), "failed to clear table index")
 }
 
@@ -92,14 +105,18 @@ func (th *TestHandler) runSyncAndVerify(
 	// Verification reads the destination back through Spark Connect (with retries), a real slice of
 	// sync wall-clock; time it as its own phase.
 	defer testutils.TrackPhaseTiming(t, th.TestConfig.Driver, destinationType+" verify")()
+	partitionRegex := th.TestConfig.PartitionRegex
+	if th.isDenormalized() {
+		partitionRegex = ""
+	}
 
 	switch destinationType {
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, partitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude, th.isDenormalized())
 			} else {
-				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, partitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude, th.isDenormalized())
 			}
 		}
 	case "parquet":
@@ -109,9 +126,9 @@ func (th *TestHandler) runSyncAndVerify(
 				typeMapping = th.ParquetTypeMapping
 			}
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude, th.isDenormalized())
 			} else {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude, th.isDenormalized())
 			}
 		}
 	}

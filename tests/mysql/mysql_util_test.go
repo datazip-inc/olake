@@ -246,7 +246,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
-		insertTestData(ctx, t, db, integrationTestTable, excludedColumns)
+		insertTestData(ctx, t, db, integrationTestTable, excludedColumns, conf.FilterConfig != "")
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
@@ -255,9 +255,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// insert a filtered doc; its id_cursor_binary tops every other row's, so a binary-cursor incremental
 		// sync reads it and only the filter decides whether it reaches the destination
-		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, true,
-			map[string]string{"id": "999", "id_cursor_binary": "X'FFFF'", "excludedColumn": "200"}))
-		require.NoError(t, err, "Failed to insert filtered test data row")
+		if conf.FilterConfig != "" {
+			_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, true,
+				map[string]string{"id": "999", "id_cursor_binary": "X'FFFF'", "excludedColumn": "200"}))
+			require.NoError(t, err, "Failed to insert filtered test data row")
+		}
 		return
 
 	case "insert_2pc":
@@ -493,7 +495,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 }
 
 // insertTestData inserts test data into the specified table
-func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string, excludedColumns []string) {
+func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string, excludedColumns []string, includeFilteredRow bool) {
 	t.Helper()
 
 	seedCols := filterSeedColumns(t, excludedColumns)
@@ -501,6 +503,9 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 		_, err := db.ExecContext(ctx, insertRowQuery(tableName, seedCols, false,
 			map[string]string{"id": strconv.Itoa(i), "id_cursor": strconv.Itoa(i), "id_cursor_binary": binaryCursor(i), "excludedColumn": "100"}))
 		require.NoError(t, err, "Failed to insert test data row %d", i)
+	}
+	if !includeFilteredRow {
+		return
 	}
 	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 	_, err := db.ExecContext(ctx, insertRowQuery(tableName, seedCols, true, map[string]string{

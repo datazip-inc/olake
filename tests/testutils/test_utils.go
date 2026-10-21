@@ -430,9 +430,7 @@ func (c *TestConfig) IsolateDestinationDB() error {
 	})
 }
 
-// UpdateSelectedStreams rewrites selected_streams so only the given streams stay selected, with
-// normalization enabled and the partition regex, filter config and excluded columns applied.
-func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filterConfig string, streams []string, excludedColumns []string) error {
+func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filterConfig string, streams []string, excludedColumns []string, normalization ...bool) error {
 	if len(streams) == 0 {
 		return nil
 	}
@@ -446,6 +444,10 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 		if err := json.Unmarshal([]byte(filterConfig), &filter); err != nil {
 			return fmt.Errorf("failed to parse filter config: %s", err)
 		}
+	}
+	normalize := true
+	if len(normalization) > 0 {
+		normalize = normalization[0]
 	}
 
 	excluded := make(map[string]bool, len(excludedColumns))
@@ -466,7 +468,7 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 			}
 			streamName := fmt.Sprint(stream["stream_name"])
 			delete(selectedNames, streamName)
-			stream["normalization"] = true
+			stream["normalization"] = normalize
 			stream["partition_regex"] = partitionRegex
 			stream["filter_config"] = filter
 			if len(excluded) > 0 {

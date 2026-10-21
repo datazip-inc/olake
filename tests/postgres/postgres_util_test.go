@@ -121,7 +121,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
-		insertTestData(ctx, t, db, integrationTestTable)
+		insertTestData(ctx, t, db, integrationTestTable, conf.FilterConfig != "")
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
@@ -152,7 +152,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
-		filteredQuery := fmt.Sprintf(`
+		if conf.FilterConfig != "" {
+			filteredQuery := fmt.Sprintf(`
 			INSERT INTO %s (
 				col_cursor, col_bigint, col_bool, col_char, col_character,
 				col_character_varying, col_date, col_decimal,
@@ -176,8 +177,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				'<(0,0),0.0>'::circle,
 				200
 			)`, integrationTestTable)
-		_, err = db.ExecContext(ctx, filteredQuery)
-		require.NoError(t, err, "Failed to insert filtered test data row")
+			_, err = db.ExecContext(ctx, filteredQuery)
+			require.NoError(t, err, "Failed to insert filtered test data row")
+		}
 		return
 
 	case "insert_2pc":
@@ -318,7 +320,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 }
 
 // insertTestData inserts test data into the specified table
-func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string) {
+func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string, includeFilteredRow bool) {
 	t.Helper()
 
 	for i := 1; i <= 5; i++ {
@@ -349,6 +351,9 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data")
+	}
+	if !includeFilteredRow {
+		return
 	}
 	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 	filteredQuery := fmt.Sprintf(`

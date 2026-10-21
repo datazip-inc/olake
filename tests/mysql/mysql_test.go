@@ -66,6 +66,21 @@ func TestMySQLSync(t *testing.T) {
 	mysqlSyncConfig(t).TestSync(t)
 }
 
+func TestMySQLDenormalizedSync(t *testing.T) {
+	t.Parallel()
+	normalization := false
+	cfg := mysqlBaseConfig(t)
+	cfg.Normalization = &normalization
+	cfg.FilterConfig = ""
+	cfg.CursorField = "id_cursor_binary:id_smallint"
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData()
+	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
+	cfg.TestCommonSync(t)
+	if !testutils.KeepTestData() {
+		cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+	}
+}
+
 // TestMySQLBinarySync keys, partitions and filters on binary columns. The filter cases use the binary cursor so
 // incremental reads the filtered insert row too; their filter values are hex.
 func TestMySQLBinarySync(t *testing.T) {
