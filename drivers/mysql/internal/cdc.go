@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/pkg/binlog"
+	"github.com/datazip-inc/olake/drivers/mysql/internal/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -57,7 +57,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		SchemaClient:            m.client,
 	}
 
-	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, mySQLGlobalState.State, streamsToSync, m.dataTypeConverter)
 }
 
 // mariaDBServerFlavor must match the MariaDB flavor string returned by jdbc.MySQLVersion.
@@ -199,9 +199,7 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 	default:
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
-			State: binlog.Binlog{
-				Position: m.BinlogConn.CurrentPos,
-			},
+			State:    m.BinlogConn.State(),
 		})
 		return nil
 	}

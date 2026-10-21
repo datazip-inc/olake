@@ -156,7 +156,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 		// 1. Try Numeric Strategy
 		// Prefer an arithmetic split for evenly distributed numeric keys.
-		numericChunkBounds = isNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType)
+		numericChunkBounds = isNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType, m.typeMapping)
 		if numericChunkBounds == nil {
 			// 2. If not numeric, check for supported String strategy
 			stringChunkBounds = isStringSupportedPK(minVal, maxVal, dataMaxLength, dataType)
@@ -439,9 +439,9 @@ func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterfa
 	return minVal, maxVal, err
 }
 
-// isNumericAndEvenDistributed checks if the pk column is numeric and evenly distributed
-func isNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64, dataType string) *NumericChunkBounds {
-	destinationDataType := mysqlTypeToDataTypes[strings.ToLower(dataType)]
+// isNumericAndEvenDistributed checks if the pk column, typed through typeMapping, is numeric and evenly distributed
+func isNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64, dataType string, typeMapping map[string]types.DataType) *NumericChunkBounds {
+	destinationDataType := typeMapping[strings.ToLower(dataType)]
 	if destinationDataType != types.Int32 && destinationDataType != types.Int64 {
 		logger.Debugf("Current pk is not a supported numeric column")
 		return nil
