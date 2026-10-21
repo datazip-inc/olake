@@ -57,7 +57,12 @@ class RowReaderTest {
             Types.NestedField.optional(3, "payload", Types.StringType.get()),
             Types.NestedField.optional(4, "amt", Types.DoubleType.get()),
             Types.NestedField.optional(5, "id", Types.LongType.get()),
-            Types.NestedField.optional(6, "big doc", Types.StringType.get()));
+            Types.NestedField.optional(6, "big doc", Types.StringType.get()),
+            Types.NestedField.optional(7, "a.b", Types.StringType.get()),
+            Types.NestedField.optional(8, "a-b", Types.StringType.get()),
+            Types.NestedField.optional(9, "a,b", Types.StringType.get()),
+            Types.NestedField.optional(10, "a:b", Types.StringType.get()),
+            Types.NestedField.optional(11, "say \"okay\"", Types.StringType.get()));
 
     @TempDir
     Path dir;
@@ -107,6 +112,11 @@ class RowReaderTest {
                 record.setField("amt", position * 1.5);
                 record.setField("id", (long) position);
                 record.setField("big doc", "doc" + position);
+                record.setField("a.b", "dot" + position);
+                record.setField("a-b", "dash" + position);
+                record.setField("a,b", "comma" + position);
+                record.setField("a:b", "colon" + position);
+                record.setField("say \"okay\"", "quote" + position);
                 appender.add(record);
             }
         }
@@ -188,7 +198,15 @@ class RowReaderTest {
                 Arguments.of("a column the file was written without is left out", "later", null, null),
                 // Iceberg's writer escapes the space, so the file stores it as big_x20doc
                 Arguments.of("a column the file stores under an escaped name is read",
-                        "big doc", "big_x20doc", "doc7"));
+                        "big doc", "big_x20doc", "doc7"),
+                // escaped too, and the dot must not be taken for a nested field
+                Arguments.of("a column with a dot in its name is read", "a.b", "a_x2Eb", "dot7"),
+                // other punctuation Postgres allows in a quoted identifier
+                Arguments.of("a column with a dash in its name is read", "a-b", "a_x2Db", "dash7"),
+                Arguments.of("a column with a comma in its name is read", "a,b", "a_x2Cb", "comma7"),
+                Arguments.of("a column with a colon in its name is read", "a:b", "a_x3Ab", "colon7"),
+                Arguments.of("a column with quotes and a space in its name is read",
+                        "say \"okay\"", "say_x20_x22okay_x22", "quote7"));
     }
 
     // a table column is found in the file by Iceberg field id, never by its table name
