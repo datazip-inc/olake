@@ -226,3 +226,24 @@ func TestAzureIsADLSFolder(t *testing.T) {
 		})
 	}
 }
+
+func TestAzureSortFolders(t *testing.T) {
+	tests := []struct {
+		name    string
+		folders []string
+		want    []string
+	}{
+		{
+			name:    "deepest path first",
+			folders: []string{"db/table", "db/table/part", "db", "db/table/part/"},
+			want:    []string{"db/table/part/", "db/table/part", "db/table", "db"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			folders := append([]string(nil), tt.folders...)
+			sortAzureFolders(folders)
+			require.Equal(t, tt.want, folders)
+		})
+	}
+}

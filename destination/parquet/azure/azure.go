@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -131,7 +132,12 @@ func (a *Store) Get(ctx context.Context, key string) ([]byte, error) {
 // By default, a listing operation returns blobs in a flat listing. In a flat listing, blobs aren't organized by virtual directory.
 // ADLS Gen2 also returns directory entries. Those are omitted here so callers do not copy them as files.
 func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
-	var keys []string
+	files, _, err := a.listBlobNames(ctx, prefix)
+	return files, err
+}
+
+// listBlobNames splits a flat listing into file blobs and ADLS Gen2 directory markers.
+func (a *Store) listBlobNames(ctx context.Context, prefix string) (files, folders []string, err error) {
 	pager := a.client.NewListBlobsFlatPager(a.container, &container.ListBlobsFlatOptions{
 		Prefix:  &prefix,
 		Include: container.ListBlobsInclude{Metadata: true},
@@ -139,16 +145,20 @@ func (a *Store) List(ctx context.Context, prefix string) ([]string, error) {
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, item := range page.Segment.BlobItems {
-			if item.Name == nil || isADLSFolder(item.Metadata) {
+			if item.Name == nil {
 				continue
 			}
-			keys = append(keys, *item.Name)
+			if isADLSFolder(item.Metadata) {
+				folders = append(folders, *item.Name)
+				continue
+			}
+			files = append(files, *item.Name)
 		}
 	}
-	return keys, nil
+	return files, folders, nil
 }
 
 // isADLSFolder reports a hierarchical-namespace directory. The metadata value is set true
@@ -231,17 +241,43 @@ func (a *Store) Delete(ctx context.Context, key string) error {
 
 func (a *Store) DeletePrefix(ctx context.Context, prefix string) error {
 	return utils.RetryWithSkip(ctx, 3, time.Minute, a.IsRateLimitError, func(ctx context.Context) error {
-		keys, err := a.List(ctx, prefix)
+		files, folders, err := a.listBlobNames(ctx, prefix)
 		if err != nil {
 			return err
 		}
-		for _, key := range keys {
+		// A non-empty ADLS directory returns 409 DirectoryIsNotEmpty, so files go first.
+		for _, key := range files {
+			if err := a.Delete(ctx, key); err != nil {
+				return err
+			}
+		}
+		sortAzureFolders(folders)
+		for _, key := range folders {
 			if err := a.Delete(ctx, key); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// sortAzureFolders orders directory markers from the deepest path to the shallowest.
+func sortAzureFolders(folders []string) {
+	sort.Slice(folders, func(i, j int) bool {
+		di, dj := azureFolderDepth(folders[i]), azureFolderDepth(folders[j])
+		if di != dj {
+			return di > dj
+		}
+		return folders[i] > folders[j]
+	})
+}
+
+func azureFolderDepth(key string) int {
+	key = strings.Trim(key, "/")
+	if key == "" {
+		return 0
+	}
+	return strings.Count(key, "/") + 1
 }
 
 // IsNotFound checks missing blob errr
