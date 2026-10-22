@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/tests/db2
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/apache/arrow-go/v18 v18.2.0
@@ -19,6 +19,7 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	filippo.io/edwards25519 v1.1.1 // indirect
 	github.com/apache/spark-connect-go/v35 v35.0.0-20250317154112-ffd832059443 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -28,7 +29,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/ibmruntimes/go-recordio/v2 v2.0.0-20240416213906-ae0ad556db70 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/minio/minio-go/v7 v7.0.34 // indirect
