@@ -47,17 +47,22 @@ func TestS3Discover(t *testing.T) {
 	}
 }
 
+// s3SyncConfig adds to s3BaseConfig what the sync suites verify after the update sync.
+func s3SyncConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	cfg := s3BaseConfig(t, variant, opts...)
+	// The "evolve-schema" operation ships a file carrying a column discover has not
+	// seen (see S3TestVariant.BuildEvolvedFile), so the update sync must land it in
+	// the destination as a string column.
+	cfg.UpdatedDestinationDataTypeSchema = variant.UpdatedDestinationSchema
+	return cfg
+}
+
 func TestS3Sync(t *testing.T) {
 	t.Parallel()
 	for _, variant := range S3TestVariants {
 		t.Run(variant.Name, func(t *testing.T) {
 			t.Parallel()
-			cfg := s3BaseConfig(t, variant)
-			// The "evolve-schema" operation ships a file carrying a column discover has not
-			// seen (see S3TestVariant.BuildEvolvedFile), so the update sync must land it in
-			// the destination as a string column.
-			cfg.UpdatedDestinationDataTypeSchema = variant.UpdatedDestinationSchema
-			cfg.TestSync(t)
+			s3SyncConfig(t, variant).TestSync(t)
 		})
 	}
 }

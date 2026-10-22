@@ -209,7 +209,31 @@
                     "normalization": false,
                     "append_mode": true,
                     "update_type": "eq"
-                }
+                },
+                "selectable_columns": [
+                    "_empty",
+                    "_last_modified_time",
+                    "_olake_id",
+                    "_olake_timestamp",
+                    "_op_type",
+                    "bool_col",
+                    "date_col",
+                    "empty_col",
+                    "excluded_col",
+                    "float_col",
+                    "id",
+                    "int_col",
+                    "mixed_col",
+                    "null_col",
+                    "optional_col",
+                    "order",
+                    "str_col",
+                    "ts_col",
+                    "ts_micro_col",
+                    "ts_milli_col",
+                    "ts_nano_col",
+                    "whitespace_col"
+                ]
             }
         }
     ]

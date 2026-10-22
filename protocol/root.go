@@ -21,28 +21,33 @@ import (
 )
 
 var (
-	configPath                string
-	destinationConfigPath     string
-	statePath                 string
-	streamsPath               string
-	destinationDatabasePrefix string
-	syncID                    string
-	batchSize                 int64
-	maxDiscoverThreads        int
-	discoverSchema            bool
-	noSave                    bool
-	encryptionKey             string
-	destinationType           string
-	catalog                   *types.Catalog
-	availableQueryEngines     bool
-	targetQueryEngines        []string
-	queryEngines              []types.QueryEngine
-	state                     *types.State
-	timeout                   int64 // timeout in seconds
-	destinationConfig         *types.WriterConfig
-	differencePath            string
-	commands                  = []*cobra.Command{}
-	connector                 *abstract.AbstractDriver
+	configPath                     string
+	destinationConfigPath          string
+	statePath                      string
+	streamsPath                    string
+	availableStreamsPath           string
+	selectedStreamsPath            string
+	destinationDatabasePrefix      string
+	syncID                         string
+	batchSize                      int64
+	maxDiscoverThreads             int
+	discoverSchema                 bool
+	noSave                         bool
+	encryptionKey                  string
+	destinationType                string
+	catalog                        *types.Catalog
+	state                          *types.State
+	timeout                        int64 // timeout in seconds
+	destinationConfig              *types.WriterConfig
+	differencePath                 string
+	differenceAvailableStreamsPath string
+	differenceSelectedStreamsPath  string
+	convertStreams                 bool
+	commands                       = []*cobra.Command{}
+	connector                      *abstract.AbstractDriver
+	availableQueryEngines          bool
+	targetQueryEngines             []string
+	queryEngines                   []types.QueryEngine
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -51,24 +56,45 @@ var RootCmd = &cobra.Command{
 	Short: "root command",
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		// Resolve now as configPaths are needed by logger.Init(), but the error is handled later because the logger is not initialized yet.
-		s3Err := utils.ResolveS3Paths(cmd.Context(), []*string{&configPath, &destinationConfigPath, &streamsPath, &statePath, &differencePath}, telemetry.PropsFiles())
+		s3Err := utils.ResolveS3Paths(cmd.Context(), []*string{
+			&configPath, &destinationConfigPath, &streamsPath, &statePath, &differencePath,
+			&availableStreamsPath, &selectedStreamsPath, &differenceAvailableStreamsPath, &differenceSelectedStreamsPath,
+		}, telemetry.PropsFiles())
 		// set global variables
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
+		viper.SetDefault(constants.AvailableStreamsPath, filepath.Join(os.TempDir(), "available_streams.json"))
+		viper.SetDefault(constants.SelectedStreamsPath, filepath.Join(os.TempDir(), "selected_streams.json"))
 		viper.SetDefault(constants.DifferencePath, filepath.Join(os.TempDir(), "difference_streams.json"))
+		viper.SetDefault(constants.DifferenceAvailableStreamsPath, filepath.Join(os.TempDir(), "difference_available_streams.json"))
+		viper.SetDefault(constants.DifferenceSelectedStreamsPath, filepath.Join(os.TempDir(), "difference_selected_streams.json"))
 		// An S3 job without --config or --destination (spec) has no folder to derive: filepath.Dir("not-set")
 		// would give ".", so keep the TempDir defaults, where ResolveS3Paths downloads the telemetry files.
 		noPathFlag := configPath == "not-set" && destinationConfigPath == "not-set"
 		if s3Err == nil && !noSave && !(s3.IsS3Job() && noPathFlag) {
 			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
 			streamsPathEnv := utils.Ternary(streamsPath == "", filepath.Join(configFolder, "streams.json"), streamsPath).(string)
-			differencePathEnv := utils.Ternary(streamsPath != "", filepath.Join(filepath.Dir(streamsPath), "difference_streams.json"), filepath.Join(configFolder, "difference_streams.json")).(string)
+			streamsDir := filepath.Dir(streamsPathEnv)
+			availableStreamsPathEnv := utils.Ternary(availableStreamsPath == "", filepath.Join(streamsDir, "available_streams.json"), availableStreamsPath).(string)
+			selectedStreamsPathEnv := utils.Ternary(selectedStreamsPath == "", filepath.Join(streamsDir, "selected_streams.json"), selectedStreamsPath).(string)
+			diffBaseDir := configFolder
+			switch {
+			case streamsPath != "":
+				diffBaseDir = filepath.Dir(streamsPath)
+			case availableStreamsPath != "":
+				diffBaseDir = filepath.Dir(availableStreamsPath)
+			}
+			differencePathEnv := filepath.Join(diffBaseDir, "difference_streams.json")
 			statePathEnv := utils.Ternary(statePath == "", filepath.Join(configFolder, "state.json"), statePath).(string)
 			viper.Set(constants.ConfigFolder, configFolder)
 			viper.Set(constants.StatePath, statePathEnv)
 			viper.Set(constants.StreamsPath, streamsPathEnv)
 			viper.Set(constants.DifferencePath, differencePathEnv)
+			viper.Set(constants.DifferenceAvailableStreamsPath, filepath.Join(diffBaseDir, "difference_available_streams.json"))
+			viper.Set(constants.DifferenceSelectedStreamsPath, filepath.Join(diffBaseDir, "difference_selected_streams.json"))
+			viper.Set(constants.AvailableStreamsPath, availableStreamsPathEnv)
+			viper.Set(constants.SelectedStreamsPath, selectedStreamsPathEnv)
 		}
 
 		if encryptionKey != "" {
@@ -157,8 +183,10 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationConfigPath, "destination", "", "not-set", "(Required) Destination config for connector")
 	RootCmd.PersistentFlags().StringVarP(&destinationType, "destination-type", "", "not-set", "Destination type for spec")
-	RootCmd.PersistentFlags().StringVarP(&streamsPath, "catalog", "", "", "Path to the streams file for the connector")
-	RootCmd.PersistentFlags().StringVarP(&streamsPath, "streams", "", "", "Path to the streams file for the connector")
+	RootCmd.PersistentFlags().StringVarP(&streamsPath, "catalog", "", "", "Path to the streams file for the connector (deprecated)")
+	RootCmd.PersistentFlags().StringVarP(&streamsPath, "streams", "", "", "Path to the streams file for the connector (deprecated)")
+	RootCmd.PersistentFlags().StringVarP(&availableStreamsPath, "available-streams", "", "", "Path to available_streams file for the connector")
+	RootCmd.PersistentFlags().StringVarP(&selectedStreamsPath, "selected-streams", "", "", "Path to selected_streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "destination-buffer-size", "", 10000, "(Optional) Batch size for destination")
 	RootCmd.PersistentFlags().IntVarP(&maxDiscoverThreads, "max-discover-threads", "", 50, "(Optional) Max number of parallel threads for discovery of table in database")
@@ -167,7 +195,10 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
-	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
+	RootCmd.PersistentFlags().StringVarP(&differenceAvailableStreamsPath, "difference-available-streams", "", "", "new available_streams file path to be compared. Must be passed together with --difference-selected-streams.")
+	RootCmd.PersistentFlags().StringVarP(&differenceSelectedStreamsPath, "difference-selected-streams", "", "", "new selected_streams file path to be compared. Must be passed together with --difference-available-streams. Generates difference_available_streams.json and difference_selected_streams.json, usable with clear-destination.")
+	RootCmd.PersistentFlags().BoolVarP(&convertStreams, "convert-streams", "", false, "(Optional) With discover: convert the --streams file into available_streams.json and selected_streams.json next to it, without connecting to the source")
+	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file (deprecated)")
 	// Without this, Cobra rejects unknown positional args at Find time (legacyArgs)
 	// before PersistentPreRunE initializes the logger, so invalid commands fail
 	// silently under SilenceErrors. ArbitraryArgs defers that check to RunE.
@@ -181,14 +212,61 @@ func init() {
 
 const (
 	// Codes for conditions the CLI detects itself, before any connector is reached.
-	codeFlagMissing    = "config.flag_missing"
-	codeNoValidStreams = "catalog.no_valid_streams"
+	codeFlagMissing                  = "config.flag_missing"
+	codeConflictingCatalogFlags      = "config.conflicting_catalog_flags"
+	codeConflictingDifferenceFlags   = "config.conflicting_difference_flags"
+	codeIncompleteCatalogFlagPair    = "config.incomplete_catalog_flag_pair"
+	codeIncompleteDifferenceFlagPair = "config.incomplete_difference_flag_pair"
+	codeNoValidStreams               = "catalog.no_valid_streams"
+	codeNoStreams                    = "catalog.no_streams_discovered"
 	// codeQueryEngineInvalid marks a target query engine selection the CLI cannot serve.
 	codeQueryEngineInvalid = "catalog.query_engine_invalid"
-	codeNoStreams          = "catalog.no_streams_discovered"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )
+
+// validateCatalogFlags rejects --streams combined with --available-streams/--selected-streams,
+// requires --available-streams and --selected-streams
+func validateCatalogFlags(streamsFlagRequired bool) error {
+	hasLegacy := streamsPath != ""
+	hasAvailable, hasSelected := availableStreamsPath != "", selectedStreamsPath != ""
+	hasNew := hasAvailable && hasSelected
+	if hasAvailable != hasSelected {
+		return errs.Precondition(errs.ConfigInvalid, codeIncompleteCatalogFlagPair,
+			fmt.Errorf("--available-streams and --selected-streams must be passed"))
+	}
+	if streamsFlagRequired && !hasLegacy && !hasNew {
+		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+			fmt.Errorf("--streams or --available-streams and --selected-streams not passed"))
+	}
+	if hasLegacy && hasNew {
+		return errs.Precondition(errs.ConfigInvalid, codeConflictingCatalogFlags,
+			fmt.Errorf("--streams cannot be combined with --available-streams/--selected-streams"))
+	}
+	if hasLegacy {
+		logger.Warn("--streams is deprecated and will be removed in a future release; use --available-streams and --selected-streams instead")
+	}
+	return nil
+}
+
+// validateDifferenceFlags rejects --difference combined with --difference-available-streams/--difference-selected-streams,
+// requires --difference-available-streams and --difference-selected-streams together
+func validateDifferenceFlags() error {
+	hasLegacy := differencePath != ""
+	hasAvailable, hasSelected := differenceAvailableStreamsPath != "", differenceSelectedStreamsPath != ""
+	if hasLegacy && (hasAvailable || hasSelected) {
+		return errs.Precondition(errs.ConfigInvalid, codeConflictingDifferenceFlags,
+			fmt.Errorf("--difference cannot be combined with --difference-available-streams/--difference-selected-streams"))
+	}
+	if hasAvailable != hasSelected {
+		return errs.Precondition(errs.ConfigInvalid, codeIncompleteDifferenceFlagPair,
+			fmt.Errorf("--difference-available-streams and --difference-selected-streams must be passed together"))
+	}
+	if hasLegacy {
+		logger.Warn("--difference is deprecated and will be removed in a future release; use --difference-available-streams and --difference-selected-streams instead")
+	}
+	return nil
+}
 
 // recoverToError turns a panic into a classified error written through err, then re-panics so
 // safego.Recovery still prints the stack and the process still exits non-zero. Deferred by a

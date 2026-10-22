@@ -54,12 +54,17 @@ func TestMongodbDiscover(t *testing.T) {
 	mongodbBaseConfig(t).TestDiscover(t)
 }
 
-func TestMongodbSync(t *testing.T) {
-	t.Parallel()
-	cfg := mongodbBaseConfig(t)
+// mongodbSyncConfig adds to mongodbBaseConfig what the sync suites verify after the update sync.
+func mongodbSyncConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	cfg := mongodbBaseConfig(t, opts...)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedMongoToDestinationSchema
-	cfg.TestSync(t)
+	return cfg
+}
+
+func TestMongodbSync(t *testing.T) {
+	t.Parallel()
+	mongodbSyncConfig(t).TestSync(t)
 }
 
 func TestMongodb2PC(t *testing.T) {

@@ -120,7 +120,7 @@ func (th *TestHandler) runCDC(ctx context.Context, t *testing.T) error {
 		return err
 	}
 
-	if code, out, err := th.runOlake(ctx, testutils.SyncArgs(false, icebergDestinationFile, th.destinationPrefix()...)...); err != nil || code != 0 {
+	if code, out, err := th.runOlake(ctx, testutils.SyncArgs(th.TestConfig, false, icebergDestinationFile, th.destinationPrefix()...)...); err != nil || code != 0 {
 		return fmt.Errorf("failed to write the initial CDC state: %s\n%s", err, out)
 	}
 
@@ -185,7 +185,7 @@ func (th *TestHandler) timedSync(ctx context.Context, useState bool) ([]byte, er
 	timedCtx, cancel := context.WithTimeout(ctx, testutils.SyncTimeout)
 	defer cancel()
 
-	olakeArgs := testutils.SyncArgs(useState, icebergDestinationFile, th.destinationPrefix()...)
+	olakeArgs := testutils.SyncArgs(th.TestConfig, useState, icebergDestinationFile, th.destinationPrefix()...)
 	args := testutils.DockerRunArgs(th.TestConfig, []string{"--network", "host", "--name", name}, olakeArgs)
 	out, err := exec.CommandContext(timedCtx, "docker", args...).CombinedOutput()
 	if timedCtx.Err() == context.DeadlineExceeded {
