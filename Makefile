@@ -50,8 +50,9 @@ gomod:
 	cd tests && go work sync
 	find . -name go.mod -execdir go mod tidy \;
 
+# Pinned so a new golangci-lint release can't fail lint on unchanged code.
 golangci.install:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
 # Shared dependency check used by both lint targets.
 define check_go_mod_tidy

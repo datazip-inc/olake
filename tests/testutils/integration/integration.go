@@ -37,9 +37,9 @@ type TestHandler struct {
 
 // reset table and add back data to the table, then reset the catalog so the scenario starts fresh
 func (th *TestHandler) resetTable(ctx context.Context, t *testing.T) {
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, testutils.Ternary(len(th.DedupKeys) > 0, testutils.Ternary(th.UpsertAddOp != "", th.UpsertAddOp, "upsert_add"), "add").(string))
+	th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "create")
+	th.ExecuteQuery(ctx, t, th.TestConfig, testutils.Ternary(len(th.DedupKeys) > 0, testutils.Ternary(th.UpsertAddOp != "", th.UpsertAddOp, "upsert_add"), "add").(string))
 	th.resetCatalog(t)
 }
 
@@ -75,7 +75,7 @@ func (th *TestHandler) runSyncAndVerify(
 ) error {
 	// Execute operation before sync if needed
 	if useState && operation != "" {
-		th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, operation)
+		th.ExecuteQuery(ctx, t, th.TestConfig, operation)
 	}
 
 	// Run sync against the driver image
@@ -83,7 +83,7 @@ func (th *TestHandler) runSyncAndVerify(
 		return err
 	}
 
-	t.Logf("Sync successful for %s driver", th.TestConfig.Driver)
+	t.Logf("Sync successful for %s driver", th.Driver)
 
 	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
@@ -91,15 +91,15 @@ func (th *TestHandler) runSyncAndVerify(
 
 	// Verification reads the destination back through Spark Connect (with retries), a real slice of
 	// sync wall-clock; time it as its own phase.
-	defer testutils.TrackPhaseTiming(t, th.TestConfig.Driver, destinationType+" verify")()
+	defer testutils.TrackPhaseTiming(t, th.Driver, destinationType+" verify")()
 
 	switch destinationType {
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyIcebergSync(t, testTable, th.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.PartitionRegex, th.Driver, isCDC, th.ColumnToExclude)
 			} else {
-				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyIcebergSync(t, testTable, th.DestinationDB, th.DestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.PartitionRegex, th.Driver, isCDC, th.ColumnToExclude)
 			}
 		}
 	case "parquet":
@@ -109,9 +109,9 @@ func (th *TestHandler) runSyncAndVerify(
 				typeMapping = th.ParquetTypeMapping
 			}
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.DestinationDB, th.UpdatedDestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.Driver, isCDC, th.ColumnToExclude)
 			} else {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.DestinationDB, th.DestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.Driver, isCDC, th.ColumnToExclude)
 			}
 		}
 	}

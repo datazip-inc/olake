@@ -654,13 +654,14 @@ func TestParquetValueToInterfaceWithType_Decimal(t *testing.T) {
 	var testValue int64
 	var expectedResult float64
 
-	if actualScale == 10 {
+	switch actualScale {
+	case 10:
 		testValue = 1234500000000 // Will give 123.45 with scale 10
 		expectedResult = 123.45
-	} else if actualScale == 2 {
+	case 2:
 		testValue = 12345 // Will give 123.45 with scale 2
 		expectedResult = 123.45
-	} else {
+	default:
 		// Calculate expected based on scale
 		testValue = 12345
 		expectedResult = float64(testValue) / float64(pow10ForTest(actualScale))

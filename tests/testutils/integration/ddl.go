@@ -131,31 +131,31 @@ func (th *TestHandler) TestDDL(t *testing.T) {
 	}
 	require.NoError(t, th.IsolateDestinationDB(), "failed to give the DDL suite its own destination namespace")
 
-	defer testutils.DropIcebergTable(t, DDLBacklogTable, th.TestConfig.DestinationDB)
-	defer testutils.DropIcebergTable(t, DDLSwapTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, DDLBacklogTable, th.DestinationDB)
+	defer testutils.DropIcebergTable(t, DDLSwapTable, th.DestinationDB)
 	if !testutils.KeepTestData() {
-		defer th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "ddl-drop")
+		defer th.ExecuteQuery(ctx, t, th.TestConfig, "ddl-drop")
 	}
 
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "ddl-create")
-	require.NoError(t, th.TestConfig.Catalog().Write(ddlCatalogDoc(th.Namespace, th.TestConfig.DestinationDB)), "failed to write the DDL catalog")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "ddl-create")
+	require.NoError(t, th.Catalog().Write(ddlCatalogDoc(th.Namespace, th.DestinationDB)), "failed to write the DDL catalog")
 
 	th.ddlSync(ctx, t, false, "initial")
 
 	// Writes elsewhere during the saving sync move the server past the position it stops at, so
 	// the metadata it loads is anchored after that position: the busy-server case.
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "ddl-seed")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "ddl-noise-start")
-	defer th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "ddl-noise-stop")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "ddl-seed")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "ddl-noise-start")
+	defer th.ExecuteQuery(ctx, t, th.TestConfig, "ddl-noise-stop")
 	th.ddlSync(ctx, t, true, "saving")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "ddl-noise-stop")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "ddl-noise-stop")
 
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "ddl-backlog")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "ddl-backlog")
 	th.ddlSync(ctx, t, true, "backlog")
 
 	spark := getSparkSession(ctx, t)
 	t.Run("Backlog of DDL", func(t *testing.T) {
-		got := ddlRows(ctx, t, spark, fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, DDLBacklogTable), "a", "b", "status", "note")
+		got := ddlRows(ctx, t, spark, fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, DDLBacklogTable), "a", "b", "status", "note")
 		require.Equal(t, map[string]map[string]string{
 			"100": {"a": "0", "b": "0", "status": "new", "note": "NULL"},
 			"1":   {"a": "10", "b": "20", "status": "paid", "note": "NULL"},     // saved metadata, from the busy sync
@@ -169,7 +169,7 @@ func (th *TestHandler) TestDDL(t *testing.T) {
 		}, got)
 	})
 	t.Run("gh-ost cutover", func(t *testing.T) {
-		got := ddlRows(ctx, t, spark, fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, DDLSwapTable), "a", "b", "status")
+		got := ddlRows(ctx, t, spark, fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, DDLSwapTable), "a", "b", "status")
 		require.Equal(t, map[string]map[string]string{
 			"100": {"a": "0", "b": "0", "status": "new"},
 			"1":   {"a": "10", "b": "20", "status": "paid"}, // before the swap

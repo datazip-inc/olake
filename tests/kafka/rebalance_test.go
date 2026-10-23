@@ -49,7 +49,7 @@ func testRebalance(t *testing.T, cfg *integration.TestHandler) {
 func rebalanceRecovery(ctx context.Context, t *testing.T, cfg *integration.TestHandler, testTable string) error {
 	t.Log("Starting Kafka rebalance recovery test")
 
-	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	rebalanceTestCases := []struct {
 		name      string
@@ -71,11 +71,11 @@ func rebalanceRecovery(ctx context.Context, t *testing.T, cfg *integration.TestH
 		})
 	}
 
-	integration.VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.TestConfig.DestinationDB, "c", rebalanceBulkMessageCount)
+	integration.VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.DestinationDB, "c", rebalanceBulkMessageCount)
 
 	t.Log("Kafka rebalance recovery test completed successfully")
 
-	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
