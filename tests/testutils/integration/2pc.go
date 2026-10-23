@@ -118,6 +118,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 			useState:                 true,
 			opSymbol:                 "c",
 			expected:                 th.ExpectedData,
+			expectedRowCount:         SkipRowCount,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: int64(testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 11, 1).(int)),
 			preSetup:                 testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.RestoreStateFile}).([]func(*testutils.TestConfig) error),
@@ -129,9 +130,13 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 			useState:                 true,
 			opSymbol:                 "c",
 			expected:                 th.ExpectedData,
+			expectedRowCount:         SkipRowCount,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: int64(testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 12, 2).(int)),
 		},
+	}
+	if th.TestConfig.Driver == string(constants.Kafka) {
+		twoPCCDCTestCases[1].expectedRowCount = int(twoPCCDCTestCases[1].expectedRowCountByOpType)
 	}
 
 	for _, tc := range twoPCCDCTestCases {
@@ -146,6 +151,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 				ctx, t, testTable, tc.useState, "iceberg",
 				tc.operation, tc.opSymbol, tc.expected,
 				tc.name != "Full-Refresh",
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -219,6 +225,7 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 			useState:                 true,
 			opSymbol:                 "u",
 			expected:                 th.ExpectedData,
+			expectedRowCount:         SkipRowCount,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 1,
 			preSetup: []func(*testutils.TestConfig) error{
@@ -232,6 +239,7 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 			useState:                 true,
 			opSymbol:                 "u",
 			expected:                 th.ExpectedData,
+			expectedRowCount:         SkipRowCount,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 2, // insert row + insert_2pc row, both unique by _olake_id
 		},
@@ -249,6 +257,7 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 				ctx, t, testTable, tc.useState, "iceberg",
 				tc.operation, tc.opSymbol, tc.expected,
 				false,
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("Incremental 2PC test %s failed: %v", tc.name, err)
 			}
