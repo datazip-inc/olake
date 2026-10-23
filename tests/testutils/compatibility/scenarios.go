@@ -3,6 +3,7 @@ package compatibility
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -168,7 +169,9 @@ func prepareSourceTable(
 func discoverCatalog(t *testing.T, cfg *testutils.TestConfig) {
 	t.Helper()
 	catalog := cfg.GetFilePath("streams.json")
-	require.NoError(t, os.Remove(catalog), "failed to clear the rendered catalog before discover")
+	if err := os.Remove(catalog); err != nil && !errors.Is(err, os.ErrNotExist) {
+		require.NoError(t, err, "failed to clear the rendered catalog before discover")
+	}
 	code, out, err := testutils.RunOlake(t.Context(), t, cfg, testutils.DiscoverArgs("--destination-database-prefix", cfg.UniqueID())...)
 	if err != nil || code != 0 {
 		t.Fatalf("discover on %s failed: %s", cfg.GetDriverImage(), testutils.RenderOlakeFailure(code, err, out))
