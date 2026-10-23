@@ -212,19 +212,33 @@ func TestCloseCommits2PCState(t *testing.T) {
 				DedupInserts:            &dedupInserts,
 			},
 		},
-		// No-op CDC/incremental closes keep the last data-backed checkpoint.
+		// CDC/incremental positions move without new records, so empty closes still advance the checkpoint.
 		{
 			name:          "no data",
 			threadID:      "cdc-thread",
 			existingState: &types.MetadataState{State: `{"lsn":"1/1"}`},
 			metadataState: &types.MetadataState{State: `{"lsn":"1/2"}`},
-			expectedState: &types.MetadataState{State: `{"lsn":"1/1"}`},
+			expectedState: &types.MetadataState{State: `{"lsn":"1/2"}`},
 		},
-		// A fresh no-op CDC/incremental close has no destination progress to persist.
+		// A fresh empty CDC/incremental close creates the first checkpoint.
 		{
 			name:          "no data without durable metadata",
 			threadID:      "new-cdc-thread",
 			metadataState: &types.MetadataState{State: `{"lsn":"1/1"}`},
+			expectedState: &types.MetadataState{State: `{"lsn":"1/1"}`},
+		},
+		// An empty close without metadata state has nothing to persist.
+		{
+			name:          "no data without metadata",
+			threadID:      "no-metadata-thread",
+			existingState: &types.MetadataState{State: `{"lsn":"1/1"}`},
+			expectedState: &types.MetadataState{State: `{"lsn":"1/1"}`},
+		},
+		// A typed nil inside an interface is treated as missing metadata state.
+		{
+			name:          "no data with typed nil metadata",
+			threadID:      "typed-nil-no-data-thread",
+			typedNilState: true,
 		},
 		// Data cannot be committed without the matching recovery checkpoint.
 		{

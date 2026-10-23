@@ -34,6 +34,10 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
+import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.UpdateProperties;
@@ -109,6 +113,7 @@ public class IcebergTableOperator {
   private static final ObjectMapper mapper = new ObjectMapper();
 
   private static final String STATE_KEY_2PC = "olake_2pc";
+  private static final int STATE_COMMIT_MAX_ATTEMPTS = 5;
   private static final String STATE_FIELD_LATEST_THREAD_ID = "id";
   private static final String STATE_FIELD_FULL_REFRESH_COMMITTED_IDS = "full_refresh_committed_ids";
   private static final String STATE_FIELD_DEDUP_INSERTS = "dedup_inserts";
@@ -167,12 +172,8 @@ public class IcebergTableOperator {
     completeWriter();
   
     if (filesToCommit.isEmpty()) {
-      LOGGER.info("No files to commit for thread: {}", threadId);
       rewrittenDeleteFiles.clear();
-      if (table.currentSnapshot() != null) {
-        return 0L;
-      }
-      return 0;
+      return commitStateOnly(threadId, payload, table);
     }
   
     // Refresh once before committing
@@ -198,10 +199,9 @@ public class IcebergTableOperator {
     }
   
     if (totalDataFiles == 0 && totalDeleteFiles == 0) {
-      LOGGER.info("No files to commit for thread: {}", threadId);
       filesToCommit.clear();
       rewrittenDeleteFiles.clear();
-      return 0L;
+      return commitStateOnly(threadId, payload, table);
     }
   
     try {
@@ -327,6 +327,48 @@ public class IcebergTableOperator {
       return  staged.snapshotId();
     } catch (Exception e) {
       String msg = String.format("Failed to commit for thread %s: %s", threadId, e.getMessage());
+      LOGGER.error(msg, e);
+      throw new RuntimeException(msg, e);
+    }
+  }
+
+  /**
+   * Commits only the 2PC state for a thread that produced no files. CDC positions (LSN,
+   * resume token, offsets) can move without new records, so the state is persisted on every
+   * sync to stay in step with the source. Backfill threads, and incremental syncs that read
+   * no records, carry no payload and keep the existing skip.
+   *
+   * @return 0, as a property update creates no snapshot for the indexer to checkpoint
+   */
+  private long commitStateOnly(String threadId, String payload, Table table) {
+    if (payload == null || payload.isEmpty()) {
+      LOGGER.info("No files to commit for thread: {}", threadId);
+      return 0L;
+    }
+
+    // UpdateProperties retries re-apply the value merged against the stale base, which would revert
+    // a concurrent writer's state, so each attempt re-merges against freshly loaded metadata instead.
+    TableOperations ops = ((HasTableOperations) table).operations();
+    try {
+      for (int attempt = 1; ; attempt++) {
+        TableMetadata base = ops.refresh();
+        String merged = mergeJsonState(base.property(STATE_KEY_2PC, null), threadId, payload);
+        try {
+          ops.commit(base, TableMetadata.buildFrom(base).setProperties(Map.of(STATE_KEY_2PC, merged)).build());
+          break;
+        } catch (CommitFailedException e) {
+          if (attempt >= STATE_COMMIT_MAX_ATTEMPTS) {
+            throw e;
+          }
+          LOGGER.warn("Concurrent {} state commit for thread: {}, retrying ({}/{})", STATE_KEY_2PC, threadId, attempt, STATE_COMMIT_MAX_ATTEMPTS);
+        }
+      }
+      table.refresh();
+
+      LOGGER.info("No files to commit for thread: {}, committed {} state only", threadId, STATE_KEY_2PC);
+      return 0L;
+    } catch (Exception e) {
+      String msg = String.format("Failed to commit %s state for thread %s: %s", STATE_KEY_2PC, threadId, e.getMessage());
       LOGGER.error(msg, e);
       throw new RuntimeException(msg, e);
     }
@@ -650,8 +692,12 @@ public class IcebergTableOperator {
   }
 
   private void updateJsonState(Table table, UpdateProperties updateProperties, String threadId, String payload) {
+      updateProperties.set(STATE_KEY_2PC, mergeJsonState(table.properties().get(STATE_KEY_2PC), threadId, payload));
+  }
+
+  /** Returns the 2PC state after merging the thread's payload into the stored value. */
+  private String mergeJsonState(String currentValue, String threadId, String payload) {
       try {
-          String currentValue = table.properties().get(STATE_KEY_2PC);
           ObjectNode rootNode;
           if (currentValue != null) {
               rootNode = (ObjectNode) mapper.readTree(currentValue);
@@ -679,7 +725,7 @@ public class IcebergTableOperator {
               rootNode.put(STATE_FIELD_DEDUP_INSERTS, true);
           }
 
-          updateProperties.set(STATE_KEY_2PC, mapper.writeValueAsString(rootNode));
+          return mapper.writeValueAsString(rootNode);
       } catch (JsonProcessingException e) {
           LOGGER.error("Failed to update JSON state for key: " + STATE_KEY_2PC, e);
           throw new RuntimeException("Failed to update JSON state", e);
