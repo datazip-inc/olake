@@ -28,9 +28,112 @@ func requireExpectations(t *testing.T, datatypeSchema, defaultCDCColumnsSchema m
 	}
 }
 
-// TODO: Refactor parsing logic into a reusable utility functions
-// verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
+// stringID safely converts any _olake_id value (string, []byte, etc.) to a string for set comparisons.
+func stringID(v any) string {
+	switch b := v.(type) {
+	case []byte:
+		return string(b)
+	case string:
+		return b
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+// SkipRowCount (or any negative integer) can be passed as expectedRowCount to bypass
+// exact cardinality checks and assert only that rows are non-empty.
+const SkipRowCount = -1
+
+// verifySyncedRows asserts that rows match the expected cardinality, have no duplicate _olake_id values,
+// and that each row's columns match the expected schema and CDC metadata.
+func verifySyncedRows(
+	t *testing.T,
+	rows []types.Row,
+	expectedCount int,
+	schema map[string]interface{},
+	defaultCDCColumnsSchema map[string]string,
+	opSymbol, destination, driver string,
+	isCDC bool,
+) {
+	t.Helper()
+
+	// For delete operations, accept between 0 and max(1, expectedCount) rows (both 0 and tombstone(s) are valid outcomes)
+	if opSymbol == "d" {
+		maxAllowed := 1
+		if expectedCount > 0 {
+			maxAllowed = expectedCount
+		}
+		require.LessOrEqualf(t, len(rows), maxAllowed, "Delete verification failed: expected at most %d row(s) for _op_type = 'd', got %d", maxAllowed, len(rows))
+		for _, row := range rows {
+			deletedID := row.Value("_olake_id")
+			require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
+		}
+		t.Logf("Delete verification passed: found %d row(s) for _op_type = 'd' (max %d allowed)", len(rows), maxAllowed)
+		return
+	}
+
+	// 1. Cardinality check: negative (< 0, e.g. SkipRowCount) skips exact count check and asserts non-empty;
+	// >= 0 asserts exact row count (0 checks for empty results).
+	if expectedCount < 0 {
+		require.NotEmpty(t, rows, "%s verification failed: no rows returned for _op_type = '%s'", destination, opSymbol)
+	} else {
+		require.Len(t, rows, expectedCount,
+			"%s verification failed: row count mismatch for _op_type = '%s': expected %d, got %d",
+			destination, opSymbol, expectedCount, len(rows))
+	}
+
+	// 2. Deduplication check: every row must have a unique _olake_id
+	seenIDs := make(map[string]struct{}, len(rows))
+	for rowIdx, row := range rows {
+		val := row.Value("_olake_id")
+		require.NotEmpty(t, val, "Row %d: missing _olake_id in %s result", rowIdx, destination)
+		id := stringID(val)
+		_, duplicate := seenIDs[id]
+		require.Falsef(t, duplicate, "Duplicate row detected: _olake_id %q appeared more than once in %s for _op_type = '%s'", id, destination, opSymbol)
+		seenIDs[id] = struct{}{}
+	}
+
+	// 3. Schema and CDC columns check
+	for rowIdx, row := range rows {
+		rowMap := make(map[string]interface{}, len(schema)+1)
+		for _, col := range row.FieldNames() {
+			rowMap[col] = row.Value(col)
+		}
+		for key, expected := range schema {
+			val, ok := rowMap[key]
+			require.Truef(t, ok, "Row %d: missing column %q in %s result", rowIdx, key, destination)
+			require.Equal(t, expected, val, "Row %d: mismatch on %q: %s has %#v, expected %#v", rowIdx, key, destination, val, expected)
+		}
+		if isCDC {
+			for key := range defaultCDCColumnsSchema {
+				val, ok := rowMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in %s result", rowIdx, key, destination)
+				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
+				if key == "_kafka_offset" || key == "_kafka_partition" {
+					require.NotNil(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				} else {
+					require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				}
+				if key == constants.CdcTimestamp {
+					ts, ok := normalizeToTime(val)
+					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
+					minAllowed := time.Now().Add(-1 * time.Hour)
+					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
+				}
+			}
+		}
+		if !isCDC && rowMap[constants.CdcTimestamp] != nil {
+			ts, ok := normalizeToTime(rowMap[constants.CdcTimestamp])
+			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, rowMap[constants.CdcTimestamp])
+			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
+			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
+		}
+	}
+	t.Logf("Verified %s synced data with respect to data synced from source[%s] found equal (%d rows, all unique by _olake_id)", destination, driver, len(rows))
+}
+
+// VerifyIcebergSync verifies that data was correctly synchronized to Iceberg
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string, expectedRowCount int) {
 	t.Helper()
 	requireExpectations(t, datatypeSchema, defaultCDCColumnsSchema, schema, opSymbol, driver, isCDC)
 	ctx := t.Context()
@@ -98,53 +201,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 
 	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)
-	// For delete operations, accept both 0 and 1 row (both are valid outcomes)
-	if opSymbol == "d" {
-		if len(selectRows) > 0 {
-			deletedID := selectRows[0].Value("_olake_id")
-			require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
-		}
-		t.Logf("Delete verification passed: found %d row(s) for _op_type = 'd'", len(selectRows))
-		return
-	}
-	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
 
-	for rowIdx, row := range selectRows {
-		icebergMap := make(map[string]interface{}, len(schema)+1)
-		for _, col := range row.FieldNames() {
-			icebergMap[col] = row.Value(col)
-		}
-		for key, expected := range schema {
-			icebergValue, ok := icebergMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
-		}
-		if isCDC {
-			for key := range defaultCDCColumnsSchema {
-				icebergValue, ok := icebergMap[key]
-				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
-				if key == "_kafka_offset" || key == "_kafka_partition" {
-					require.NotNil(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
-				} else {
-					require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
-				}
-				if key == constants.CdcTimestamp {
-					ts, ok := normalizeToTime(icebergValue)
-					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, icebergValue, icebergValue)
-					minAllowed := time.Now().Add(-1 * time.Hour)
-					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
-				}
-			}
-		}
-		if !isCDC && icebergMap[constants.CdcTimestamp] != nil {
-			ts, ok := normalizeToTime(icebergMap[constants.CdcTimestamp])
-			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, icebergMap[constants.CdcTimestamp])
-			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
-			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
-		}
-	}
-	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
+	verifySyncedRows(t, selectRows, expectedRowCount, schema, defaultCDCColumnsSchema, opSymbol, "Iceberg", driver, isCDC)
 
 	icebergSchema, describeRows := testutils.DescribeSchema(ctx, t, spark, fullTableName)
 
@@ -249,7 +307,7 @@ func VerifyIcebergNoDuplicates(ctx context.Context, t *testing.T, tableName, ice
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string, expectedRowCount int) {
 	t.Helper()
 	requireExpectations(t, datatypeSchema, defaultCDCColumnsSchema, schema, opSymbol, driver, isCDC)
 	ctx := t.Context()
@@ -297,57 +355,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	rows, err := df.Collect(ctx)
 	require.NoError(t, err, "Failed to collect rows from Parquet query")
 
-	// For delete operations, accept both 0 and 1 row (both are valid outcomes)
-	if opSymbol == "d" {
-		if len(rows) > 0 {
-			deletedID := rows[0].Value("_olake_id")
-			require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
-		}
-		t.Logf("Delete verification passed: found %d row(s) for _op_type = 'd'", len(rows))
-		return
-	}
-
-	// For non-delete operations, require at least one row
-	require.NotEmpty(t, rows, "No rows returned for _op_type = '%s'", opSymbol)
-
-	for rowIdx, row := range rows {
-		parquetMap := make(map[string]interface{}, len(schema)+1)
-		for _, col := range row.FieldNames() {
-			parquetMap[col] = row.Value(col)
-		}
-		for key, expected := range schema {
-			val, ok := parquetMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-			require.Equal(t, expected, val,
-				"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
-		}
-		if isCDC {
-			for key := range defaultCDCColumnsSchema {
-				val, ok := parquetMap[key]
-				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
-				if key == "_kafka_offset" || key == "_kafka_partition" {
-					require.NotNil(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
-				} else {
-					require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
-				}
-				if key == constants.CdcTimestamp {
-					ts, ok := normalizeToTime(val)
-					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
-					minAllowed := time.Now().Add(-1 * time.Hour)
-					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
-				}
-			}
-		}
-		if !isCDC && parquetMap[constants.CdcTimestamp] != nil {
-			ts, ok := normalizeToTime(parquetMap[constants.CdcTimestamp])
-			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, parquetMap[constants.CdcTimestamp])
-			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
-			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
-		}
-	}
-
-	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
+	verifySyncedRows(t, rows, expectedRowCount, schema, defaultCDCColumnsSchema, opSymbol, "Parquet", driver, isCDC)
 
 	parquetSchema, _ := testutils.DescribeSchema(ctx, t, spark, viewName)
 	if excludedColumn != "" {

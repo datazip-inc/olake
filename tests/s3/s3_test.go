@@ -33,6 +33,11 @@ func s3BaseConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestCon
 		ExpectedUpdatedData:       variant.ExpectedRowData(updatedValues),
 		DestinationDataTypeSchema: variant.DestinationSchema,
 		TypeMapping:               S3TypeMapping,
+		RowCounts: integration.RowCountContract{
+			FullLoad: 6,
+			Insert:   3,
+			Update:   3,
+		},
 	}
 	// The factory refreshes this handler's writer expectations, so it is rebuilt once the handler exists.
 	config.SetExecuteQuery(ExecuteQueryFactory(variant, cfg))

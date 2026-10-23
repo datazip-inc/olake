@@ -103,6 +103,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 			useState:                 true,
 			opSymbol:                 "c",
 			expected:                 th.ExpectedData,
+			expectedRowCount:         testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 10, 0).(int),
 			preSetup:                 testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.SaveStateFile}).([]func(*testutils.TestConfig) error),
 			verifyNoDuplicates:       th.TestConfig.Driver == string(constants.Kafka),
 			expectedRowCountByOpType: 10,
@@ -113,11 +114,14 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 			// committed metadata LSN by making a bounded sync.
 			// expectedRowCountByOpType=1 because no new data lands in Iceberg here,
 			// as it just recovers the sync from state -> metadata LSN.
-			name:                     "CDC - Recovery Sync",
-			operation:                "insert_2pc",
-			useState:                 true,
-			opSymbol:                 "c",
-			expected:                 th.ExpectedData,
+			name:      "CDC - Recovery Sync",
+			operation: "insert_2pc",
+			useState:  true,
+			opSymbol:  "c",
+			expected:  th.ExpectedData,
+			// For Kafka, exact count is 11; non-Kafka uses SkipRowCount because
+			// VerifyIcebergNoDuplicates immediately follows and asserts the exact table count (1) and no duplicates.
+			expectedRowCount:         testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 11, SkipRowCount).(int),
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: int64(testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 11, 1).(int)),
 			preSetup:                 testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.RestoreStateFile}).([]func(*testutils.TestConfig) error),
@@ -125,10 +129,13 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 		{
 			// After the recovery sync advanced state to the committed metadata LSN,
 			// a normal sync should see both the original insert and insert_2pc rows.
-			name:                     "CDC - Post Recovery Sync",
-			useState:                 true,
-			opSymbol:                 "c",
-			expected:                 th.ExpectedData,
+			name:     "CDC - Post Recovery Sync",
+			useState: true,
+			opSymbol: "c",
+			expected: th.ExpectedData,
+			// For Kafka, exact count is 12; non-Kafka uses SkipRowCount because
+			// VerifyIcebergNoDuplicates immediately follows and asserts the exact table count (2) and no duplicates.
+			expectedRowCount:         testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 12, SkipRowCount).(int),
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: int64(testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 12, 2).(int)),
 		},
@@ -146,6 +153,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 				ctx, t, testTable, tc.useState, "iceberg",
 				tc.operation, tc.opSymbol, tc.expected,
 				tc.name != "Full-Refresh",
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -214,11 +222,14 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 			// second record, run sync. The cursor re-reads the range and deduplicates
 			// the original insert via MERGE INTO; insert_2pc is net-new.
 			// expectedRowCountByOpType=1: only insert_2pc is visible (original deduplicated).
-			name:                     "Incremental - State Save Failure Sync",
-			operation:                "insert_2pc",
-			useState:                 true,
-			opSymbol:                 "u",
-			expected:                 th.ExpectedData,
+			name:      "Incremental - State Save Failure Sync",
+			operation: "insert_2pc",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  th.ExpectedData,
+			// SkipRowCount is used because VerifyIcebergNoDuplicates immediately follows
+			// and asserts the exact table count (tc.expectedRowCountByOpType) and no duplicates.
+			expectedRowCount:         SkipRowCount,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 1,
 			preSetup: []func(*testutils.TestConfig) error{
@@ -228,10 +239,13 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 		{
 			// After recovery, state is now consistent. A normal sync should see both
 			// the original insert row and insert_2pc row — 2 distinct records total.
-			name:                     "Incremental - Post Recovery Sync",
-			useState:                 true,
-			opSymbol:                 "u",
-			expected:                 th.ExpectedData,
+			name:     "Incremental - Post Recovery Sync",
+			useState: true,
+			opSymbol: "u",
+			expected: th.ExpectedData,
+			// SkipRowCount is used because VerifyIcebergNoDuplicates immediately follows
+			// and asserts the exact table count (tc.expectedRowCountByOpType) and no duplicates.
+			expectedRowCount:         SkipRowCount,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 2, // insert row + insert_2pc row, both unique by _olake_id
 		},
@@ -249,6 +263,7 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 				ctx, t, testTable, tc.useState, "iceberg",
 				tc.operation, tc.opSymbol, tc.expected,
 				false,
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("Incremental 2PC test %s failed: %v", tc.name, err)
 			}

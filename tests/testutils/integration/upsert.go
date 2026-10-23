@@ -11,11 +11,12 @@ import (
 )
 
 type Upsert struct {
-	Name      string
-	Operation string
-	UseState  bool
-	OpSymbol  string
-	Expected  map[string]interface{}
+	Name             string
+	Operation        string
+	UseState         bool
+	OpSymbol         string
+	Expected         map[string]interface{}
+	ExpectedRowCount int
 }
 
 // RunUpsertIceberg seeds a Kafka upsert stream's topic with seedOp and runs steps as Arrow Iceberg sync+verify rounds.
@@ -43,7 +44,11 @@ func (th *TestHandler) RunUpsertIceberg(t *testing.T, seedOp string, steps []Ups
 		}
 
 		for _, tc := range steps {
-			if err := th.runSyncAndVerify(ctx, t, testTable, tc.UseState, "iceberg", tc.Operation, tc.OpSymbol, tc.Expected, true); err != nil {
+			count := tc.ExpectedRowCount
+			if count == 0 && tc.Operation == "" {
+				count = 1
+			}
+			if err := th.runSyncAndVerify(ctx, t, testTable, tc.UseState, "iceberg", tc.Operation, tc.OpSymbol, tc.Expected, true, count); err != nil {
 				return fmt.Errorf("%s: %w", tc.Name, err)
 			}
 		}
@@ -77,7 +82,7 @@ func (th *TestHandler) RunUpsertIcebergExpectFail(t *testing.T, seedOp, wantErr 
 		if err := os.RemoveAll(th.tableIndexHostDir()); err != nil {
 			return fmt.Errorf("failed to clear table index: %w", err)
 		}
-		return th.runSyncAndVerify(ctx, t, testTable, false, "iceberg", "", "c", th.ExpectedData, true)
+		return th.runSyncAndVerify(ctx, t, testTable, false, "iceberg", "", "c", th.ExpectedData, true, 1)
 	}); err == nil {
 		t.Fatalf("sync must fail (%s)", wantErr)
 	} else if !strings.Contains(err.Error(), wantErr) {
