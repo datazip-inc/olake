@@ -26,12 +26,12 @@ func (th *TestHandler) Test2PCIntegration(t *testing.T) {
 		th.ExecuteQuery(ctx, t, th.TestConfig, "add")
 
 		if err := th.IsolateDestinationDB(); err != nil {
-			t.Fatalf("failed to isolate the destination database in streams.json: %s", err)
+			t.Fatalf("failed to isolate the destination database in the catalog: %s", err)
 		}
 		if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{currentTestTable}, []string{th.ColumnToExclude}); err != nil {
-			t.Fatalf("failed to enable normalization and partition regex in streams.json: %s", err)
+			t.Fatalf("failed to enable normalization and partition regex in the catalog: %s", err)
 		}
-		t.Logf("Enabled normalization and added partition regex in %s", th.GetFilePath("streams.json"))
+		t.Logf("Enabled normalization and added partition regex in %s", th.Catalog())
 
 		writerTypes := []struct {
 			name     string
@@ -184,9 +184,9 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 	// property left by a previous run can't leak into this run's recovery timeline.
 	testutils.DropIcebergTable(t, testTable, th.DestinationDB)
 
-	// Patch streams.json: set sync_mode = incremental, cursor_field
+	// Patch the catalog: set sync_mode = incremental, cursor_field
 	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, "incremental", th.CursorField); err != nil {
-		return fmt.Errorf("failed to patch streams.json for incremental: %s", err)
+		return fmt.Errorf("failed to patch the catalog for incremental: %s", err)
 	}
 
 	twoPCIncrementalTestCases := []syncTestCase{

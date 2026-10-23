@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"testing"
 
@@ -35,8 +34,9 @@ func (th *TestHandler) TestDiscover(t *testing.T) {
 		th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	}()
 
-	// 2. Generated expected steams.json from committed template
-	require.NoError(t, th.RenderConfig("streams.template.json", "expected_discover_streams.json"), "failed to generate the expected discover catalog")
+	// 2. Generate the expected catalog from the committed templates
+	expectedCatalog, err := th.RenderCatalog("expected_discover_")
+	require.NoError(t, err, "failed to generate the expected discover catalog")
 
 	// 3. Run discover against the driver image
 	code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.DiscoverArgs()...)
@@ -44,22 +44,20 @@ func (th *TestHandler) TestDiscover(t *testing.T) {
 		t.Fatal(testutils.RenderOlakeFailure(code, err, out))
 	}
 
-	verifyDiscoveredStreams(t, th.GetFilePath("expected_discover_streams.json"), th.GetFilePath("streams.json"))
+	verifyDiscoveredStreams(t, expectedCatalog, th.Catalog())
 }
 
-// verifyDiscoveredStreams asserts the discovered catalog holds exactly the streams expected_streams.json
-func verifyDiscoveredStreams(t *testing.T, expectedPath, actualPath string) {
+// verifyDiscoveredStreams asserts the discovered catalog holds exactly the streams of the expected catalog
+func verifyDiscoveredStreams(t *testing.T, expectedCatalog, actualCatalog testutils.CatalogFiles) {
 	t.Helper()
 
-	load := func(path, what string) map[string]interface{} {
-		data, err := os.ReadFile(path)
-		require.NoError(t, err, "failed to read %s streams JSON (%s)", what, path)
-		var doc map[string]interface{}
-		require.NoError(t, json.Unmarshal(data, &doc), "failed to parse %s streams JSON (%s)", what, path)
+	load := func(catalog testutils.CatalogFiles, what string) map[string]interface{} {
+		doc, err := catalog.Read()
+		require.NoError(t, err, "failed to load the %s catalog (%s)", what, catalog)
 		return doc
 	}
-	expected := load(expectedPath, "expected")
-	actual := load(actualPath, "discovered")
+	expected := load(expectedCatalog, "expected")
+	actual := load(actualCatalog, "discovered")
 
 	// streams[]: keyed by namespace.name, which is what makes a stream unique in a catalog.
 	indexStreams := func(doc map[string]interface{}) map[string]interface{} {
@@ -97,15 +95,15 @@ func verifyDiscoveredStreams(t *testing.T, expectedPath, actualPath string) {
 
 	compare := func(section string, want, got map[string]interface{}) {
 		require.Equal(t, slices.Sorted(maps.Keys(want)), slices.Sorted(maps.Keys(got)),
-			"%s: discover returned a different set of streams than expected_streams.json", section)
+			"%s: discover returned a different set of streams than %s", section, expectedCatalog)
 		for key, wantEntry := range want {
 			wantJSON, err := json.Marshal(wantEntry)
 			require.NoError(t, err)
 			gotJSON, err := json.Marshal(got[key])
 			require.NoError(t, err)
 			require.Truef(t, testutils.NormalizedEqual(string(wantJSON), string(gotJSON)),
-				"%s: discovered %q does not match expected_streams.json\n%s\nExpected:\n%s\nGot:\n%s",
-				section, key, require.MapDiff("field", "expected", "discovered", wantEntry, got[key]), wantJSON, gotJSON)
+				"%s: discovered %q does not match %s\n%s\nExpected:\n%s\nGot:\n%s",
+				section, key, expectedCatalog, require.MapDiff("field", "expected", "discovered", wantEntry, got[key]), wantJSON, gotJSON)
 		}
 	}
 	compare("streams", indexStreams(expected), indexStreams(actual))

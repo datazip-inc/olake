@@ -70,6 +70,10 @@ type TestConfig struct {
 
 	SkipSchemaEvolution bool
 
+	// StreamsV1 runs olake against the deprecated streams.json (--catalog) instead of
+	// available_streams.json + selected_streams.json. Remove with streams v1 support.
+	StreamsV1 bool
+
 	// Driver shape: the same for every suite this driver runs, so it is declared once here
 	// rather than per test.
 	Namespace       string
@@ -121,6 +125,13 @@ func WithImagePlatform(platform string) TestConfigOption {
 func WithDataFormat(dataFormat string) TestConfigOption {
 	return func(c *TestConfig) {
 		c.DataFormat = dataFormat
+	}
+}
+
+// WithStreamsV1 runs the suite against streams.json (--catalog). Remove with streams v1 support.
+func WithStreamsV1() TestConfigOption {
+	return func(c *TestConfig) {
+		c.StreamsV1 = true
 	}
 }
 
@@ -285,7 +296,7 @@ func (c *TestConfig) isolateSuiteConfigs() error {
 		return fmt.Errorf("failed to isolate the source config of driver %q for suite %q: %s", c.Driver, c.Suite, err)
 	}
 
-	if err := c.RenderConfig("streams.template.json", "streams.json"); err != nil {
+	if _, err := c.RenderCatalog(""); err != nil {
 		return fmt.Errorf("failed to retarget the catalog of driver %q at suite %q table %s: %s", c.Driver, c.Suite, c.GetTableName(), err)
 	}
 	return nil
@@ -347,17 +358,31 @@ func (c *TestConfig) expandPlaceholders(raw []byte) ([]byte, error) {
 
 // EditJSONFile reads path, applies edit to the decoded document, and writes it back.
 func EditJSONFile(path string, edit func(doc map[string]interface{}) error) error {
-	raw, err := os.ReadFile(path)
+	doc, err := readJSONDoc(path)
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %s", path, err)
-	}
-	doc, err := ParseJSONDoc(raw)
-	if err != nil {
-		return fmt.Errorf("failed to parse %s: %s", path, err)
+		return err
 	}
 	if err := edit(doc); err != nil {
 		return err
 	}
+	return writeJSONDoc(path, doc)
+}
+
+// readJSONDoc reads and decodes the JSON object at path.
+func readJSONDoc(path string) (map[string]interface{}, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %s", path, err)
+	}
+	doc, err := ParseJSONDoc(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %s", path, err)
+	}
+	return doc, nil
+}
+
+// writeJSONDoc encodes doc as indented JSON and writes it to path.
+func writeJSONDoc(path string, doc map[string]interface{}) error {
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal %s: %s", path, err)
@@ -390,7 +415,7 @@ func NormalizeStreamName(driver, streamName string) string {
 // IsolateDestinationDB suffixes every stream's destination_database with the suite and records it as
 // DestinationDB: the driver writes a baked destination_database verbatim, ignoring the prefix flag.
 func (c *TestConfig) IsolateDestinationDB() error {
-	return EditJSONFile(c.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
+	return c.Catalog().Edit(func(doc map[string]interface{}) error {
 		entries, _ := doc["streams"].([]interface{})
 		for _, entry := range entries {
 			wrapper, ok := entry.(map[string]interface{})
@@ -431,7 +456,14 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 		}
 	}
 
-	return EditJSONFile(config.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
+	excluded := make(map[string]bool, len(excludedColumns))
+	for _, column := range excludedColumns {
+		if column != "" {
+			excluded[column] = true
+		}
+	}
+
+	return config.Catalog().Edit(func(doc map[string]interface{}) error {
 		selected, _ := doc["selected_streams"].(map[string]interface{})
 		nsStreams, _ := selected[namespace].([]interface{})
 		kept := make([]interface{}, 0, len(nsStreams))
@@ -440,29 +472,13 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 			if !ok || !selectedNames[fmt.Sprint(stream["stream_name"])] {
 				continue
 			}
-			delete(selectedNames, fmt.Sprint(stream["stream_name"]))
+			streamName := fmt.Sprint(stream["stream_name"])
+			delete(selectedNames, streamName)
 			stream["normalization"] = true
 			stream["partition_regex"] = partitionRegex
 			stream["filter_config"] = filter
-			for _, excluded := range excludedColumns {
-				if excluded == "" {
-					continue
-				}
-				selectedColumns, ok := stream["selected_columns"].(map[string]interface{})
-				if !ok {
-					continue
-				}
-				columns, ok := selectedColumns["columns"].([]interface{})
-				if !ok {
-					continue
-				}
-				remaining := make([]interface{}, 0, len(columns))
-				for _, col := range columns {
-					if fmt.Sprint(col) != excluded {
-						remaining = append(remaining, col)
-					}
-				}
-				selectedColumns["columns"] = remaining
+			if len(excluded) > 0 {
+				excludeColumns(doc, namespace, streamName, stream, excluded)
 			}
 			kept = append(kept, stream)
 		}
@@ -472,6 +488,38 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 		doc["selected_streams"] = map[string]interface{}{namespace: kept}
 		return nil
 	})
+}
+
+// excludeColumns drops the excluded columns from a selected stream's selected_columns. A
+// selected_streams entry discover writes under streams v2 leaves selected_columns unset, which
+// selects every column, so the list is then built from the stream's selectable_columns. A catalog
+// with neither, from an older build, is left as it is.
+func excludeColumns(doc map[string]interface{}, namespace, streamName string, stream map[string]interface{}, excluded map[string]bool) {
+	if selectedColumns, ok := stream["selected_columns"].(map[string]interface{}); ok {
+		if columns, ok := selectedColumns["columns"].([]interface{}); ok {
+			selectedColumns["columns"] = withoutColumns(columns, excluded)
+		}
+		return
+	}
+	available := AvailableStreamEntry(doc, namespace, streamName)
+	if available == nil {
+		return
+	}
+	columns, ok := available["selectable_columns"].([]interface{})
+	if !ok {
+		return
+	}
+	stream["selected_columns"] = map[string]interface{}{"columns": withoutColumns(columns, excluded), "sync_new_columns": true}
+}
+
+func withoutColumns(columns []interface{}, excluded map[string]bool) []interface{} {
+	remaining := make([]interface{}, 0, len(columns))
+	for _, column := range columns {
+		if !excluded[fmt.Sprint(column)] {
+			remaining = append(remaining, column)
+		}
+	}
+	return remaining
 }
 
 func CopyFile(src, dst string) error {
