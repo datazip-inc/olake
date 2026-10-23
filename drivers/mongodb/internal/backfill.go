@@ -253,7 +253,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 
-	switch m.config.ChunkingStrategy {
+	//  compare case-insensitively
+	switch strings.ToLower(strings.TrimSpace(m.config.ChunkingStrategy)) {
 	case "timestamp":
 		return timestampStrategy()
 	default:
