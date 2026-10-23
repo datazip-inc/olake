@@ -16,6 +16,13 @@ const (
 	parquetDestinationFile      = "parquet_destination.json"
 )
 
+// RowCountContract defines the expected number of rows seeded and verified for each phase of a sync test.
+type RowCountContract struct {
+	FullLoad int
+	Insert   int
+	Update   int
+}
+
 type TestHandler struct {
 	*testutils.TestConfig
 
@@ -33,6 +40,34 @@ type TestHandler struct {
 	UpsertAddOp                      string
 	UpsertUpdateOp                   string
 	SkipTombstone                    bool
+	RowCounts                        RowCountContract
+}
+
+// ExpectedRowCount resolves the expected row count for a given operation and op_type symbol.
+// Returns 0 for delete operations, and falls back to standard defaults (FullLoad: 5, Insert: 1, Update: 1)
+// if the handler's RowCounts contract fields are unset. Returns an error if the operation is unhandled.
+func (th *TestHandler) ExpectedRowCount(opSymbol, operation string) (int, error) {
+	if opSymbol == "d" {
+		return 0, nil
+	}
+	fullLoad := testutils.Ternary(th.RowCounts.FullLoad > 0, th.RowCounts.FullLoad, 5).(int)
+	insertCount := testutils.Ternary(th.RowCounts.Insert > 0, th.RowCounts.Insert, 1).(int)
+	updateCount := testutils.Ternary(th.RowCounts.Update > 0, th.RowCounts.Update, 1).(int)
+
+	switch operation {
+	case "insert", "upsert_add", "add":
+		return insertCount, nil
+	case "update", "upsert_update", "upsert_column_update", "upsert_update_repartition", "upsert_update_partition_1":
+		return updateCount, nil
+	case "":
+		return fullLoad, nil
+	default:
+		driver := ""
+		if th.TestConfig != nil {
+			driver = th.TestConfig.Driver
+		}
+		return 0, fmt.Errorf("ExpectedRowCount: unhandled operation %q for symbol %q (driver %s); declare expectedRowCount explicitly in test case or register in ExpectedRowCount", operation, opSymbol, driver)
+	}
 }
 
 // reset table and add back data to the table, then reset the catalog so the scenario starts fresh
@@ -72,7 +107,20 @@ func (th *TestHandler) runSyncAndVerify(
 	opSymbol string,
 	schema map[string]interface{},
 	isCDC bool,
+	expectedRowCount ...int,
 ) error {
+	// Resolve expected row count upfront so invalid operations fail fast before wasting a sync
+	var count int
+	if len(expectedRowCount) > 0 && expectedRowCount[0] != 0 {
+		count = expectedRowCount[0]
+	} else {
+		var err error
+		count, err = th.ExpectedRowCount(opSymbol, operation)
+		if err != nil {
+			t.Fatalf("failed to resolve expected row count: %v", err)
+		}
+	}
+
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, operation)
@@ -97,9 +145,9 @@ func (th *TestHandler) runSyncAndVerify(
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude, count)
 			} else {
-				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude, count)
 			}
 		}
 	case "parquet":
@@ -109,9 +157,9 @@ func (th *TestHandler) runSyncAndVerify(
 				typeMapping = th.ParquetTypeMapping
 			}
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude, count)
 			} else {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude, count)
 			}
 		}
 	}
@@ -162,6 +210,7 @@ type syncTestCase struct {
 	preSetup                 []func(*testutils.TestConfig) error // host-side actions executed before the sync
 	verifyNoDuplicates       bool                                // if true, assert COUNT(*) == COUNT(DISTINCT _olake_id) after sync
 	expectedRowCountByOpType int64                               // when > 0, assert COUNT(DISTINCT _olake_id) == this value (catches over-sync and under-sync)
+	expectedRowCount         int                                 // optional override for Verify*Sync: 0 means use contract (ExpectedRowCount); < 0 (e.g. SkipRowCount) skips exact count and asserts non-empty; > 0 asserts exact count
 }
 
 // updateStreamConfig sets sync_mode and cursor_field for the stream identified by namespace+name:

@@ -233,6 +233,7 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 				tc.opSymbol,
 				tc.expected,
 				tc.name != "Full-Refresh",
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -374,6 +375,7 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 				tc.opSymbol,
 				tc.expected,
 				tc.name != "Full-Refresh",
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -453,6 +455,7 @@ func (th *TestHandler) IcebergFullLoadAndIncremental(
 				tc.opSymbol,
 				tc.expected,
 				false,
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -542,6 +545,7 @@ func (th *TestHandler) ParquetFullLoadAndIncremental(
 				tc.opSymbol,
 				tc.expected,
 				false,
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
