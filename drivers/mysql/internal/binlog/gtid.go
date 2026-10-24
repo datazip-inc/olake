@@ -84,10 +84,8 @@ type gtidTransaction struct {
 
 //nolint:nilnil // A nil set means the event has not completed a transaction.
 func (t *gtidTransaction) consume(event *replication.BinlogEvent) (mysql.GTIDSet, error) {
-	switch event.Header.EventType {
-	case replication.ANONYMOUS_GTID_EVENT, replication.GTID_TAGGED_LOG_EVENT,
-		replication.XA_PREPARE_LOG_EVENT, replication.TRANSACTION_PAYLOAD_EVENT:
-		return nil, fmt.Errorf("%w: unsupported event %s in MySQL GTID sync", constants.ErrNonRetryable, event.Header.EventType)
+	if err := rejectUnsupported(event, "in MySQL GTID sync"); err != nil {
+		return nil, err
 	}
 	switch e := event.Event.(type) {
 	case *replication.GTIDEvent:
@@ -103,9 +101,6 @@ func (t *gtidTransaction) consume(event *replication.BinlogEvent) (mysql.GTIDSet
 		return nil, nil
 	case *replication.QueryEvent:
 		query := strings.ToUpper(strings.TrimSpace(string(e.Query)))
-		if strings.HasPrefix(query, "XA ") {
-			return nil, fmt.Errorf("%w: XA transactions are not supported in MySQL GTID sync", constants.ErrNonRetryable)
-		}
 		if query == "BEGIN" {
 			t.begun = true
 			return nil, nil
@@ -128,4 +123,16 @@ func (t *gtidTransaction) complete() (mysql.GTIDSet, error) {
 	t.active, t.begun = false, false
 	// GSet also includes transactions read outside our target on a reordered replica.
 	return t.gtid, nil
+}
+
+func rejectUnsupported(event *replication.BinlogEvent, operation string) error {
+	switch event.Header.EventType {
+	case replication.ANONYMOUS_GTID_EVENT, replication.GTID_TAGGED_LOG_EVENT,
+		replication.XA_PREPARE_LOG_EVENT, replication.TRANSACTION_PAYLOAD_EVENT:
+		return fmt.Errorf("%w: unsupported event %s %s", constants.ErrNonRetryable, event.Header.EventType, operation)
+	}
+	if query, ok := event.Event.(*replication.QueryEvent); ok && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(string(query.Query))), "XA ") {
+		return fmt.Errorf("%w: XA transactions are not supported %s", constants.ErrNonRetryable, operation)
+	}
+	return nil
 }

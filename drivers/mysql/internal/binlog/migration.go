@@ -15,6 +15,27 @@ type gtidRebuild struct {
 	transaction gtidTransaction
 }
 
+func (p *gtidRebuild) observe(event *replication.BinlogEvent, current, resume mysql.Position) (bool, error) {
+	if err := p.consume(event); err != nil {
+		return false, err
+	}
+	withinTarget := true
+	if event.Header.LogPos > 0 && current.Name == resume.Name {
+		pos := event.Header.LogPos
+		if pos > resume.Pos && pos-event.Header.EventSize < resume.Pos {
+			return false, errs.Precondition(errs.StateInvalid, "mysql.gtid_migration_invalid",
+				fmt.Errorf("%w: legacy checkpoint is inside a binlog event", constants.ErrNonRetryable))
+		}
+		withinTarget = pos > resume.Pos
+	}
+	if withinTarget {
+		if err := rejectUnsupported(event, "during MySQL GTID migration"); err != nil {
+			return false, err
+		}
+	}
+	return withinTarget, nil
+}
+
 func (p *gtidRebuild) consume(event *replication.BinlogEvent) error {
 	if previous, ok := event.Event.(*replication.PreviousGTIDsEvent); ok && p.gtidSet == nil {
 		var err error

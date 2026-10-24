@@ -11,6 +11,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGTIDRebuild_Observe(t *testing.T) {
+	resume := mysql.Position{Name: "bin.000001", Pos: 400}
+	tests := []struct {
+		name      string
+		kind      replication.EventType
+		position  uint32
+		query     string
+		deliver   bool
+		wantError string
+	}{
+		{"processed anonymous history", replication.ANONYMOUS_GTID_EVENT, 300, "", false, ""},
+		{"pending anonymous transaction", replication.ANONYMOUS_GTID_EVENT, 500, "", false, "unsupported event"},
+		{"processed row", replication.WRITE_ROWS_EVENTv2, 400, "", false, ""},
+		{"remaining row", replication.WRITE_ROWS_EVENTv2, 500, "", true, ""},
+		{"checkpoint inside event", replication.WRITE_ROWS_EVENTv2, 450, "", false, "inside a binlog event"},
+		{"processed XA query", replication.QUERY_EVENT, 300, "XA START 'x'", false, ""},
+		{"pending XA query", replication.QUERY_EVENT, 500, "XA START 'x'", false, "XA transactions"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var rebuild gtidRebuild
+			event := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: tt.kind, LogPos: tt.position, EventSize: 100}}
+			if tt.query != "" {
+				event.Event = &replication.QueryEvent{Query: []byte(tt.query)}
+			}
+			// Previously processed anonymous/XA history stays outside migration delivery checks.
+			deliver, err := rebuild.observe(event, resume, resume)
+			if tt.wantError != "" {
+				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				require.ErrorContains(t, err, tt.wantError)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.deliver, deliver)
+		})
+	}
+}
+
 func TestConnection_FinishMigration(t *testing.T) {
 	var progress gtidRebuild
 	events := []struct {
