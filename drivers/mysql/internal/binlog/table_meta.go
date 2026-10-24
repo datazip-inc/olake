@@ -36,6 +36,8 @@ type columnMeta struct {
 type tableMeta struct {
 	Columns    []columnMeta   `json:"columns"`
 	AnchoredAt mysql.Position `json:"anchored_at"`
+	// gtidAnchor proves a fresh SQL schema load is covered by the consumer's checkpoint.
+	gtidAnchor mysql.GTIDSet
 	// DefaultCollationID is the table default, which a column added without a charset takes.
 	DefaultCollationID uint64 `json:"default_collation_id,omitempty"`
 	// SchemaCollationID is the database default, which a table created without a charset takes.
@@ -45,6 +47,13 @@ type tableMeta struct {
 	TableID uint64 `json:"-"`
 	// ColumnTypes are the TableMapEvent.ColumnType bytes recorded with TableID. Not saved either.
 	ColumnTypes []byte `json:"-"`
+}
+
+func (m *tableMeta) includesDDL(ev ddlEvent) bool {
+	if ev.gtid != nil {
+		return m.gtidAnchor != nil && m.gtidAnchor.Contain(ev.gtid)
+	}
+	return m.AnchoredAt.Compare(ev.pos) >= 0
 }
 
 // columnMetaFrom builds one column's decoding info from its information_schema row.

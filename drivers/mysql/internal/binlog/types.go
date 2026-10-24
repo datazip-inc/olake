@@ -32,8 +32,11 @@ type Config struct {
 
 // BinlogState holds the current binlog position.
 type Binlog struct {
-	Position mysql.Position        `json:"position"`
-	Schemas  map[string]*tableMeta `json:"schemas,omitempty"`
+	Position   mysql.Position `json:"position"`
+	ServerUUID string         `json:"server_uuid,omitempty"`
+	// A present empty set is a GTID checkpoint; nil denotes file/offset state.
+	GTIDSet *string               `json:"gtid_set,omitempty"`
+	Schemas map[string]*tableMeta `json:"schemas,omitempty"`
 }
 
 // CDCChange represents a change event captured from the binlog.
