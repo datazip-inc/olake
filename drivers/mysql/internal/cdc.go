@@ -31,7 +31,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 
 	flavor := mysql.MySQLFlavor
 	// GTID checkpoints are MySQL-only; completed recovery must not need a live source.
-	if mySQLGlobalState.State.GTIDSet == nil {
+	if mySQLGlobalState.State.GTIDSet == nil && len(streamsToSync) > 0 {
 		serverFlavor, _, _, err := jdbc.MySQLVersion(ctx, m.client)
 		if err != nil {
 			return nil, fmt.Errorf("failed to detect server flavor for binlog: %w", err)
@@ -190,8 +190,8 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 		remainingStreams = m.streams
 	}
 
-	// All selected streams already committed this GTID boundary; no binlog replay is needed.
-	recovered := recoveryState.GTIDSet != nil && len(remainingStreams) == 0
+	// All selected streams already committed this boundary; no binlog replay is needed.
+	recovered := (recoveryState.GTIDSet != nil || recoveryState.Position.Name != "") && len(remainingStreams) == 0
 	if recovered {
 		mySQLGlobalState.State = recoveryState
 	}

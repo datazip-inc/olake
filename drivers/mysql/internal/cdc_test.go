@@ -159,6 +159,74 @@ func TestMySQL_GTIDRecovery(t *testing.T) {
 	}
 }
 
+func TestMySQL_FileRecovery(t *testing.T) {
+	previousPath := viper.Get(constants.StatePath)
+	viper.Set(constants.StatePath, filepath.Join(t.TempDir(), "state.json"))
+	t.Cleanup(func() { viper.Set(constants.StatePath, previousPath) })
+	orders := &types.ConfiguredStream{Stream: types.NewStream("orders", "demo", nil)}
+	other := &types.ConfiguredStream{Stream: types.NewStream("other", "demo", nil)}
+	tests := []struct {
+		name                string
+		ordersPos, otherPos uint32
+		wantError           string
+	}{
+		{"all streams committed before state save", 900, 900, ""},
+		{"partial recovery still reads source", 900, 400, "source unavailable"},
+		{"no recovery point still reads source", 400, 400, "source unavailable"},
+		{"conflicting committed boundaries", 900, 1000, "disagree"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			initial := MySQLGlobalState{ServerID: 1001, State: binlog.Binlog{
+				Position: mysql.Position{Name: "bin.000001", Pos: 400}, ServerUUID: "a",
+			}}
+			checkpoint := binlog.Binlog{Position: mysql.Position{Name: "bin.000001", Pos: 900}, ServerUUID: "a"}
+			require.NoError(t, json.Unmarshal([]byte(`{"schemas":{"demo.orders":{"columns":[{"name":"id"}],"anchored_at":{"Name":"bin.000001","Pos":300}}}}`), &checkpoint))
+			metadata := map[string]any{}
+			for streamID, pos := range map[string]uint32{orders.ID(): tt.ordersPos, other.ID(): tt.otherPos} {
+				value := checkpoint
+				value.Position.Pos = pos
+				data, err := json.Marshal(value)
+				require.NoError(t, err)
+				metadata[streamID] = string(data)
+			}
+			m, mock := newMockMySQL(t)
+			m.config = &Config{Port: 3306}
+			m.state = &types.State{RWMutex: &sync.RWMutex{}, Global: &types.GlobalState{State: initial}}
+			m.streams = []types.StreamInterface{orders, other}
+			if tt.wantError == "source unavailable" {
+				mock.ExpectQuery("SELECT @@version").WillReturnError(errors.New(tt.wantError))
+			}
+
+			// Completed commits recover their checkpoint and schemas without any SQL queries.
+			got, err := m.StreamChanges(context.Background(), 0, metadata, nil)
+			require.Equal(t, initial, m.state.GetGlobal().State)
+			if tt.wantError != "" {
+				require.ErrorContains(t, err, tt.wantError)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, checkpoint, got)
+			require.NoError(t, m.PostCDC(context.Background(), 0))
+			want := MySQLGlobalState{ServerID: initial.ServerID, State: checkpoint}
+			require.Equal(t, want, m.state.GetGlobal().State)
+
+			// Adopting committed progress does not make file positions portable to another server.
+			mock.ExpectQuery("SELECT @@version").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("8.0.36"))
+			mock.ExpectQuery("SELECT @@lower_case_table_names").WillReturnRows(sqlmock.NewRows([]string{"lower_case_table_names"}).AddRow(0))
+			mock.ExpectQuery("SELECT @@version").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("8.0.36"))
+			mock.ExpectQuery("SELECT @@server_uuid, @@gtid_mode").WillReturnRows(sqlmock.NewRows([]string{"uuid", "mode"}).AddRow("b", "OFF"))
+			mock.ExpectQuery("SHOW MASTER STATUS").WillReturnRows(sqlmock.NewRows([]string{"File", "Position", "Binlog_Do_DB", "Binlog_Ignore_DB", "Executed_Gtid_Set"}).AddRow("bin.000001", 1000, "", "", ""))
+			_, err = m.StreamChanges(context.Background(), 0, metadata, nil)
+			require.NotNil(t, m.BinlogConn)
+			t.Cleanup(m.BinlogConn.Cleanup)
+			require.ErrorIs(t, err, constants.ErrNonRetryable)
+			require.ErrorContains(t, err, "server UUID changed")
+			require.Equal(t, want, m.state.GetGlobal().State)
+		})
+	}
+}
+
 func TestMySQL_MigrationRecovery(t *testing.T) {
 	previousPath := viper.Get(constants.StatePath)
 	viper.Set(constants.StatePath, filepath.Join(t.TempDir(), "state.json"))
