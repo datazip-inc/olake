@@ -156,32 +156,22 @@ func (p *Parquet) readBackfillFinish(ctx context.Context, key string) (string, e
 	return state.ThreadID, nil
 }
 
-// streamFinishState serializes the abstract-provided state for finish.json and returns
-// the same state in the typed form used to update metadata.json.
-func streamFinishState(finalMetadataState any) ([]byte, types.MetadataState, error) {
+// streamFinishState serializes the abstract-provided state for finish.json, reports whether it
+// carries a checkpoint to commit, and returns the same state in the typed form used to update
+// metadata.json. Unserializable or unparseable state reports hasState so the caller surfaces err.
+func streamFinishState(finalMetadataState any) ([]byte, types.MetadataState, bool, error) {
 	data, err := json.Marshal(finalMetadataState)
 	if err != nil {
-		return nil, types.MetadataState{}, fmt.Errorf("failed to marshal parquet 2pc finish state: %s", err)
+		return nil, types.MetadataState{}, true, fmt.Errorf("failed to marshal parquet 2pc finish state: %s", err)
 	}
 	state, err := parseFinishState(data)
 	if err != nil {
-		return nil, types.MetadataState{}, err
+		return nil, types.MetadataState{}, true, err
 	}
 	if state == nil {
-		return nil, types.MetadataState{}, fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
+		return nil, types.MetadataState{}, false, nil
 	}
-	return data, *state, nil
-}
-
-// hasStreamFinishState reports whether the abstract-provided state carries a checkpoint to
-// commit. Unserializable state reports true so streamFinishState surfaces the error.
-func hasStreamFinishState(finalMetadataState any) bool {
-	data, err := json.Marshal(finalMetadataState)
-	if err != nil {
-		return true
-	}
-	state, err := parseFinishState(data)
-	return err != nil || state != nil
+	return data, *state, true, nil
 }
 
 func parseFinishState(data []byte) (*types.MetadataState, error) {

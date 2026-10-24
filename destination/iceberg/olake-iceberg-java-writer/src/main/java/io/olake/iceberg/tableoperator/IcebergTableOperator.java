@@ -34,10 +34,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
-import org.apache.iceberg.HasTableOperations;
-import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.TableOperations;
-import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.UpdateProperties;
@@ -113,7 +109,6 @@ public class IcebergTableOperator {
   private static final ObjectMapper mapper = new ObjectMapper();
 
   private static final String STATE_KEY_2PC = "olake_2pc";
-  private static final int STATE_COMMIT_MAX_ATTEMPTS = 5;
   private static final String STATE_FIELD_LATEST_THREAD_ID = "id";
   private static final String STATE_FIELD_FULL_REFRESH_COMMITTED_IDS = "full_refresh_committed_ids";
   private static final String STATE_FIELD_DEDUP_INSERTS = "dedup_inserts";
@@ -346,24 +341,15 @@ public class IcebergTableOperator {
       return 0L;
     }
 
-    // UpdateProperties retries re-apply the value merged against the stale base, which would revert
-    // a concurrent writer's state, so each attempt re-merges against freshly loaded metadata instead.
-    TableOperations ops = ((HasTableOperations) table).operations();
     try {
-      for (int attempt = 1; ; attempt++) {
-        TableMetadata base = ops.refresh();
-        String merged = mergeJsonState(base.property(STATE_KEY_2PC, null), threadId, payload);
-        try {
-          ops.commit(base, TableMetadata.buildFrom(base).setProperties(Map.of(STATE_KEY_2PC, merged)).build());
-          break;
-        } catch (CommitFailedException e) {
-          if (attempt >= STATE_COMMIT_MAX_ATTEMPTS) {
-            throw e;
-          }
-          LOGGER.warn("Concurrent {} state commit for thread: {}, retrying ({}/{})", STATE_KEY_2PC, threadId, attempt, STATE_COMMIT_MAX_ATTEMPTS);
-        }
-      }
       table.refresh();
+      String currentState = table.properties().get(STATE_KEY_2PC);
+      String mergedState = mergeJsonState(currentState, threadId, payload);
+      if (mergedState.equals(currentState)) {
+        LOGGER.info("No files to commit for thread: {}, {} state unchanged", threadId, STATE_KEY_2PC);
+        return 0L;
+      }
+      table.updateProperties().set(STATE_KEY_2PC, mergedState).commit();
 
       LOGGER.info("No files to commit for thread: {}, committed {} state only", threadId, STATE_KEY_2PC);
       return 0L;
