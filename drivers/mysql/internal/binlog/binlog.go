@@ -97,44 +97,37 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 
 // Validate the actual replication session; the SQL connection may use another server.
 func (c *Connection) validateReplicationServer(conn *client.Conn) error {
-	if c.ServerUUID == "" && c.gtidSet == nil {
-		return nil
-	}
-	query := jdbc.MySQLServerUUIDQuery()
-	if c.gtidSet != nil || c.targetGTIDSet != nil {
-		query = jdbc.MySQLGTIDStateQuery()
-	}
-	result, err := conn.Execute(query)
-	if err != nil {
-		return fmt.Errorf("failed to get replication server UUID: %w", err)
-	}
-	serverUUID, err := result.GetString(0, 0)
-	if err != nil {
-		return fmt.Errorf("failed to read replication server UUID: %w", err)
-	}
 	if c.gtidSet == nil {
-		if err := c.Checkpoint().ValidateServerUUID(serverUUID); err != nil {
-			return err
-		}
-		if c.targetGTIDSet == nil {
+		// Migration still uses file coordinates; replay verifies the target GTIDs.
+		if c.ServerUUID == "" {
 			return nil
 		}
-	}
-	values := make([]string, 3)
-	for i := range values {
-		values[i], err = result.GetString(0, i+1)
+		result, err := conn.Execute(jdbc.MySQLServerUUIDQuery())
 		if err != nil {
-			return fmt.Errorf("failed to read replication GTID history: %w", err)
+			return fmt.Errorf("failed to get replication server UUID: %w", err)
+		}
+		serverUUID, err := result.GetString(0, 0)
+		if err != nil {
+			return fmt.Errorf("failed to read replication server UUID: %w", err)
+		}
+		return (Binlog{Position: c.CurrentPos, ServerUUID: c.ServerUUID}).ValidateServerUUID(serverUUID)
+	}
+
+	result, err := conn.Execute(jdbc.MySQLGTIDStateQuery())
+	if err != nil {
+		return fmt.Errorf("failed to get replication GTID state: %w", err)
+	}
+	values := make([]string, 4)
+	for i := range values {
+		values[i], err = result.GetString(0, i)
+		if err != nil {
+			return fmt.Errorf("failed to read replication GTID state: %w", err)
 		}
 	}
-	saved := c.gtidSet
-	if saved == nil {
-		saved = c.targetGTIDSet
-	}
-	if err := validateGTIDHistory(saved, c.targetGTIDSet, values[0], values[1], values[2]); err != nil {
+	if err := validateGTIDHistory(c.gtidSet, c.targetGTIDSet, values[1], values[2], values[3]); err != nil {
 		return err
 	}
-	c.replicationUUID = serverUUID
+	c.replicationUUID = values[0]
 	return nil
 }
 
@@ -293,11 +286,6 @@ func (c *Connection) prepareSyncTarget(ctx context.Context, client *sqlx.DB, lat
 		if err != nil {
 			return syncRun{}, fmt.Errorf("failed to get current binlog state: %w", err)
 		}
-		if c.gtidSet == nil {
-			if err := c.Checkpoint().ValidateServerUUID(latestState.ServerUUID); err != nil {
-				return syncRun{}, err
-			}
-		}
 	}
 
 	switch {
@@ -319,6 +307,14 @@ func (c *Connection) prepareSyncTarget(ctx context.Context, client *sqlx.DB, lat
 		}
 	default:
 		run.mode = fileMode
+		if !run.recovering || latestState.ServerUUID != "" {
+			if err := c.Checkpoint().ValidateServerUUID(latestState.ServerUUID); err != nil {
+				return syncRun{}, err
+			}
+		}
+		if c.ServerUUID == "" {
+			c.ServerUUID = latestState.ServerUUID
+		}
 	}
 	run.target = latestState
 	logger.Infof("Starting MySQL CDC from %s:%d to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos, latestState.Position.Name, latestState.Position.Pos)
