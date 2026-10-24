@@ -159,7 +159,7 @@ func isRecovery(stop mysql.Position) bool {
 }
 
 // lastPosToRead includes newly loaded schemas' anchors only for normal file-position syncs.
-// Recovery boundaries and GTID targets must remain fixed.
+// Recovery boundaries stay fixed; GTID syncs use logical anchors instead.
 func (c *Connection) lastPosToRead(latestBinlogPos mysql.Position, recovery bool) mysql.Position {
 	if recovery || c.gtidSet != nil {
 		return latestBinlogPos
@@ -219,7 +219,8 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 		switch run.mode {
 		case gtidMode:
 			completed, err = transaction.consume(ev)
-			withinTarget = transaction.gtid == nil || c.targetGTIDSet.Contain(transaction.gtid)
+			// Normal syncs consume reordered transactions that a later schema load may require.
+			withinTarget = !run.recovering || transaction.gtid == nil || c.targetGTIDSet.Contain(transaction.gtid)
 		case migrationMode:
 			withinTarget, err = rebuild.observe(ev, c.CurrentPos, run.resumePos)
 		}
@@ -264,7 +265,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 
 		case *replication.QueryEvent:
 			// Apply DDL in stream order, excluding already processed migration history
-			// and transactions outside the fixed GTID target.
+			// and transactions outside a fixed recovery target.
 			if withinTarget {
 				c.changeFilter.schema.applyDDL(string(e.Query), string(e.Schema), c.CurrentPos, transaction.gtid)
 			}
@@ -334,6 +335,10 @@ func (c *Connection) prepareSyncTarget(ctx context.Context, client *sqlx.DB, lat
 	if err != nil {
 		return syncRun{}, fmt.Errorf("failed to start binlog sync: %w", err)
 	}
+	if run.mode == gtidMode && !run.recovering {
+		c.changeFilter.schema.replicationUUID = c.replicationUUID
+		c.changeFilter.schema.targetGTIDSet = c.targetGTIDSet
+	}
 	return run, nil
 }
 
@@ -351,10 +356,15 @@ func (c *Connection) nextEvent(ctx context.Context, streamer *replication.Binlog
 }
 
 func (c *Connection) reachedTarget(run *syncRun, rebuild *gtidRebuild) (bool, error) {
-	run.target.Position = c.lastPosToRead(run.target.Position, run.recovering)
 	if run.mode == gtidMode {
+		if !run.recovering {
+			if err := c.changeFilter.schema.extendGTIDTarget(c.targetGTIDSet); err != nil {
+				return false, err
+			}
+		}
 		return c.gtidSet.Contain(c.targetGTIDSet), nil
 	}
+	run.target.Position = c.lastPosToRead(run.target.Position, run.recovering)
 	if c.CurrentPos.Compare(run.target.Position) < 0 || (run.mode == migrationMode && rebuild.gtidSet == nil) {
 		return false, nil
 	}

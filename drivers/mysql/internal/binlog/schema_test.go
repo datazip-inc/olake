@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jmoiron/sqlx"
@@ -170,33 +171,78 @@ func TestSchemaCacheGet(t *testing.T) {
 }
 
 func testSchemaCacheGetGTIDAnchor(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		assert.NoError(t, mock.ExpectationsWereMet())
-		_ = db.Close()
-	})
 	saved, loaded := testSID+":1-2", testSID+":1-3"
-	c := newSchemaCache(sqlx.NewDb(db, "sqlmock"), Binlog{GTIDSet: &saved}, false)
-	mock.ExpectQuery(jdbc.MySQLCDCColumnMetadataQuery()).WithArgs("shop", "orders").
-		WillReturnRows(sqlmock.NewRows([]string{"name", "type", "collation"}).AddRow("id", "int", ""))
-	mock.ExpectQuery(jdbc.MySQLCDCTableCollationQuery()).WithArgs("shop", "orders").
-		WillReturnRows(sqlmock.NewRows([]string{"collation"}).AddRow("utf8mb4_general_ci"))
-	mock.ExpectQuery(jdbc.MySQLCDCSchemaCollationQuery()).WithArgs("shop").
-		WillReturnRows(sqlmock.NewRows([]string{"collation"}).AddRow("utf8mb4_general_ci"))
-	mock.ExpectQuery("SELECT @@version").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("8.4.2"))
-	mock.ExpectQuery(jdbc.MySQLGTIDModeQuery()).WillReturnRows(sqlmock.NewRows([]string{"uuid", "mode"}).AddRow("server-b", "ON"))
-	mock.ExpectQuery(jdbc.MySQLMasterStatusQueryNew()).WillReturnRows(sqlmock.NewRows([]string{"file", "position", "do", "ignore", "gtids"}).
-		AddRow("mysql-bin.000001", 200, "", "", loaded))
-	meta, err := c.get(context.Background(), "shop", "orders", 7, []byte{mysql.MYSQL_TYPE_LONG})
-	require.NoError(t, err)
-	processed, err := parseGTIDSet(saved)
-	require.NoError(t, err)
-	// Physical progress can pass the SQL anchor while a reordered transaction remains outside the target.
-	pos := mysql.Position{Name: "mysql-bin.000001", Pos: 900}
-	assert.Empty(t, c.snapshot(pos, processed))
-	require.NoError(t, processed.Update(loaded))
-	assert.Equal(t, meta, c.snapshot(pos, processed)["shop.orders"])
+	for _, tt := range []struct {
+		name       string
+		sourceUUID string
+		target     string
+		wantError  bool
+	}{
+		{"same replication server", "server-b", saved, false},
+		{"other server with shared history", "server-c", loaded, false},
+		{"SQL endpoint switched", "server-c", saved, true},
+		{"recovery does not extend the target", "server-c", "", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				assert.NoError(t, mock.ExpectationsWereMet())
+				_ = db.Close()
+			})
+			c := newSchemaCache(sqlx.NewDb(db, "sqlmock"), Binlog{GTIDSet: &saved}, false)
+			c.replicationUUID = "server-b"
+			if tt.target != "" {
+				c.targetGTIDSet, err = parseGTIDSet(tt.target)
+				require.NoError(t, err)
+			}
+			mock.ExpectQuery(jdbc.MySQLCDCColumnMetadataQuery()).WithArgs("shop", "orders").
+				WillReturnRows(sqlmock.NewRows([]string{"name", "type", "collation"}).AddRow("id", "int", ""))
+			mock.ExpectQuery(jdbc.MySQLCDCTableCollationQuery()).WithArgs("shop", "orders").
+				WillReturnRows(sqlmock.NewRows([]string{"collation"}).AddRow("utf8mb4_general_ci"))
+			mock.ExpectQuery(jdbc.MySQLCDCSchemaCollationQuery()).WithArgs("shop").
+				WillReturnRows(sqlmock.NewRows([]string{"collation"}).AddRow("utf8mb4_general_ci"))
+			mock.ExpectQuery("SELECT @@version").WillReturnRows(sqlmock.NewRows([]string{"version"}).AddRow("8.4.2"))
+			mock.ExpectQuery(jdbc.MySQLGTIDModeQuery()).WillReturnRows(sqlmock.NewRows([]string{"uuid", "mode"}).AddRow(tt.sourceUUID, "ON"))
+			mock.ExpectQuery(jdbc.MySQLMasterStatusQueryNew()).WillReturnRows(sqlmock.NewRows([]string{"file", "position", "do", "ignore", "gtids"}).
+				AddRow("mysql-bin.000001", 200, "", "", loaded))
+			meta, err := c.get(context.Background(), "shop", "orders", 7, []byte{mysql.MYSQL_TYPE_LONG})
+			if tt.wantError {
+				require.ErrorContains(t, err, "MySQL server changed while loading column metadata")
+				assert.NotErrorIs(t, err, constants.ErrNonRetryable)
+				assert.Nil(t, meta)
+				assert.Empty(t, c.tables, "a foreign anchor must not enter the cache or extend the target")
+				return
+			}
+			require.NoError(t, err)
+			processed, err := parseGTIDSet(saved)
+			require.NoError(t, err)
+			// Physical progress can pass the SQL anchor while a reordered transaction remains outside the target.
+			pos := mysql.Position{Name: "mysql-bin.000001", Pos: 900}
+			assert.Empty(t, c.snapshot(pos, processed))
+			if c.targetGTIDSet == nil {
+				return
+			}
+			target := c.targetGTIDSet
+			require.NoError(t, c.extendGTIDTarget(target))
+			assert.Equal(t, loaded, target.String())
+			assert.Equal(t, saved, processed.String())
+			assert.Empty(t, c.snapshot(pos, processed), "extending the target does not prove schema progress")
+
+			require.NoError(t, processed.Update(loaded))
+			assert.Equal(t, meta, c.snapshot(pos, processed)["shop.orders"])
+
+			// Restoring the committed schema must not query the source again.
+			raw, err := json.Marshal(Binlog{Position: pos, GTIDSet: &loaded, Schemas: c.snapshot(pos, processed)})
+			require.NoError(t, err)
+			var state Binlog
+			require.NoError(t, json.Unmarshal(raw, &state))
+			resumed := newSchemaCache(nil, state, false)
+			restored, err := resumed.get(context.Background(), "shop", "orders", 8, []byte{mysql.MYSQL_TYPE_LONG})
+			require.NoError(t, err)
+			assert.Equal(t, meta.Columns, restored.Columns)
+		})
+	}
 }
 
 // The cache has no client, so any information_schema query would fail: getting the saved
@@ -391,6 +437,35 @@ func TestSchemaCacheMaxAnchor(t *testing.T) {
 	}
 }
 
+func TestSchemaCacheExtendGTIDTarget(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		anchors []string
+		want    string
+	}{
+		{"no load anchors", nil, testSID + ":1-2"},
+		{"covered anchor", []string{testSID + ":1"}, testSID + ":1-2"},
+		{"incomparable anchors", []string{testSID + ":1-3", testSID + ":1-2:4"}, testSID + ":1-4"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cache := newSchemaCache(nil, Binlog{}, false)
+			for _, value := range tt.anchors {
+				anchor, err := parseGTIDSet(value)
+				require.NoError(t, err)
+				cache.tables[value] = &tableMeta{gtidAnchor: anchor}
+			}
+			cache.tables["restored"] = &tableMeta{}
+			target, err := parseGTIDSet(testSID + ":1-2")
+			require.NoError(t, err)
+			require.NoError(t, cache.extendGTIDTarget(target))
+			assert.Equal(t, tt.want, target.String())
+			for _, value := range tt.anchors {
+				assert.Equal(t, value, cache.tables[value].gtidAnchor.String(), "cached anchors stay immutable")
+			}
+		})
+	}
+}
+
 func TestConnection_LastPosToRead(t *testing.T) {
 	target, anchor := ddlPos(200), ddlPos(500)
 	gtid, err := parseGTIDSet(testSID + ":1-2")
@@ -410,6 +485,38 @@ func TestConnection_LastPosToRead(t *testing.T) {
 			cache.setTable("shop.orders", &tableMeta{AnchoredAt: anchor})
 			conn := &Connection{gtidSet: tt.gtid, changeFilter: ChangeFilter{schema: cache}}
 			assert.Equal(t, tt.want, conn.lastPosToRead(target, tt.recovering))
+		})
+	}
+}
+
+func TestConnection_ReachedTarget(t *testing.T) {
+	for _, recovering := range []bool{false, true} {
+		name := "normal sync includes schema anchor"
+		if recovering {
+			name = "recovery keeps committed boundary"
+		}
+		t.Run(name, func(t *testing.T) {
+			processed, err := parseGTIDSet(testSID + ":1-2")
+			require.NoError(t, err)
+			anchor, err := parseGTIDSet(testSID + ":1-3")
+			require.NoError(t, err)
+			cache := newSchemaCache(nil, Binlog{}, false)
+			cache.setTable("shop.orders", &tableMeta{gtidAnchor: anchor})
+			conn := &Connection{gtidSet: processed, targetGTIDSet: processed.Clone(), changeFilter: ChangeFilter{schema: cache}}
+			run := syncRun{mode: gtidMode, recovering: recovering}
+
+			reached, err := conn.reachedTarget(&run, nil)
+			require.NoError(t, err)
+			assert.Equal(t, recovering, reached)
+			assert.Equal(t, testSID+":1-2", processed.String(), "a schema load cannot advance processed progress")
+			if recovering {
+				assert.True(t, conn.targetGTIDSet.Equal(processed))
+				return
+			}
+			require.NoError(t, processed.Update(testSID+":3"))
+			reached, err = conn.reachedTarget(&run, nil)
+			require.NoError(t, err)
+			assert.True(t, reached)
 		})
 	}
 }

@@ -30,6 +30,10 @@ type schemaCache struct {
 	client   *sqlx.DB
 	tables   map[string]*tableMeta
 	gtidMode bool
+
+	// A normal run may extend its target only with reachable schema anchors.
+	replicationUUID string
+	targetGTIDSet   mysql.GTIDSet
 	// foldCase is lower_case_table_names 1 or 2: the server compares table names case-insensitively.
 	foldCase bool
 	// streamed are the keys of the tables the sync captures. A CREATE of one is read from its
@@ -180,6 +184,10 @@ func (c *schemaCache) get(ctx context.Context, schema, table string, tableID uin
 			}
 			meta.AnchoredAt = state.Position
 			meta.gtidAnchor, err = parseGTIDSet(*state.GTIDSet)
+			if err == nil && c.targetGTIDSet != nil && state.ServerUUID != c.replicationUUID && !c.targetGTIDSet.Contain(meta.gtidAnchor) {
+				return nil, fmt.Errorf("MySQL server changed while loading column metadata for %s.%s: replication server %q, schema server %q; retry the sync",
+					schema, table, c.replicationUUID, state.ServerUUID)
+			}
 		}
 	} else {
 		meta.AnchoredAt, err = GetCurrentBinlogPosition(ctx, c.client)
@@ -232,6 +240,21 @@ func (c *schemaCache) maxAnchor() mysql.Position {
 		}
 	}
 	return latest
+}
+
+// extendGTIDTarget makes a normal run consume the history needed to save its loaded schemas.
+func (c *schemaCache) extendGTIDTarget(target mysql.GTIDSet) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for key, meta := range c.tables {
+		if meta.gtidAnchor == nil || target.Contain(meta.gtidAnchor) {
+			continue
+		}
+		if err := target.Update(meta.gtidAnchor.String()); err != nil {
+			return fmt.Errorf("failed to extend GTID target for column metadata of %s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 func (c *schemaCache) load(ctx context.Context, schema, table string) (*tableMeta, error) {
