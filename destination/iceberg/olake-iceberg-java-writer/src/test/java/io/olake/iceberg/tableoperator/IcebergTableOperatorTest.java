@@ -52,10 +52,12 @@ class IcebergTableOperatorTest {
         return MAPPER.readTree(root.get("state").asText());
     }
 
+    /** Returns the LSN in the stored state, the position a Postgres CDC sync commits. */
     private String storedLSN() throws Exception {
         return storedState().get("lsn").asText();
     }
 
+    // CDC positions move without records, so a sync with no files still persists its position
     @Test
     @DisplayName("sync without files commits the 2pc state")
     void commitsStateWithoutFiles() throws Exception {
@@ -66,6 +68,7 @@ class IcebergTableOperatorTest {
         assertEquals("0/1", storedLSN());
     }
 
+    // Go recovers from the latest committed position, so each sync must overwrite the last one
     @Test
     @DisplayName("sync without files moves the 2pc state forward")
     void advancesStateWithoutFiles() throws Exception {
@@ -75,6 +78,7 @@ class IcebergTableOperatorTest {
         assertEquals("0/2", storedLSN());
     }
 
+    // backfill threads send no payload, so an empty chunk records nothing
     @Test
     @DisplayName("backfill without files leaves the 2pc state untouched")
     void skipsBackfillWithoutFiles() {

@@ -64,7 +64,7 @@ func TestLoad2PCState(t *testing.T) {
 	t.Run("recovers finished shared staging", func(t *testing.T) {
 		p, store := testS3Parquet(t, "cdc-thread", false)
 		expected := &types.MetadataState{State: `{"lsn":"1/20"}`}
-		finishData, _, _, err := streamFinishState(expected)
+		finishData, _, err := streamFinishState(expected)
 		require.NoError(t, err)
 		store.put(p.stagingObjectKey("bucket_1/data.parquet"), []byte("cdc"))
 		store.put(p.sharedFinishObjectKey(), finishData)
@@ -103,7 +103,7 @@ func TestLoad2PCState(t *testing.T) {
 	t.Run("continues partial promotion", func(t *testing.T) {
 		p, store := testS3Parquet(t, "incremental-thread", false)
 		expected := &types.MetadataState{ID: "incremental-thread", State: `{"cursor":30}`}
-		finishData, _, _, err := streamFinishState(expected)
+		finishData, _, err := streamFinishState(expected)
 		require.NoError(t, err)
 		store.put(p.s3ObjectKey(p.basePath+"/bucket_1/already-promoted.parquet"), []byte("first"))
 		store.put(p.stagingObjectKey("bucket_2/remaining.parquet"), []byte("second"))
@@ -234,11 +234,12 @@ func TestCloseCommits2PCState(t *testing.T) {
 			existingState: &types.MetadataState{State: `{"lsn":"1/1"}`},
 			expectedState: &types.MetadataState{State: `{"lsn":"1/1"}`},
 		},
-		// A typed nil inside an interface is treated as missing metadata state.
+		// A typed nil inside an interface must not cross the commit boundary, even without data.
 		{
 			name:          "no data with typed nil metadata",
 			threadID:      "typed-nil-no-data-thread",
 			typedNilState: true,
+			expectedError: "cannot commit parquet CDC or incremental files without metadata state",
 		},
 		// Data cannot be committed without the matching recovery checkpoint.
 		{
@@ -332,7 +333,7 @@ func TestCloseResolvesSharedStagingBeforeUpload(t *testing.T) {
 	t.Run("rolls finished staging forward", func(t *testing.T) {
 		p, store := testS3Parquet(t, "reader-2", false)
 		previous := &types.MetadataState{ID: "reader-1", State: `{"consumer_group_id":"group","partition_0":10}`}
-		finishData, _, _, err := streamFinishState(previous)
+		finishData, _, err := streamFinishState(previous)
 		require.NoError(t, err)
 		store.put(p.stagingObjectKey("reader-1.parquet"), []byte("reader-1"))
 		store.put(p.sharedFinishObjectKey(), finishData)

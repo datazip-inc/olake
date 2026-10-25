@@ -473,6 +473,14 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	}()
 
 	dataFiles := p.pendingDataFiles()
+	// CDC positions can move without new records, so the metadata is committed on every sync;
+	// only a close without data and without metadata state (incremental with no records) is a no-op.
+	if !p.options.Backfill && len(dataFiles) == 0 && finalMetadataState == nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
+	}
 
 	var finishData []byte
 	var metadataState types.MetadataState
@@ -480,16 +488,7 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	if p.options.Backfill {
 		finishData, err = backfillFinishState(p.options.ThreadID)
 	} else {
-		var hasState bool
-		finishData, metadataState, hasState, err = streamFinishState(finalMetadataState)
-		// CDC positions can move without new records, so the metadata is committed on every sync;
-		// only a close without data and without metadata state (incremental with no records) is a no-op.
-		if !hasState {
-			if len(dataFiles) == 0 {
-				return ctx.Err()
-			}
-			err = fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
-		}
+		finishData, metadataState, err = streamFinishState(finalMetadataState)
 	}
 	if err != nil {
 		if closeErr := p.closePqFiles(true); closeErr != nil {
