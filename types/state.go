@@ -78,6 +78,16 @@ func (s *State) isZero() bool {
 	return s.Global == nil && len(s.Streams) == 0
 }
 
+// EnsureVersion assigns latest to a state that carries neither a version nor any progress.
+// Such a state is a fresh sync (an empty file or {"type":"STREAM"}), not a pre-version one, so it
+// must not pin the run to version 0 and its legacy behavior. A state that already holds data but
+// has no version is a genuine legacy state and keeps 0.
+func (s *State) EnsureVersion(latest int) {
+	if s.Version == 0 && s.isZero() {
+		s.Version = latest
+	}
+}
+
 func (s *State) SetType(typ StateType) {
 	s.Type = typ
 }
