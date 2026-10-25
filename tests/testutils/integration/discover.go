@@ -22,16 +22,16 @@ func (th *TestHandler) TestDiscover(t *testing.T) {
 	// equality one: discover enumerates everything, so anything an aborted run (or a perf seed)
 	// left behind would show up as an extra stream. Safe only here -- the discover suite runs
 	// alone, while every parallel suite owns a table drop-all would take with it.
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop-all")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "add")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "drop-all")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "create")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "add")
 	// Deferred, so a failed discover still hands the parallel suites behind it a clean source.
 	defer func() {
 		if testutils.KeepTestData() {
-			t.Logf("keeping %s discover data in source as (%s) is set", th.TestConfig.Driver, testutils.KeepTestDataEnvVar)
+			t.Logf("keeping %s discover data in source as (%s) is set", th.Driver, testutils.KeepTestDataEnvVar)
 			return
 		}
-		th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
+		th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	}()
 
 	// 2. Generate the expected catalog from the committed templates

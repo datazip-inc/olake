@@ -346,7 +346,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				case <-stop:
 					return
 				case <-time.After(5 * time.Millisecond):
-					_, _ = noise.ExecContext(context.Background(), "INSERT INTO ddl_noise (v) VALUES (1)")
+					_, _ = noise.ExecContext(ctx, "INSERT INTO ddl_noise (v) VALUES (1)")
 				}
 			}
 		}(ddlNoise.stop, ddlNoise.done)

@@ -395,7 +395,15 @@ func writeJSONDoc(path string, doc map[string]interface{}) error {
 // can replace a root-owned file a previous run left behind, but cannot truncate it.
 func WriteHostFile(path string, data []byte) error {
 	_ = os.Remove(path)
-	return os.WriteFile(path, data, 0600)
+	f, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // NormalizeStreamName uppercases the stream name for drivers whose catalogs store

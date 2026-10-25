@@ -224,7 +224,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			matchedSelected[elem.ID()] = struct{}{}
 		}
 		// Check if the stream is in the selectedStreamMap
-		if !(catalog.SelectedStreams == nil || selected) {
+		if catalog.SelectedStreams != nil && !selected {
 			logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
 			return false
 		}

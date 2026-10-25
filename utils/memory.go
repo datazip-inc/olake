@@ -81,7 +81,7 @@ func sizeOf(v reflect.Value, cache map[uintptr]bool) int {
 		cache[dataPtr] = true
 		return len(s) + int(v.Type().Size())
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		// return Ptr size if this node has been visited already (infinite recursion)
 		if cache[v.Pointer()] {
 			return int(v.Type().Size())
@@ -145,7 +145,8 @@ func DetermineSystemMemoryGB() int64 {
 	var memOutput []byte
 	var err error
 
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux":
 		// On Linux, use /proc/meminfo
 		memCmd = exec.Command("grep", "MemTotal", "/proc/meminfo")
 		memOutput, err = memCmd.Output()
@@ -159,7 +160,7 @@ func DetermineSystemMemoryGB() int64 {
 				}
 			}
 		}
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		// On macOS, use sysctl
 		memCmd = exec.Command("sysctl", "-n", "hw.memsize")
 		memOutput, err = memCmd.Output()
@@ -169,7 +170,7 @@ func DetermineSystemMemoryGB() int64 {
 				return totalBytes / 1024 / 1024 / 1024 // Convert bytes to GB
 			}
 		}
-	} else if runtime.GOOS == "windows" {
+	case "windows":
 		// On Windows, use wmic
 		memCmd = exec.Command("wmic", "OS", "get", "TotalVisibleMemorySize", "/Value")
 		memOutput, err = memCmd.Output()

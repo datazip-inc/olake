@@ -98,7 +98,7 @@ func queryLiveOpTypes(ctx context.Context, t *testing.T, spark sql.SparkSession,
 
 // tableIndexHostDir is the host-side pebble index directory, the mount behind containerTableIndexDir.
 func (th *TestHandler) tableIndexHostDir() string {
-	return filepath.Join(th.TestConfig.TestWorkingDir, "olake-table-index")
+	return filepath.Join(th.TestWorkingDir, "olake-table-index")
 }
 
 // runIcebergSync runs one sync against the selected iceberg destination config.
@@ -123,16 +123,16 @@ func (th *TestHandler) prepareTableIndexSync(ctx context.Context, t *testing.T, 
 // applyCDCUpdate runs evolve-schema (adds includedColumn) then update, matching the main CDC suite.
 func (th *TestHandler) applyCDCUpdate(ctx context.Context, t *testing.T) {
 	t.Helper()
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "update")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "update")
 }
 
 // testIcebergEqToPosConversion tests conversion of equality delete files to positional delete files
 // when the Iceberg table already contains equality deletes from a previous sync.
 func (th *TestHandler) testIcebergEqToPosConversion(ctx context.Context, t *testing.T, testTable string) error {
-	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, testTable)
 
-	defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testTable, th.DestinationDB)
 
 	if err := th.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
@@ -159,7 +159,7 @@ func (th *TestHandler) testIcebergEqToPosConversion(ctx context.Context, t *test
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row before conversion")
 
 	// Step 2: CDC insert with positional deletes (triggers eq -> pos conversion)
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "insert")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "insert")
 
 	if err := setUpdateType(th.TestConfig, th.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
@@ -181,9 +181,9 @@ func (th *TestHandler) testIcebergEqToPosConversion(ctx context.Context, t *test
 
 // testIcebergCleanTablePositionalWithPebbleIndex tests full load then positional CDC updates on a clean table.
 func (th *TestHandler) testIcebergCleanTablePositionalWithPebbleIndex(ctx context.Context, t *testing.T, testTable string) error {
-	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, testTable)
 
-	defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testTable, th.DestinationDB)
 
 	if err := th.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
@@ -218,9 +218,9 @@ func (th *TestHandler) testIcebergCleanTablePositionalWithPebbleIndex(ctx contex
 
 // testIcebergRebuildIndexFromScratch tests that a missing/corrupted stream index is rebuilt on the next pos sync.
 func (th *TestHandler) testIcebergRebuildIndexFromScratch(ctx context.Context, t *testing.T, testTable string) error {
-	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, testTable)
 
-	defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testTable, th.DestinationDB)
 
 	if err := th.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
@@ -286,9 +286,9 @@ func (th *TestHandler) TestIcebergPosIncremental(t *testing.T) {
 // Incremental reads emit "u" for every row, so the inserted row must land as "u", not be relabelled "c".
 func (th *TestHandler) testIcebergPosIncrementalInsert(ctx context.Context, t *testing.T, testTable string) error {
 	th.resetTable(ctx, t)
-	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, testTable)
 
-	defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testTable, th.DestinationDB)
 
 	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, "incremental", th.CursorField); err != nil {
 		return fmt.Errorf("failed setting stream mode: %w", err)
@@ -301,7 +301,7 @@ func (th *TestHandler) testIcebergPosIncrementalInsert(ctx context.Context, t *t
 		return err
 	}
 
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "insert")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "insert")
 	if err := th.runIcebergSync(ctx, t, "incremental sync", true); err != nil {
 		return err
 	}
