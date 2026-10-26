@@ -32,9 +32,6 @@
           "default": false,
           "title": "Enable Arrow Writes",
           "description": "Enable Apache Arrow-based Writer for Iceberg"
-        },
-        "grid_pad": {
-          "type": "string"
         }
       },
       "required": [

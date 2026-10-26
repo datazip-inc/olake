@@ -551,30 +551,30 @@ const IcebergUISchema = `{
   "writer": {
     "ui:grid": [
       { "catalog_type": 12, "rest_auth_type": 12 },
-      { "catalog_name": 12, "rest_catalog_url": 12 }, 
+      { "catalog_name": 12, "rest_catalog_url": 12 },
       { "credential": 12, "oauth2_uri": 12 },
       { "scope": 12, "token": 12 },
       { "snowflake_workload_identity_provider": 24 },
 
-      { "jdbc_url": 24},
-      { "jdbc_username": 12, "jdbc_password": 12},
+      { "jdbc_url": 12 },
+      { "jdbc_username": 12, "jdbc_password": 12 },
       { "hive_uri": 12, "hive_clients": 12 },
-      { "hive_sasl_enabled": 24 }, 
+      { "hive_sasl_enabled": 24 },
       { "no_identifier_fields": 24 },
 
-      { "storage_type": 12},
-      { "iceberg_s3_path": 12}, { "s3_endpoint": 12},
+      { "storage_type": 12 },
+      { "iceberg_s3_path": 12, "s3_endpoint": 12 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
-      { "aws_region": 12},
-      { "s3_path_style": 12, "s3_use_ssl": 12},
+      { "aws_region": 12 },
+      { "s3_path_style": 12, "s3_use_ssl": 12 },
 
-      { "rest_signing_name": 12}, { "rest_signing_region": 12 },
+      { "rest_signing_name": 12, "rest_signing_region": 12 },
       { "rest_signing_v_4": 24 },
 
       { "gcp_service_account_json": 12, "gcp_auth_scopes": 12 },
       { "gcp_project_id": 12 },
 
-      { "azure_storage_support": 24 },
+      { "azure_storage_support": 12 },
       { "azure_auth_type": 12, "azure_warehouse": 12 },
       { "azure_storage_suffix": 12, "azure_path": 12 },
       { "azure_storage_account_name": 12, "azure_container_name": 12 },
@@ -583,8 +583,8 @@ const IcebergUISchema = `{
       { "azure_client_secret": 12 },
 
       { "glue_additional_config": 24 },
-      { "glue_catalog_id": 12, "glue_endpoint": 12},
-	    { "glue_access_key": 12, "glue_secret_key": 12 }, 
+      { "glue_catalog_id": 12, "glue_endpoint": 12 },
+      { "glue_access_key": 12, "glue_secret_key": 12 },
       { "glue_region": 12 },
       { "arrow_writes": 24 }
     ],
