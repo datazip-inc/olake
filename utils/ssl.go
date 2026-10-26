@@ -231,7 +231,7 @@ func ReadPEMOrFile(value string) ([]byte, error) {
 	}
 	data, err := os.ReadFile(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read certificate file %q: %w", trimmed, err)
+		return nil, fmt.Errorf("value is neither valid PEM content nor a readable certificate file: %w", err)
 	}
 	return []byte(strings.TrimSpace(string(data))), nil
 }
