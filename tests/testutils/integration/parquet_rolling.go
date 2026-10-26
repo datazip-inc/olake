@@ -106,9 +106,6 @@ func (th *TestHandler) rollToAzurite(ctx context.Context, t *testing.T, testTabl
 
 	if err := th.syncParquetDestination(ctx, t, parquetAzureDestinationFile); err != nil {
 		return err
-	// Full load (no --state) with a small buffer so rolled files hug the threshold.
-	if code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.SyncArgs(th.TestConfig, false, parquetDestinationFile)...); err != nil || code != 0 {
-		return fmt.Errorf("rolling sync failed (%d): %v\n%s", code, err, out)
 	}
 	assertRolledParquet(t, "azurite", th.readAzuriteRolledFiles(t, testTable))
 	return nil
@@ -116,7 +113,7 @@ func (th *TestHandler) rollToAzurite(ctx context.Context, t *testing.T, testTabl
 
 // syncParquetDestination runs a full refresh (no --state) against one parquet destination config.
 func (th *TestHandler) syncParquetDestination(ctx context.Context, t *testing.T, destinationFile string) error {
-	code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.SyncArgs(false, destinationFile)...)
+	code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.SyncArgs(th.TestConfig, false, destinationFile)...)
 	if err != nil || code != 0 {
 		return fmt.Errorf("%s rolling sync failed (%d): %v\n%s", destinationFile, code, err, out)
 	}
