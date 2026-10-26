@@ -1,0 +1,28 @@
+name: Reo Shared Issues
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  sync:
+    # REO_API_KEY lives in an environment with required reviewers, so each weekly run waits for one approval.
+    name: Add shared-issue reporters to Reo
+    runs-on: ubuntu-latest
+    environment: Reo Sync
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Sync shared issues
+        run: .github/scripts/reo-shared-issues.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REO_API_KEY: ${{ secrets.REO_API_KEY }}
+          REO_USER: ${{ vars.REO_USER }}
+          REO_LIST_ID: ${{ vars.REO_LIST_ID }}
