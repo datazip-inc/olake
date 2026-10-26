@@ -253,7 +253,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 
-	switch m.config.ChunkingStrategy {
+	//  compare case-insensitively
+	switch strings.ToLower(strings.TrimSpace(m.config.ChunkingStrategy)) {
 	case "timestamp":
 		return timestampStrategy()
 	default:
@@ -265,9 +266,11 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 		if ObjectIDPresent {
 			chunks, err := splitVectorStrategy()
-			// fallback to bucket-auto strategy if authorization error occurs
+			// fallback to bucket-auto strategy if authorization error occurs,
+			// or on sharded collections where mongos rejects splitVector with IllegalOperation
 			if err != nil && (strings.Contains(err.Error(), "not authorized") ||
-				strings.Contains(err.Error(), "CMD_NOT_ALLOWED")) {
+				strings.Contains(err.Error(), "CMD_NOT_ALLOWED") ||
+				strings.Contains(err.Error(), "IllegalOperation")) {
 				logger.Warnf("failed to get chunks via split vector strategy: %s", err)
 				return bucketAutoStrategy(storageSize)
 			}
