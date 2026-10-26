@@ -268,29 +268,19 @@ func validateDifferenceFlags() error {
 	return nil
 }
 
-// loadDestinationConfig reads the --destination config; nil when the flag was not passed.
-// Only the config is read, the destination is never reached.
-func loadDestinationConfig() (*types.WriterConfig, error) {
-	if destinationConfigPath == "" || destinationConfigPath == "not-set" {
-		return nil, nil
-	}
-	config := &types.WriterConfig{}
-	if err := utils.UnmarshalFile(destinationConfigPath, config, true); err != nil {
-		return nil, err
-	}
-	return config, nil
+// destinationPassed reports whether --destination was set; its default is "not-set".
+func destinationPassed() bool {
+	return destinationConfigPath != "" && destinationConfigPath != "not-set"
 }
 
-// requireDestinationConfig is loadDestinationConfig for commands that cannot run without --destination.
-func requireDestinationConfig() (*types.WriterConfig, error) {
-	config, err := loadDestinationConfig()
-	if err != nil {
-		return nil, err
+// loadDestinationConfig fills destinationConfig from --destination; left empty when the flag
+// was not passed. Only the config is read, the destination is never reached.
+func loadDestinationConfig() error {
+	destinationConfig = &types.WriterConfig{}
+	if !destinationPassed() {
+		return nil
 	}
-	if config == nil {
-		return nil, errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
-	}
-	return config, nil
+	return utils.UnmarshalFile(destinationConfigPath, destinationConfig, true)
 }
 
 // recoverToError turns a panic into a classified error written through err, then re-panics so

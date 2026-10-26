@@ -28,8 +28,7 @@ var discoverCmd = &cobra.Command{
 			return err
 		}
 		// optional: the stream difference uses its type to skip fields the destination ignores
-		destinationConfig, err = loadDestinationConfig()
-		if err != nil {
+		if err := loadDestinationConfig(); err != nil {
 			return err
 		}
 		if convertStreams {
@@ -164,11 +163,7 @@ func compareStreams() error {
 		return fmt.Errorf("failed to read new catalog: %w", err)
 	}
 
-	var destinationType types.DestinationType
-	if destinationConfig != nil {
-		destinationType = destinationConfig.Type
-	}
-	diffCatalog := types.GetStreamsDelta(oldStreams, newStreams, destinationType)
+	diffCatalog := types.GetStreamsDelta(oldStreams, newStreams, destinationConfig.Type)
 	if len(diffCatalog.Streams) == 0 && len(diffCatalog.SelectedStreams) == 0 {
 		logger.Infof("No differences found between the old and new catalogs")
 	}

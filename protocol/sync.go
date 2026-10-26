@@ -48,8 +48,10 @@ var syncCmd = &cobra.Command{
 		}
 
 		// unmarshal destination config
-		destinationConfig, err = requireDestinationConfig()
-		if err != nil {
+		if !destinationPassed() {
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
+		}
+		if err := loadDestinationConfig(); err != nil {
 			return err
 		}
 

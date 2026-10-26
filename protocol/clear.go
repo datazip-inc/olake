@@ -6,6 +6,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
@@ -14,8 +15,10 @@ var clearCmd = &cobra.Command{
 	Use:   "clear-destination",
 	Short: "Olake clear command to clear destination data and state for selected streams",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) (err error) {
-		destinationConfig, err = requireDestinationConfig()
-		if err != nil {
+		if !destinationPassed() {
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
+		}
+		if err := loadDestinationConfig(); err != nil {
 			return err
 		}
 		if err := validateCatalogFlags(true); err != nil {
