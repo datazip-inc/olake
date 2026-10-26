@@ -59,7 +59,7 @@ done | jq -s --argjson min "$MIN_PEOPLE" "$rule")
 
 jq -r '.[] | "\(.people | length) people  \(.url)  \(.title)"' <<<"$shared"
 jq -r '"\(length) shared issues, \([.[].people[]] | unique | length) people"' <<<"$shared"
-if [ -n "${DRY_RUN:-}" ]; then
+if [ "${DRY_RUN:-}" = 1 ]; then
   jq -r '[.[].people[]] | unique | join(" ")' <<<"$shared"
   exit 0
 fi
