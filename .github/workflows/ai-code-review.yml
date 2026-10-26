@@ -47,11 +47,15 @@ jobs:
     env:
       # Set all four _DEEP settings together: each one on its own falls back to the default tier.
       DEEP: ${{ contains(github.event.pull_request.labels.*.name, 'ai-review-deep') }}
+      # Every ocr call can start the CLI's background self-update (npm i -g), which removes
+      # /usr/local/bin/ocr mid-run and silently replaces the pinned version.
+      # Upstream: alibaba/open-code-review#703, #1204.
+      OCR_NO_UPDATE: '1'
     steps:
       - name: Review pull request
-        uses: alibaba/open-code-review@v1.12.9
+        uses: alibaba/open-code-review@55450a95e5999dfd00ec2d582c23d76e269922fb # v1.13.2, keep in sync with ocr_version
         with:
-          ocr_version: '1.12.9'
+          ocr_version: '1.13.2'
           llm_url: ${{ env.DEEP == 'true' && secrets.OCR_LLM_URL_DEEP || secrets.OCR_LLM_URL }}
           llm_auth_token: ${{ env.DEEP == 'true' && secrets.OCR_LLM_AUTH_TOKEN_DEEP || secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ env.DEEP == 'true' && secrets.OCR_LLM_MODEL_DEEP || secrets.OCR_LLM_MODEL }}
@@ -59,6 +63,8 @@ jobs:
           # Anthropic keys go in x-api-key; OCR ignores this for OpenAI-compatible providers.
           llm_auth_header: x-api-key
           llm_extra_body: '{}'
+          # Seconds to wait for each LLM response; the 300 default times out on the deep tier.
+          llm_timeout: 900
           background: ${{ github.event.pull_request.title }}
           sticky_summary: 'true'
           checkpoint_range: 'true'

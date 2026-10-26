@@ -35,7 +35,7 @@ func TestSQLFilterBinary(t *testing.T) {
 			stream := &types.ConfiguredStream{
 				Stream: &types.Stream{Name: "users", Namespace: "db", Schema: schema},
 				StreamMetadata: types.StreamMetadata{
-					Normalization: true,
+					Normalization: new(true),
 					FilterConfig: &types.FilterConfig{
 						Conditions: []types.FilterCondition{{Column: "data", Operator: "=", Value: tc.value}},
 					},

@@ -111,7 +111,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 			m.lsnMap.Store(stream.ID(), mtState)
 			return mtState, nil
 		}
-		// state >= metadata: blank sync scenario — stream forward normally
+		// state >= metadata: state is up to date, stream forward normally
 	}
 
 	// Get target LSN (current max LSN in DB)
