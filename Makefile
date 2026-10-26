@@ -136,6 +136,7 @@ WAIT_SLEEP := 5
 WAIT_RETRIES.spark := 60
 PROBE.minio = curl -f http://localhost:9000/minio/health/live
 PROBE.spark = docker exec spark-iceberg grep -q ':3A9A' /proc/net/tcp6
+# Port 11000 and account devstoreaccount1 must match the Azurite service in
 # $(DEST_COMPOSE) and tests/testdata/parquet/parquet_azure_destination.json.
 # Anonymous List Containers gets 403 under --oauth basic, so 200|403 both
 # prove the service is up (tests themselves use SharedKey auth).

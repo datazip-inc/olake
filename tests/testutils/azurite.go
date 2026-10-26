@@ -15,6 +15,7 @@ const (
 
 // NewAzuriteClient returns a client for the Azurite instance backing the parquet Azure destination in tests
 func NewAzuriteClient() (*azblob.Client, error) {
+	// devstoreaccount1 and this key are Azurite's published localhost defaults, not a real account.
 	cred, err := azblob.NewSharedKeyCredential(
 		"devstoreaccount1",
 		"Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==",
