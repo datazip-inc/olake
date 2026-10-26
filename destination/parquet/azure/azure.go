@@ -335,10 +335,11 @@ func getServiceClientSharedKey(accountName string, accountKey string, accountURL
 	return client, nil
 }
 
-// blobClientOptions sets the retry timeout for the Azure Blob Storage client
+// blobClientOptions sets the per-try deadline and the User-Agent application id.
 func blobClientOptions() *azblob.ClientOptions {
 	options := &azblob.ClientOptions{}
 	options.Retry.TryTimeout = azureTryTimeout
+	options.Telemetry.ApplicationID = "olake"
 	return options
 }
 

@@ -14,6 +14,7 @@ import (
 func TestBlobClientOptionsTryTimeout(t *testing.T) {
 	options := blobClientOptions()
 	require.Equal(t, azureTryTimeout, options.Retry.TryTimeout)
+	require.Equal(t, "olake", options.Telemetry.ApplicationID)
 }
 
 func TestAzureObjectKey(t *testing.T) {
