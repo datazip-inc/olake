@@ -546,7 +546,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, tables []types.StreamInterfac
 	}
 	logger.Infof("Starting Clear Iceberg destination for %d selected tables", len(tables))
 
-	threadID := "iceberg_s3_destination_drop"
+	threadID := "iceberg_destination_drop"
 	for _, stream := range tables {
 		destDB := stream.GetDestinationDatabase(&i.config.IcebergDatabase)
 		destTable := stream.GetDestinationTable()
