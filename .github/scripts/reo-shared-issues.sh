@@ -51,9 +51,10 @@ def claims_work: test("assign|up for grab|work(ing)? on (this|it)|take (this|it)
 | map({url: .[0].key, title: ((map(select(.url == .key)) | first // .[0]).title), people: (map(.people[]) | unique)})
 | map(select(.people | length >= $min))'
 
+# set -e is off inside $(...), so stop on a failed fetch: partial data can count staff as outsiders.
 shared=$(for repo in $REPOS; do
   gh api graphql --paginate -f query="$query" -F owner=datazip-inc -F name="$repo" \
-    --jq '.data.repository.issues.nodes[]'
+    --jq '.data.repository.issues.nodes[]' || exit
 done | jq -s --argjson min "$MIN_PEOPLE" "$rule")
 
 jq -r '.[] | "\(.people | length) people  \(.url)  \(.title)"' <<<"$shared"
