@@ -166,6 +166,10 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 			AppendMode:    types.IsDriverAppendOnly(a.driver.Type()),
 			UpdateType:    types.UpdateTypeEquality,
 		}
+		// Kafka upsert always writes positional deletes; append-mode streams never consult this.
+		if a.driver.Type() == string(constants.Kafka) {
+			convStream.DefaultStreamProperties.UpdateType = types.UpdateTypePosition
+		}
 
 		finalStreams = append(finalStreams, convStream)
 		return true

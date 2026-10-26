@@ -458,7 +458,7 @@ func TestPreCDCWhitespaceDedupKey(t *testing.T) {
 	stream := &types.ConfiguredStream{
 		Stream: types.NewStream("t", "topics", nil),
 		StreamMetadata: types.StreamMetadata{
-			AppendMode: false,
+			AppendMode: new(false),
 			DedupKeys:  []string{"  "},
 		},
 	}

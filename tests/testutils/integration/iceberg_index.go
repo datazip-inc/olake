@@ -33,23 +33,8 @@ func hasIcebergTableIndexTest(driver string) bool {
 
 // setUpdateType sets update_type in selected_streams for the stream identified by namespace+streamName.
 func setUpdateType(config *testutils.TestConfig, namespace, streamName, updateType string) error {
-	streamName = testutils.NormalizeStreamName(config.Driver, streamName)
-	return testutils.EditJSONFile(config.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
-		selected, _ := doc["selected_streams"].(map[string]interface{})
-		nsStreams, _ := selected[namespace].([]interface{})
-		matched := false
-		for _, raw := range nsStreams {
-			stream, ok := raw.(map[string]interface{})
-			if !ok || fmt.Sprint(stream["stream_name"]) != streamName {
-				continue
-			}
-			stream["update_type"] = updateType
-			matched = true
-		}
-		if !matched {
-			return fmt.Errorf("stream %q not found in namespace %q", streamName, namespace)
-		}
-		return nil
+	return editSelectedStream(config, namespace, streamName, func(entry map[string]interface{}) {
+		entry["update_type"] = updateType
 	})
 }
 

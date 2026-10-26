@@ -44,20 +44,21 @@ func (th *TestHandler) resetTable(ctx context.Context, t *testing.T) {
 	th.resetCatalog(t)
 }
 
-// resetCatalog renders streams.json from its template with the suite's settings and empties the table
+// resetCatalog renders the catalog from its templates with the suite's settings and empties the table
 // index, so a scenario never inherits another scenario's catalog edits or index entries.
 func (th *TestHandler) resetCatalog(t *testing.T) {
 	t.Helper()
 	testTable := th.GetTableName()
-	require.NoError(t, th.RenderConfig("streams.template.json", "streams.json"), "failed to render streams.json")
-	require.NoError(t, th.IsolateDestinationDB(), "failed to isolate the destination database in streams.json")
+	_, err := th.RenderCatalog("")
+	require.NoError(t, err, "failed to render the catalog")
+	require.NoError(t, th.IsolateDestinationDB(), "failed to isolate the destination database in the catalog")
 	if th.PrimaryKey != "" {
-		require.NoError(t, updateStreamPrimaryKey(th.TestConfig, th.Namespace, testTable, th.PrimaryKey), "failed to key the stream on %s in streams.json", th.PrimaryKey)
+		require.NoError(t, updateStreamPrimaryKey(th.TestConfig, th.Namespace, testTable, th.PrimaryKey), "failed to key the stream on %s in the catalog", th.PrimaryKey)
 	}
 	if len(th.DedupKeys) > 0 {
 		require.NoError(t, setStreamUpsert(th.TestConfig, th.Namespace, testTable, th.DedupKeys), "failed to set stream upsert")
 	}
-	require.NoError(t, testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}), "failed to enable normalization and partition regex in streams.json")
+	require.NoError(t, testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}), "failed to enable normalization and partition regex in the catalog")
 	require.NoError(t, os.RemoveAll(th.tableIndexHostDir()), "failed to clear table index")
 }
 
@@ -164,13 +165,18 @@ type syncTestCase struct {
 	expectedRowCountByOpType int64                               // when > 0, assert COUNT(DISTINCT _olake_id) == this value (catches over-sync and under-sync)
 }
 
-// updateStreamConfig sets sync_mode and cursor_field on the stream identified by
-// namespace+name in streams[].
+// updateStreamConfig sets sync_mode and cursor_field for the stream identified by namespace+name:
+// on its selected_streams entry, which takes priority over streams[], or on streams[] under
+// streams v1, whose selected_streams has no such fields.
 func updateStreamConfig(config *testutils.TestConfig, namespace, streamName, syncMode, cursorField string) error {
-	return editStream(config, namespace, streamName, func(stream map[string]interface{}) {
-		stream["sync_mode"] = syncMode
-		stream["cursor_field"] = cursorField
-	})
+	edit := func(entry map[string]interface{}) {
+		entry["sync_mode"] = syncMode
+		entry["cursor_field"] = cursorField
+	}
+	if config.StreamsV1 {
+		return editStream(config, namespace, streamName, edit)
+	}
+	return editSelectedStream(config, namespace, streamName, edit)
 }
 
 // updateStreamPrimaryKey sets source_defined_primary_key on the stream identified by
@@ -184,28 +190,29 @@ func updateStreamPrimaryKey(config *testutils.TestConfig, namespace, streamName,
 
 // editStream applies edit to the stream identified by namespace+name in streams[].
 func editStream(config *testutils.TestConfig, namespace, streamName string, edit func(stream map[string]interface{})) error {
-	// in case of Oracle, the stream names are in uppercase in streams.json
+	// in case of Oracle, the stream names are in uppercase in the catalog
 	streamName = testutils.NormalizeStreamName(config.Driver, streamName)
-	return testutils.EditJSONFile(config.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
-		streams, _ := doc["streams"].([]interface{})
-		matched := false
-		for _, raw := range streams {
-			wrapper, ok := raw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			stream, ok := wrapper["stream"].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if stream["namespace"] == namespace && stream["name"] == streamName {
-				edit(stream)
-				matched = true
-			}
+	catalog := config.Catalog()
+	return catalog.Edit(func(doc map[string]interface{}) error {
+		stream := testutils.AvailableStreamEntry(doc, namespace, streamName)
+		if stream == nil {
+			return fmt.Errorf("stream %q not found in namespace %q of %s", streamName, namespace, catalog)
 		}
-		if !matched {
-			return fmt.Errorf("stream %q not found in namespace %q", streamName, namespace)
+		edit(stream)
+		return nil
+	})
+}
+
+// editSelectedStream applies edit to the selected_streams entry identified by namespace+name.
+func editSelectedStream(config *testutils.TestConfig, namespace, streamName string, edit func(entry map[string]interface{})) error {
+	streamName = testutils.NormalizeStreamName(config.Driver, streamName)
+	catalog := config.Catalog()
+	return catalog.Edit(func(doc map[string]interface{}) error {
+		entry := testutils.SelectedStreamEntry(doc, namespace, streamName)
+		if entry == nil {
+			return fmt.Errorf("stream %q not selected in namespace %q of %s", streamName, namespace, catalog)
 		}
+		edit(entry)
 		return nil
 	})
 }

@@ -186,6 +186,8 @@ func (th *TestHandler) runSyncMode(t *testing.T, conf *testutils.TestConfig, bas
 			t.Run(side.name, func(t *testing.T) {
 				t.Cleanup(func() { checkpoint.stopIfFailed(t) })
 				cfg := th.NewConfig(t, baselineVersion)
+				// A baseline reads streams.json (--catalog) only, so both sides run on streams v1.
+				cfg.StreamsV1 = true
 				configs[i] = cfg
 				prepareSourceTable(t, cfg, group, v, policies)
 				for _, c := range cases {

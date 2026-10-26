@@ -141,7 +141,7 @@ func (s *testStream) Recv() (*proto.ReadRowsBatch, error) {
 // testConfiguredStream is a stream that keeps source column names, so destination columns
 // in the tests read the same as the source ones.
 func testConfiguredStream(normalized bool) *types.ConfiguredStream {
-	return &types.ConfiguredStream{StreamMetadata: types.StreamMetadata{Normalization: normalized, UseSourceColumnNames: true}}
+	return &types.ConfiguredStream{StreamMetadata: types.StreamMetadata{Normalization: new(normalized), UseSourceColumnNames: true}}
 }
 
 func testResolver(t *testing.T, normalized bool, writer *testWriter, reader *testReader) *unavailableValuesResolver {
