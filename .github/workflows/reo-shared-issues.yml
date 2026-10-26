@@ -14,6 +14,7 @@ jobs:
     # REO_API_KEY lives in an environment with required reviewers, so each weekly run waits for one approval.
     name: Add shared-issue reporters to Reo
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: Reo Sync
     steps:
       - name: Checkout code
