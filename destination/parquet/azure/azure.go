@@ -237,8 +237,12 @@ func (a *Store) DeletePrefix(ctx context.Context, prefix string) error {
 			return err
 		}
 		// A non-empty ADLS directory returns 409 DirectoryIsNotEmpty, so files go first.
-		for _, key := range files {
-			if err := a.Delete(ctx, key); err != nil {
+		// Files have no order, so several deletes run at once. Folders stay one at a time.
+		if len(files) > 0 {
+			err := utils.Concurrent(ctx, files, min(len(files), 8), func(ctx context.Context, key string, _ int) error {
+				return a.Delete(ctx, key)
+			})
+			if err != nil {
 				return err
 			}
 		}
