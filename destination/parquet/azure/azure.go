@@ -92,7 +92,7 @@ func newServiceClient(cfg Config, serviceURL string) (*azblob.Client, error) {
 	case AuthSharedKey:
 		return getServiceClientSharedKey(cfg.AccountName, cfg.AccountKey, serviceURL)
 	case AuthManagedIdentity:
-		// Entra, VM (IMDS) and AKS workload identity
+		// DefaultAzureCredential: service principal, workload identity, then managed identity.
 		return getServiceClientTokenCredential(serviceURL)
 	default:
 		return nil, fmt.Errorf("unsupported azure auth type %q", cfg.AuthType)
@@ -275,7 +275,7 @@ func azureFolderDepth(key string) int {
 	return strings.Count(key, "/") + 1
 }
 
-// IsNotFound checks missing blob errr
+// IsNotFound reports a missing blob.
 func (a *Store) IsNotFound(err error) bool {
 	return bloberror.HasCode(err, bloberror.BlobNotFound)
 }
@@ -286,7 +286,7 @@ func (a *Store) IsRateLimitError(err error) bool {
 	return errors.As(err, &respErr) && (respErr.StatusCode == 429 || respErr.StatusCode == 503)
 }
 
-// DefaultAzureCredential: AKS federated token, then VM/App Service MI.
+// Service principal, then workload identity, then managed identity.
 // Token refresh is the SDK. Needs a valid serviceURL.
 func getServiceClientTokenCredential(accountURL string) (*azblob.Client, error) {
 	// Create a new service client with token credential
@@ -304,7 +304,7 @@ func getServiceClientTokenCredential(accountURL string) (*azblob.Client, error) 
 }
 
 // SAS token credential
-// User-supplied SAS on the *client*. Expriy is set when the token is created.
+// User-supplied SAS on the *client*. Expiry is set when the token is created.
 func getServiceClientSAS(accountURL string, sasToken string) (*azblob.Client, error) {
 	// Create a new service client with an existing SAS token
 	// Append the SAS to the account URL with a "?" delimiter

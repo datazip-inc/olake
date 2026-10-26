@@ -15,7 +15,7 @@ var errObjectNotFound = errors.New("object not found")
 // ObjectKey is used to construct the key for the object.
 // Put is used to upload data to the object.
 // UploadFile is used to upload a file to the object.
-// Get is used to get data from the object.
+// Get reads a whole small object into memory, such as finish or metadata JSON. It is not for Parquet files.
 // List is used to list objects with a prefix.
 // Copy is used to copy an object to another object.
 // Delete is used to delete an object
