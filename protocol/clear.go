@@ -6,7 +6,6 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
@@ -15,14 +14,11 @@ var clearCmd = &cobra.Command{
 	Use:   "clear-destination",
 	Short: "Olake clear command to clear destination data and state for selected streams",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) (err error) {
-		if destinationConfigPath == "" {
-			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
-		} else if err := validateCatalogFlags(true); err != nil {
+		destinationConfig, err = requireDestinationConfig()
+		if err != nil {
 			return err
 		}
-
-		destinationConfig = &types.WriterConfig{}
-		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
+		if err := validateCatalogFlags(true); err != nil {
 			return err
 		}
 
@@ -42,7 +38,7 @@ var clearCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state)
+		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state, destinationConfig.Type)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}

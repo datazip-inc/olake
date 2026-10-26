@@ -5,12 +5,15 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,6 +188,55 @@ func TestValidateDifferenceFlags(t *testing.T) {
 			require.Error(t, err)
 			got := errs.From(errs.Classify(err))
 			assert.Equal(t, tc.expectedCode, got.Code)
+		})
+	}
+}
+
+// discover takes --destination as optional, so an absent flag must load nothing rather than fail;
+// sync and clear-destination require it.
+func TestLoadDestinationConfig(t *testing.T) {
+	validPath := filepath.Join(t.TempDir(), "destination.json")
+	require.NoError(t, os.WriteFile(validPath, []byte(`{"type":"PARQUET","writer":{}}`), 0o600))
+
+	testCases := []struct {
+		name         string
+		path         string
+		expectedType types.DestinationType
+		expectNil    bool
+		expectErr    bool
+		required     bool
+		expectedCode string
+	}{
+		{name: "flag default", path: "not-set", expectNil: true},
+		{name: "empty path", path: "", expectNil: true},
+		{name: "valid config", path: validPath, expectedType: types.Parquet},
+		{name: "missing file", path: filepath.Join(t.TempDir(), "missing.json"), expectErr: true},
+		{name: "required but not passed", path: "not-set", required: true, expectErr: true, expectedCode: codeFlagMissing},
+		{name: "required and valid", path: validPath, required: true, expectedType: types.Parquet},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			prevPath := destinationConfigPath
+			t.Cleanup(func() { destinationConfigPath = prevPath })
+			destinationConfigPath = tc.path
+
+			load := utils.Ternary(tc.required, requireDestinationConfig, loadDestinationConfig).(func() (*types.WriterConfig, error))
+			config, err := load()
+			if tc.expectErr {
+				require.Error(t, err)
+				if tc.expectedCode != "" {
+					assert.Equal(t, tc.expectedCode, errs.From(errs.Classify(err)).Code)
+				}
+				return
+			}
+			require.NoError(t, err)
+			if tc.expectNil {
+				assert.Nil(t, config)
+				return
+			}
+			require.NotNil(t, config)
+			assert.Equal(t, tc.expectedType, config.Type)
 		})
 	}
 }

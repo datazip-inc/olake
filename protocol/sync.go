@@ -38,8 +38,6 @@ var syncCmd = &cobra.Command{
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) (err error) {
 		if configPath == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
-		} else if destinationConfigPath == "" {
-			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
 		} else if err := validateCatalogFlags(true); err != nil {
 			return err
 		}
@@ -50,8 +48,8 @@ var syncCmd = &cobra.Command{
 		}
 
 		// unmarshal destination config
-		destinationConfig = &types.WriterConfig{}
-		if err = utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
+		destinationConfig, err = requireDestinationConfig()
+		if err != nil {
 			return err
 		}
 
@@ -109,7 +107,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		// get all types of selected streams
-		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
+		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state, destinationConfig.Type)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
@@ -194,7 +192,7 @@ var syncCmd = &cobra.Command{
 	},
 }
 
-func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
+func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State, destinationType types.DestinationType) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
 		SelectedStreams:    []types.StreamInterface{},
@@ -244,7 +242,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
-		if err := elem.ValidateUpdateType(); err != nil {
+		if err := elem.ValidateUpdateType(destinationType); err != nil {
 			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
 			return false
 		}
