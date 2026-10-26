@@ -30,7 +30,7 @@ query='query($owner: String!, $name: String!, $endCursor: String) {
   }
 }'
 
-# People: the author, 👍 reactors and commenters, minus staff and contributors claiming the task.
+# People: the author, 👍 reactors and commenters without repo commits or a task claim, minus staff.
 # shortcut: the first 100 comments and reactions per issue are read, enough for every issue so far.
 rule='
 def maintainer: . == "OWNER" or . == "MEMBER" or . == "COLLABORATOR";
