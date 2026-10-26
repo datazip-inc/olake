@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	icebergDestinationFile      = "iceberg_destination.json"
-	icebergArrowDestinationFile = "iceberg_destination_arrow.json"
-	parquetDestinationFile      = "parquet_destination.json"
+	icebergDestinationFile      = "iceberg_s3_destination.json"
+	icebergArrowDestinationFile = "iceberg_s3_destination_arrow.json"
+	parquetS3DestinationFile    = "parquet_s3_destination.json"
+	parquetAzureDestinationFile = "parquet_azure_destination.json"
 )
 
 type TestHandler struct {
@@ -123,7 +124,7 @@ func (th *TestHandler) runSyncAndVerify(
 // is whichever writer variant IcebergWriter selected, defaulting to the committed base config.
 func (th *TestHandler) destinationFile(destinationType string) string {
 	if destinationType == "parquet" {
-		return parquetDestinationFile
+		return parquetS3DestinationFile
 	}
 	if th.icebergDestination == "" {
 		return icebergDestinationFile
