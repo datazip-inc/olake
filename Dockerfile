@@ -1,7 +1,7 @@
 ARG GO_BUILD=cross
 
-FROM --platform=$BUILDPLATFORM golang:1.26.9-bookworm AS go-cross
-FROM golang:1.26.9-bookworm AS go-target
+FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm AS go-cross
+FROM golang:1.26.10-bookworm AS go-target
 
 FROM go-cross AS makefiles
 WORKDIR /home/app

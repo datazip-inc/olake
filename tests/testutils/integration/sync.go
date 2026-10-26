@@ -11,7 +11,7 @@ import (
 )
 
 // TestSync runs the happy-path sync suite: full load, CDC and incremental, over both Iceberg writers
-// and Parquet. It seeds its catalog from streams.template.json instead of discovering one, the way the
+// and Parquet. It seeds its catalog from the committed catalog templates instead of discovering one, the way the
 // 2PC and rebalance suites do -- TestDiscover already proves the two are identical.
 func (th *TestHandler) TestSync(t *testing.T) {
 	ctx := t.Context()
@@ -46,7 +46,7 @@ func (th *TestHandler) TestSync(t *testing.T) {
 	})
 
 	// Asserts the writer splits bulk output into size-bounded files without losing rows. Runs
-	// last: it replaces the table contents and clears streams.json's regex/filter config.
+	// last: it replaces the table contents and clears the catalog's regex/filter config.
 	if hasParquetRollingTest(th.Driver) {
 		t.Run("Parquet Rolling", func(t *testing.T) {
 			if err := th.testParquetRolling(ctx, t, testTable); err != nil {
@@ -64,7 +64,7 @@ func (th *TestHandler) TestSync(t *testing.T) {
 	t.Logf("%s sync test cleanup", th.Driver)
 }
 
-// TestCommonSync is the boilerplate every sync suite runs: seed the source, point streams.json at
+// TestCommonSync is the boilerplate every sync suite runs: seed the source, point the catalog at
 // the handler's settings, then full load, CDC and incremental over both Iceberg writers and Parquet.
 // It leaves the source table in place: dropping it afterwards is the caller's job, as TestSync does.
 func (th *TestHandler) TestCommonSync(t *testing.T) {
@@ -79,9 +79,9 @@ func (th *TestHandler) TestCommonSync(t *testing.T) {
 	th.ExecuteQuery(ctx, t, th.TestConfig, testutils.Ternary(len(th.DedupKeys) > 0, testutils.Ternary(th.UpsertAddOp != "", th.UpsertAddOp, "upsert_add"), "add").(string))
 
 	// 2. Give the catalog this suite's own destination namespace, then enable normalization,
-	// partition regex, filter and column exclusion in streams.json
+	// partition regex, filter and column exclusion in the catalog
 	th.resetCatalog(t)
-	t.Logf("Enabled normalization and added partition regex in %s", th.GetFilePath("streams.json"))
+	t.Logf("Enabled normalization and added partition regex in %s", th.Catalog())
 
 	writerTypes := []struct {
 		name     string
@@ -404,9 +404,9 @@ func (th *TestHandler) IcebergFullLoadAndIncremental(
 
 	th.resetTable(ctx, t)
 
-	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
+	// Patch the catalog: set sync_mode = incremental, cursor_field = "id"
 	if err := updateStreamConfig(th.TestConfig, th.TestConfig.Namespace, testTable, "incremental", th.TestConfig.CursorField); err != nil {
-		return fmt.Errorf("failed to patch streams.json for incremental: %s", err)
+		return fmt.Errorf("failed to patch the catalog for incremental: %s", err)
 	}
 
 	// Test cases for incremental sync
@@ -493,9 +493,9 @@ func (th *TestHandler) ParquetFullLoadAndIncremental(
 		return fmt.Errorf("failed to reset parquet table: %s", err)
 	}
 
-	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
+	// Patch the catalog: set sync_mode = incremental, cursor_field = "id"
 	if err := updateStreamConfig(th.TestConfig, th.TestConfig.Namespace, testTable, "incremental", th.TestConfig.CursorField); err != nil {
-		return fmt.Errorf("failed to patch streams.json for incremental: %s", err)
+		return fmt.Errorf("failed to patch the catalog for incremental: %s", err)
 	}
 
 	// Test cases for incremental sync
