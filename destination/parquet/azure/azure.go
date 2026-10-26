@@ -24,6 +24,9 @@ const (
 	// Olake waits for 10 minutes for a copy operation to complete
 	azureCopyTimeout = 10 * time.Minute
 	azureCopyPoll    = 200 * time.Millisecond
+	// Deadline for one HTTP attempt. azcore's default is 0, which waits until the caller cancels.
+	// Files up to 256 MB are a single PUT, so this covers that body.
+	azureTryTimeout = 5 * time.Minute
 	// ADLS Gen2 flat listings mark a directory with this metadata entry.
 	azureFolderMetadataKey = "hdi_isfolder"
 )
@@ -288,7 +291,7 @@ func getServiceClientTokenCredential(accountURL string) (*azblob.Client, error) 
 		return nil, fmt.Errorf("failed to create default Azure credential: %w", err)
 	}
 
-	client, err := azblob.NewClient(accountURL, credential, nil)
+	client, err := azblob.NewClient(accountURL, credential, blobClientOptions())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Blob Storage client: %w", err)
 	}
@@ -304,7 +307,7 @@ func getServiceClientSAS(accountURL string, sasToken string) (*azblob.Client, er
 	accountURLWithSAS := fmt.Sprintf("%s?%s",
 		strings.TrimRight(accountURL, "?"),
 		strings.TrimPrefix(sasToken, "?"))
-	client, err := azblob.NewClientWithNoCredential(accountURLWithSAS, nil)
+	client, err := azblob.NewClientWithNoCredential(accountURLWithSAS, blobClientOptions())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Blob Storage client: %w", err)
 	}
@@ -321,17 +324,24 @@ func getServiceClientSharedKey(accountName string, accountKey string, accountURL
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Shared Key Credential: %w", err)
 	}
-	client, err := azblob.NewClientWithSharedKeyCredential(accountURL, credential, nil)
+	client, err := azblob.NewClientWithSharedKeyCredential(accountURL, credential, blobClientOptions())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Blob Storage client: %w", err)
 	}
 	return client, nil
 }
 
+// blobClientOptions sets the retry timeout for the Azure Blob Storage client
+func blobClientOptions() *azblob.ClientOptions {
+	options := &azblob.ClientOptions{}
+	options.Retry.TryTimeout = azureTryTimeout
+	return options
+}
+
 // Connection string credential - use storage account connection string
 func getServiceClientConnectionString(connectionString string) (*azblob.Client, error) {
 	// Create a new service client with connection string
-	client, err := azblob.NewClientFromConnectionString(connectionString, nil)
+	client, err := azblob.NewClientFromConnectionString(connectionString, blobClientOptions())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Blob Storage client: %w", err)
 	}

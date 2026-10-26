@@ -11,6 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBlobClientOptionsTryTimeout(t *testing.T) {
+	options := blobClientOptions()
+	require.Equal(t, azureTryTimeout, options.Retry.TryTimeout)
+}
+
 func TestAzureObjectKey(t *testing.T) {
 	tests := []struct {
 		name     string
