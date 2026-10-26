@@ -48,7 +48,7 @@ def claims_work: test("assign|up for grab|work(ing)? on (this|it)|take (this|it)
       + [.comments.nodes[] | select((.author | outsider) and .authorAssociation != "CONTRIBUTOR" and (.bodyText | claims_work | not)) | .author.login]
       + [.reactions.nodes[].user | select(. != null) | . + {__typename: "User"} | select(outsider) | .login])}]
 | group_by(.key)
-| map({url: .[0].key, title: ((map(select(.url == .key)) | first // .[0]).title), people: (map(.people[]) | unique)})
+| map({url: .[0].key, title: ((map(select(.url == .key)) | first) // .[0]).title, people: (map(.people[]) | unique)})
 | map(select(.people | length >= $min))'
 
 # set -e is off inside $(...), so stop on a failed fetch: partial data can count staff as outsiders.
