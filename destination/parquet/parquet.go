@@ -2,10 +2,12 @@ package parquet
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -239,6 +241,9 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		}
 
 		if p.stream.NormalizationEnabled() {
+			if err := p.checkFixedWidths(record.Data); err != nil {
+				return destination.WriteFailure(fmt.Errorf("failed to write in parquet file: %w", err))
+			}
 			_, err = partitionFile.writer.Write([]any{record.Data})
 		} else {
 			dataBytes, merr := json.Marshal(record.Data)
@@ -261,6 +266,20 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		}
 	}
 
+	return nil
+}
+
+// checkFixedWidths rejects a fixed_binary(n) value that is not n bytes, which parquet-go panics on.
+func (p *Parquet) checkFixedWidths(data map[string]any) error {
+	for column, value := range data {
+		b, isBytes := value.([]byte)
+		if !isBytes || p.schema[column] == nil {
+			continue
+		}
+		if width, isFixed := types.FixedBinaryWidth(p.schema[column].Type()); isFixed && len(b) != width {
+			return fmt.Errorf("field[%s]: %s holds exactly %d bytes, got %d", column, p.schema[column].Type(), width, len(b))
+		}
+	}
 	return nil
 }
 
@@ -454,7 +473,9 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	}()
 
 	dataFiles := p.pendingDataFiles()
-	if !p.options.Backfill && len(dataFiles) == 0 {
+	// CDC positions can move without new records, so the metadata is committed on every sync;
+	// only a close without data and without metadata state (incremental with no records) is a no-op.
+	if !p.options.Backfill && len(dataFiles) == 0 && finalMetadataState == nil {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -536,7 +557,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 				persistedTypes := p.schema[columnName].Types()
 				if _, exist := utils.ArrayContains(persistedTypes, func(elem types.DataType) bool {
-					return elem == detectedType
+					return elem.ValueType() == detectedType
 				}); !exist {
 					diffFound.Store(true)
 					break
@@ -650,6 +671,9 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 				} else {
 					logger.Debugf("Thread[%s]: failed to convert value to timestamp: %s", p.options.ThreadID, err)
 				}
+			}
+			if b, isBytes := value.([]byte); isBytes {
+				return url.QueryEscape(base64.StdEncoding.EncodeToString(b))
 			}
 			return fmt.Sprintf("%v", value)
 		}

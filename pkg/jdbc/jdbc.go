@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -421,6 +422,7 @@ func MySQLTableSchemaQuery() string {
 			COLUMN_NAME, 
 			COLUMN_TYPE,
 			DATA_TYPE, 
+			CHARACTER_MAXIMUM_LENGTH,
 			IS_NULLABLE,
 			COLUMN_KEY
 		FROM 
@@ -535,6 +537,12 @@ func PostgresWalLevelQuery() string {
 	return "SHOW wal_level"
 }
 
+// PostgresWalSenderTimeoutQuery returns wal_sender_timeout in milliseconds; pg_settings gives the
+// raw value, so there is no unit string ("1min") to parse.
+func PostgresWalSenderTimeoutQuery() string {
+	return "SELECT setting::bigint FROM pg_settings WHERE name = 'wal_sender_timeout'"
+}
+
 // PostgresReplicationAttrQuery reports whether the current role can open replication connections
 func PostgresReplicationAttrQuery() string {
 	return "SELECT rolsuper OR rolreplication FROM pg_roles WHERE rolname = current_user"
@@ -573,6 +581,32 @@ func MySQLCDCColumnMetadataQuery() string {
 		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
 		ORDER BY ORDINAL_POSITION
 	`
+}
+
+// MySQLCDCTableCollationQuery returns the query for a table's default collation, which a
+// column added later without a charset or collation takes.
+func MySQLCDCTableCollationQuery() string {
+	return `
+		SELECT COALESCE(TABLE_COLLATION, '')
+		FROM INFORMATION_SCHEMA.TABLES
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+	`
+}
+
+// MySQLCDCSchemaCollationQuery returns the query for a database's default collation, which a table
+// created later without a charset or collation takes.
+func MySQLCDCSchemaCollationQuery() string {
+	return `
+		SELECT COALESCE(DEFAULT_COLLATION_NAME, '')
+		FROM INFORMATION_SCHEMA.SCHEMATA
+		WHERE SCHEMA_NAME = ?
+	`
+}
+
+// MySQLLowerCaseTableNamesQuery returns the query for lower_case_table_names: 0 compares table
+// names case-sensitively, 1 and 2 case-insensitively.
+func MySQLLowerCaseTableNamesQuery() string {
+	return `SELECT @@lower_case_table_names`
 }
 
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
@@ -1383,7 +1417,16 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		}
 
 		// New JSON filter path: use the real Go type coming from JSON decoding.
-		switch v := cond.Value.(type) {
+		value := cond.Value
+		if columnType, err := stream.Schema().GetType(cond.Column); err == nil && columnType == types.Binary {
+			if value, err = typeutils.ParseFilterValue(columnType, cond.Value); err != nil {
+				return "", err
+			}
+		}
+		switch v := value.(type) {
+		case []byte:
+			// MySQL's hex literal; only MySQL maps a column to binary
+			valueSQL = fmt.Sprintf("X'%x'", v)
 		case string:
 			// TODO: Audit Unicode handling of string filters with special characters (Ω, ⚡, emoji, etc.) for all JDBC drivers (MSSQL, Postgres, MySQL, Oracle, DB2).
 			// default: treat as escaped string
@@ -1475,8 +1518,16 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err := abstract.DecodeCursorValue(cursorField, cursorType, lastCursorValue)
+		if err != nil {
+			return "", nil, err
+		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
-		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
+		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), cursorValue, nil
 	}
 
 	// Build primary cursor condition
@@ -1516,13 +1567,21 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
-	bytesConverter := func(value any) any {
+	bytesConverter := func(cursorType types.DataType, value any) any {
 		switch v := value.(type) {
 		case []byte:
+			if driverType == constants.MySQL && cursorType == types.Binary {
+				return v
+			}
 			return string(v)
 		default:
 			return v
 		}
+	}
+
+	primaryCursorType, err := stream.Schema().GetType(primaryCursor)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", primaryCursor, err)
 	}
 
 	cursorValueQuery := utils.Ternary(secondaryCursor == "",
@@ -1530,18 +1589,22 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable)).(string)
 
 	if secondaryCursor != "" {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		secondaryCursorType, err := stream.Schema().GetType(secondaryCursor)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", secondaryCursor, err)
+		}
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %w", err)
 		}
-		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
+		maxSecondaryCursorValue = bytesConverter(secondaryCursorType, maxSecondaryCursorValue)
 	} else {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %w", err)
 		}
 	}
-	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
+	return bytesConverter(primaryCursorType, maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
@@ -1557,6 +1620,14 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		}
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err = abstract.DecodeCursorValue(cursorField, cursorType, cursorValue)
+		if err != nil {
+			return "", nil, err
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil

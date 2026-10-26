@@ -113,23 +113,32 @@ func TestUpdateTypeConstraintsWithCatalog(t *testing.T) {
 	}
 }
 
-func TestGetWrappedCatalogUsesCatalogDerivedUpdateType(t *testing.T) {
-	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema()}}
+// effective resolves a generated stream the way sync does: selected override, else default.
+func effective(catalog *Catalog, stream *Stream) *ConfiguredStream {
+	return &ConfiguredStream{Stream: stream, StreamMetadata: catalog.SelectedStreams[stream.Namespace][0]}
+}
 
-	catalog := GetWrappedCatalog(streams, "postgres", UpdateTypeConstraints{Catalog: "horizon"})
+func TestGetWrappedCatalogUsesCatalogDerivedUpdateType(t *testing.T) {
+	streams := []*Stream{{
+		Name: "users", Namespace: "public", Schema: NewTypeSchema(),
+		DefaultStreamProperties: &DefaultStreamProperties{},
+	}}
+
+	catalog := GetWrappedCatalog(streams, UpdateTypeConstraints{Catalog: "horizon"})
 
 	// Equality would be the default, but Horizon rejects it from external engines.
-	assert.Equal(t, string(UpdateTypePosition), catalog.SelectedStreams["public"][0].UpdateType)
+	assert.Equal(t, UpdateTypePosition, streams[0].DefaultStreamProperties.UpdateType)
+	assert.Equal(t, UpdateTypePosition, effective(catalog, streams[0]).GetUpdateType())
 	assert.Equal(t, []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}, streams[0].AvailableUpdateTypes)
 }
 
 func TestMergeUpdateTypeClearsCatalogUnsupportedValue(t *testing.T) {
 	// Configured as equality before the job pointed at a Unity destination.
-	metadata := &StreamMetadata{StreamName: "users", UpdateType: string(UpdateTypeEquality)}
+	metadata := &StreamMetadata{StreamName: "users", UpdateType: new(string(UpdateTypeEquality))}
 
 	mergeUpdateType(metadata, "public.users", UpdateTypeConstraints{Catalog: "unity"})
 
-	assert.Equal(t, "", metadata.UpdateType)
+	assert.Equal(t, new(""), metadata.UpdateType)
 }
 
 // With no delete format left, streams stay upsert with an empty list: the UI reports the
@@ -141,16 +150,16 @@ func TestGetWrappedCatalogKeepsUpsertWhenNothingQualifies(t *testing.T) {
 	}}
 
 	// Athena cannot read deletion vectors, the only format Unity offers.
-	catalog := GetWrappedCatalog(streams, "postgres", UpdateTypeConstraints{
+	catalog := GetWrappedCatalog(streams, UpdateTypeConstraints{
 		Engines: []QueryEngine{QueryEngineAthena}, Catalog: "unity",
 	})
 
-	selected := catalog.SelectedStreams["public"][0]
-	assert.False(t, selected.AppendMode)
-	assert.Equal(t, "", selected.UpdateType)
+	assert.False(t, effective(catalog, streams[0]).AppendModeEnabled())
 	assert.False(t, streams[0].DefaultStreamProperties.AppendMode)
 	assert.Equal(t, UpdateType(""), streams[0].DefaultStreamProperties.UpdateType)
 	assert.Equal(t, []UpdateType{}, streams[0].AvailableUpdateTypes)
+	// Sync must refuse it until the user picks append.
+	require.Error(t, effective(catalog, streams[0]).ValidateUpdateType())
 }
 
 // Empty and absent mean opposite things: nothing qualifies vs. a catalog predating the field.
@@ -177,12 +186,12 @@ func TestValidateUpdateTypeWithNothingAvailable(t *testing.T) {
 		wantErr   bool
 	}{
 		// Append writes no deletes, so an empty list cannot block it.
-		{name: "append stream passes", available: []UpdateType{}, metadata: StreamMetadata{AppendMode: true}},
-		{name: "upsert stream is rejected", available: []UpdateType{}, metadata: StreamMetadata{UpdateType: "pos"}, wantErr: true},
-		// Blank would otherwise default to equality and slip through.
-		{name: "blank upsert stream is rejected", available: []UpdateType{}, metadata: StreamMetadata{}, wantErr: true},
+		{name: "append stream passes", available: []UpdateType{}, metadata: StreamMetadata{AppendMode: new(true)}},
+		{name: "upsert stream is rejected", available: []UpdateType{}, metadata: StreamMetadata{UpdateType: new("pos")}, wantErr: true},
+		// Unset would otherwise default to equality and slip through.
+		{name: "unset upsert stream is rejected", available: []UpdateType{}, metadata: StreamMetadata{}, wantErr: true},
 		// Legacy catalogs only check writability.
-		{name: "legacy nil list allows a writable mode", available: nil, metadata: StreamMetadata{UpdateType: "pos"}},
+		{name: "legacy nil list allows a writable mode", available: nil, metadata: StreamMetadata{UpdateType: new("pos")}},
 	}
 
 	for _, tc := range testCases {
@@ -210,25 +219,26 @@ func TestGetWrappedCatalogAppendOnlyDestination(t *testing.T) {
 	}}
 
 	// Engines that would otherwise allow every format must not widen an append-only destination.
-	catalog := GetWrappedCatalog(streams, "postgres", UpdateTypeConstraints{
+	catalog := GetWrappedCatalog(streams, UpdateTypeConstraints{
 		Engines: []QueryEngine{QueryEngineSpark}, AppendOnly: true,
 	})
 
-	selected := catalog.SelectedStreams["public"][0]
-	assert.True(t, selected.AppendMode)
-	assert.Equal(t, "", selected.UpdateType)
+	// Selected streams only carry overrides, so append-only shows on the defaults.
 	assert.True(t, streams[0].DefaultStreamProperties.AppendMode)
+	assert.True(t, effective(catalog, streams[0]).AppendModeEnabled())
 	assert.Equal(t, []UpdateType{}, streams[0].AvailableUpdateTypes)
+	require.NoError(t, effective(catalog, streams[0]).ValidateUpdateType())
 }
 
 // A stream configured as upsert before the job pointed at Parquet is moved to append.
 func TestMergeUpdateTypeForcesAppendOnAppendOnlyDestination(t *testing.T) {
-	metadata := &StreamMetadata{StreamName: "users", UpdateType: string(UpdateTypePosition)}
+	// The user had explicitly chosen upsert, so the override itself must flip.
+	metadata := &StreamMetadata{StreamName: "users", AppendMode: new(false), UpdateType: new(string(UpdateTypePosition))}
 
 	mergeUpdateType(metadata, "public.users", UpdateTypeConstraints{AppendOnly: true})
 
-	assert.True(t, metadata.AppendMode)
-	assert.Equal(t, "", metadata.UpdateType)
+	assert.Equal(t, new(true), metadata.AppendMode)
+	assert.Equal(t, new(""), metadata.UpdateType)
 }
 
 func TestDestinationIsAppendOnly(t *testing.T) {
