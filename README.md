@@ -124,6 +124,17 @@
 | Parquet        | ✅         | Filesystem                                                   |
 
 
+##### Interoperability
+
+Interoperability ensures that Iceberg tables written by OLake are correctly readable by any query engine. Different engines support different Iceberg delete formats for CDC; OLake eliminates this complexity by auto-selecting the right delete format based on your declared target engines (`--target-query-engines`). One table, any engine, always correct — no manual configuration, no migration.
+
+| Delete Format | OLake Support |
+|---|---|
+| Equality Deletes | ✅ |
+| Positional Deletes | ✅ |
+| Deletion Vectors | ✅ |
+
+
 ##### Writer Docs
 
 1. Apache Iceberg Docs
@@ -230,11 +241,10 @@ Below are other different ways you can run OLake Go:
 
 ### 🧭 Roadmap Highlights
 
-- [x] Oracle Full Load Support
-- [x] Oracle Incremental
-- [x] Filters for Full Load and Incremental
-- [ ] Interoperability (Coming Soon)
-- [ ] Iceberg V3 Support
+- [ ] Iceberg V3 — Geo type, Variant type
+- [ ] JSON Flattening
+- [ ] Single Message Transform (SMT)
+- [ ] Continuous CDC Mode
 
 ---
 
