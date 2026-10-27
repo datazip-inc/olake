@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,6 +187,45 @@ func TestValidateDifferenceFlags(t *testing.T) {
 			require.Error(t, err)
 			got := errs.From(errs.Classify(err))
 			assert.Equal(t, tc.expectedCode, got.Code)
+		})
+	}
+}
+
+// --destination is optional for discover, so an absent flag must leave an empty config (its
+// empty type compares every field) rather than fail; sync and clear-destination check
+// destinationPassed themselves.
+func TestLoadDestinationConfig(t *testing.T) {
+	validPath := filepath.Join(t.TempDir(), "destination.json")
+	require.NoError(t, os.WriteFile(validPath, []byte(`{"type":"PARQUET","writer":{}}`), 0o600))
+
+	testCases := []struct {
+		name         string
+		path         string
+		passed       bool
+		expectedType types.DestinationType
+		expectErr    bool
+	}{
+		{name: "flag default", path: "not-set"},
+		{name: "empty path", path: ""},
+		{name: "valid config", path: validPath, passed: true, expectedType: types.Parquet},
+		{name: "missing file", path: filepath.Join(t.TempDir(), "missing.json"), passed: true, expectErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			prevPath, prevConfig := destinationConfigPath, destinationConfig
+			t.Cleanup(func() { destinationConfigPath, destinationConfig = prevPath, prevConfig })
+			destinationConfigPath = tc.path
+
+			assert.Equal(t, tc.passed, destinationPassed())
+			err := loadDestinationConfig()
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, destinationConfig)
+			assert.Equal(t, tc.expectedType, destinationConfig.Type)
 		})
 	}
 }
