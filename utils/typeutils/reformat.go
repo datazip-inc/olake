@@ -276,10 +276,11 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 			return false
 		}
 
+		if len(parts[0]) != 4 || len(parts[1]) != 2 || len(parts[2]) != 2 {
+			return false
+		}
+
 		for _, part := range parts {
-			if len(part) < 1 || len(part) > 4 {
-				return false
-			}
 			for _, char := range part {
 				if char < '0' || char > '9' {
 					return false
