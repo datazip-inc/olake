@@ -126,7 +126,7 @@
 
 ##### Interoperability
 
-Different query engines support different Iceberg delete formats — OLake auto-selects the right one based on your target engines (`--target-query-engines`), so every engine always sees correct data with no migration.
+Interoperability ensures that Iceberg tables written by OLake are correctly readable by any query engine. Different engines support different Iceberg delete formats for CDC; OLake eliminates this complexity by auto-selecting the right delete format based on your declared target engines (`--target-query-engines`). One table, any engine, always correct — no manual configuration, no migration.
 
 | Query Engine | Equality Deletes | Positional Deletes | Deletion Vectors |
 |---|---|---|---|
