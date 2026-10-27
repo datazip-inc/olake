@@ -184,7 +184,8 @@ func readPEMData(value string, field SSLField, parseAsCert bool) ([]byte, error)
 	// PEM files may contain multiple blocks (e.g., certificate chains).
 	pemData, err := ReadPEMOrFile(value)
 	if err != nil {
-		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable, err)
+		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable,
+			fmt.Errorf("'%s': %w", string(field), err))
 	}
 	remaining := pemData
 	foundBlock := false
