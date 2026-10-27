@@ -50,7 +50,7 @@ func (m UpdateType) ValidateAgainst(available []UpdateType) error {
 	}
 
 	if available != nil && !slices.Contains(available, m) {
-		return fmt.Errorf("update mode %q is not readable by the target query engines; available are %v", m, available)
+		return fmt.Errorf("update mode %q is not supported by the target query engines or the destination catalog; available are %v", m, available)
 	}
 
 	return nil

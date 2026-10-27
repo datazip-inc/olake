@@ -28,8 +28,8 @@ func TestCatalogTypeFromConfig(t *testing.T) {
 		{name: "missing catalog defaults to glue", config: icebergConfig(map[string]any{}), expected: "glue"},
 		// Read before iceberg's validation, which would report this as plain "rest".
 		{name: "rest-family catalog keeps its name", config: icebergConfig(map[string]any{"catalog_type": "s3tables"}), expected: "s3tables"},
-		// Left unconstrained, a typo would offer formats the catalog cannot apply.
-		{name: "unknown catalog fails", config: icebergConfig(map[string]any{"catalog_type": "glu"}), wantErr: true},
+		// Validating catalog_type is the destination's job; unrestricted catalogs pass through.
+		{name: "unlisted catalog is read as is", config: icebergConfig(map[string]any{"catalog_type": "polaris"}), expected: "polaris"},
 		{name: "unreadable writer config fails", config: &WriterConfig{Type: Iceberg, WriterConfig: "not an object"}, wantErr: true},
 	}
 
@@ -46,8 +46,8 @@ func TestCatalogTypeFromConfig(t *testing.T) {
 	}
 }
 
-// A catalog the destination accepts but the matrix lacks would fail every discover against it.
-func TestIcebergCatalogsCoverDestinationSpec(t *testing.T) {
+// A restriction keyed by a name the destination never sends would silently never apply.
+func TestCatalogRestrictionsUseDestinationCatalogNames(t *testing.T) {
 	raw, err := os.ReadFile("../destination/iceberg/resources/spec.json")
 	require.NoError(t, err)
 
@@ -66,7 +66,9 @@ func TestIcebergCatalogsCoverDestinationSpec(t *testing.T) {
 
 	accepted := spec.Properties.Writer.Properties.CatalogType.Enum
 	require.NotEmpty(t, accepted)
-	assert.ElementsMatch(t, accepted, catalogNames())
+	for catalog := range catalogRestrictions {
+		assert.Contains(t, accepted, catalog)
+	}
 }
 
 func TestUpdateTypeConstraintsWithCatalog(t *testing.T) {
