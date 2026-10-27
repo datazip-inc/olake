@@ -159,7 +159,7 @@ func TestGetWrappedCatalogKeepsUpsertWhenNothingQualifies(t *testing.T) {
 	assert.Equal(t, UpdateType(""), streams[0].DefaultStreamProperties.UpdateType)
 	assert.Equal(t, []UpdateType{}, streams[0].AvailableUpdateTypes)
 	// Sync must refuse it until the user picks append.
-	require.Error(t, effective(catalog, streams[0]).ValidateUpdateType())
+	require.Error(t, effective(catalog, streams[0]).ValidateUpdateType(Iceberg))
 }
 
 // Empty and absent mean opposite things: nothing qualifies vs. a catalog predating the field.
@@ -200,7 +200,7 @@ func TestValidateUpdateTypeWithNothingAvailable(t *testing.T) {
 				StreamMetadata: tc.metadata,
 				Stream:         &Stream{AvailableUpdateTypes: tc.available},
 			}
-			err := stream.ValidateUpdateType()
+			err := stream.ValidateUpdateType(Iceberg)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -227,7 +227,7 @@ func TestGetWrappedCatalogAppendOnlyDestination(t *testing.T) {
 	assert.True(t, streams[0].DefaultStreamProperties.AppendMode)
 	assert.True(t, effective(catalog, streams[0]).AppendModeEnabled())
 	assert.Equal(t, []UpdateType{}, streams[0].AvailableUpdateTypes)
-	require.NoError(t, effective(catalog, streams[0]).ValidateUpdateType())
+	require.NoError(t, effective(catalog, streams[0]).ValidateUpdateType(Parquet))
 }
 
 // A stream configured as upsert before the job pointed at Parquet is moved to append.
@@ -239,10 +239,4 @@ func TestMergeUpdateTypeForcesAppendOnAppendOnlyDestination(t *testing.T) {
 
 	assert.Equal(t, new(true), metadata.AppendMode)
 	assert.Equal(t, new(""), metadata.UpdateType)
-}
-
-func TestDestinationIsAppendOnly(t *testing.T) {
-	assert.False(t, DestinationIsAppendOnly(nil))
-	assert.True(t, DestinationIsAppendOnly(&WriterConfig{Type: Parquet}))
-	assert.False(t, DestinationIsAppendOnly(&WriterConfig{Type: Iceberg}))
 }

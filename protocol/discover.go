@@ -139,12 +139,7 @@ func resolveUpdateTypeConstraints() error {
 		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
 	}
 
-	if destinationConfigPath != "not-set" && destinationConfigPath != "" {
-		destinationConfig = &types.WriterConfig{}
-		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
-			return err
-		}
-	}
+	// destinationConfig was loaded from --destination by loadDestinationConfig in PreRunE.
 	catalogType, err := types.CatalogTypeFromConfig(destinationConfig)
 	if err != nil {
 		return errs.Precondition(errs.ConfigInvalid, codeDestinationConfigInvalid, err)
@@ -153,7 +148,7 @@ func resolveUpdateTypeConstraints() error {
 	constraints := types.UpdateTypeConstraints{
 		Engines:    engines,
 		Catalog:    catalogType,
-		AppendOnly: types.DestinationIsAppendOnly(destinationConfig),
+		AppendOnly: !types.UpsertSupported(destinationConfig.Type),
 	}
 	// Only upsert needs a delete format and append writes none, so the job stays valid: each
 	// stream gets an empty available_update_types for the UI to report. Expected, so silent,

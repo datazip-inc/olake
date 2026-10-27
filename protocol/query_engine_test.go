@@ -87,7 +87,11 @@ func TestResolveUpdateTypeConstraints(t *testing.T) {
 				destinationConfig, updateTypeConstraints = nil, types.UpdateTypeConstraints{}
 			})
 
-			err := resolveUpdateTypeConstraints()
+			// PreRunE loads --destination before resolving, as discover does.
+			err := loadDestinationConfig()
+			if err == nil {
+				err = resolveUpdateTypeConstraints()
+			}
 			if tc.wantErr {
 				require.Error(t, err)
 				return
