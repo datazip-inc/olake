@@ -124,6 +124,33 @@
 | Parquet        | ✅         | Filesystem                                                   |
 
 
+##### Interoperability
+
+Different query engines support different Iceberg delete formats — OLake auto-selects the right one based on your target engines (`--target-query-engines`), so every engine always sees correct data with no migration.
+
+| Query Engine | Equality Deletes | Positional Deletes | Deletion Vectors |
+|---|---|---|---|
+| Amazon Athena | ✅ | ✅ | ❌ |
+| Apache Spark (v3.3+) | ✅ | ✅ | ✅ |
+| Apache Flink (v1.18+) | ✅ | ✅ | ✅ |
+| Trino (v475+) | ✅ | ✅ | ✅ |
+| Starburst Enterprise | ✅ | ✅ | ✅ |
+| Presto (v0.288+) | ✅ | ✅ | ❌ |
+| Apache Hive (v4.2.0) | ✅ | ✅ | ❌ |
+| Apache Impala (v5.0) | ✅ | ✅ | ❌ |
+| Dremio (v25/26) | ⚠️ | ✅ | ⚠️ |
+| DuckDB (v1.2.1) | ✅ | ✅ | ✅ |
+| ClickHouse (v25.8+) | ✅ | ✅ | ✅ |
+| StarRocks (v4.0+) | ✅ | ✅ | ❌ |
+| Apache Doris (v3.1+) | ✅ | ✅ | ✅ |
+| BigQuery (BigLake) | ✅ | ✅ | ✅ |
+| Snowflake (GA) | ❌ | ✅ | ✅ |
+| Databricks (Spark) | ✅ | ✅ | ✅ |
+| Databricks | ❌ | ❌ | ✅ |
+| AWS Redshift | ✅ | ✅ | ❌ |
+| Azure Synapse Analytics | ✅ | ✅ | ✅ |
+
+
 ##### Writer Docs
 
 1. Apache Iceberg Docs
@@ -230,11 +257,10 @@ Below are other different ways you can run OLake Go:
 
 ### 🧭 Roadmap Highlights
 
-- [x] Oracle Full Load Support
-- [x] Oracle Incremental
-- [x] Filters for Full Load and Incremental
-- [ ] Interoperability (Coming Soon)
-- [ ] Iceberg V3 Support
+- [ ] Iceberg V3 — Geo type, Variant type
+- [ ] JSON Flattening
+- [ ] Single Message Transform (SMT)
+- [ ] Continuous CDC Mode
 
 ---
 
