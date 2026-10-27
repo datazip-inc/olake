@@ -128,27 +128,11 @@
 
 Interoperability ensures that Iceberg tables written by OLake are correctly readable by any query engine. Different engines support different Iceberg delete formats for CDC; OLake eliminates this complexity by auto-selecting the right delete format based on your declared target engines (`--target-query-engines`). One table, any engine, always correct — no manual configuration, no migration.
 
-| Query Engine | Equality Deletes | Positional Deletes | Deletion Vectors |
-|---|---|---|---|
-| Amazon Athena | ✅ | ✅ | ❌ |
-| Apache Spark (v3.3+) | ✅ | ✅ | ✅ |
-| Apache Flink (v1.18+) | ✅ | ✅ | ✅ |
-| Trino (v475+) | ✅ | ✅ | ✅ |
-| Starburst Enterprise | ✅ | ✅ | ✅ |
-| Presto (v0.288+) | ✅ | ✅ | ❌ |
-| Apache Hive (v4.2.0) | ✅ | ✅ | ❌ |
-| Apache Impala (v5.0) | ✅ | ✅ | ❌ |
-| Dremio (v25/26) | ⚠️ | ✅ | ⚠️ |
-| DuckDB (v1.2.1) | ✅ | ✅ | ✅ |
-| ClickHouse (v25.8+) | ✅ | ✅ | ✅ |
-| StarRocks (v4.0+) | ✅ | ✅ | ❌ |
-| Apache Doris (v3.1+) | ✅ | ✅ | ✅ |
-| BigQuery (BigLake) | ✅ | ✅ | ✅ |
-| Snowflake (GA) | ❌ | ✅ | ✅ |
-| Databricks (Spark) | ✅ | ✅ | ✅ |
-| Databricks | ❌ | ❌ | ✅ |
-| AWS Redshift | ✅ | ✅ | ❌ |
-| Azure Synapse Analytics | ✅ | ✅ | ✅ |
+| Delete Format | OLake Support |
+|---|---|
+| Equality Deletes | ✅ |
+| Positional Deletes | ✅ |
+| Deletion Vectors | ✅ |
 
 
 ##### Writer Docs
