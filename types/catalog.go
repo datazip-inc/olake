@@ -212,10 +212,6 @@ func GetWrappedCatalog(streams []*Stream, constraints UpdateTypeConstraints) *Ca
 	}
 	// The default delete format is the cheapest one every target engine can read and the
 	// destination can apply.
-	// With none available, streams stay upsert with a blank type and an empty list, which
-	// the UI reports as no intersection; sync rejects them until the user switches to append.
-	// An append-only destination also yields an empty list but sets append mode, which is how
-	// the UI tells "append only" apart from "no intersection".
 	available := constraints.Available()
 	updateType := PreferredUpdateType(available)
 
@@ -229,7 +225,7 @@ func GetWrappedCatalog(streams []*Stream, constraints UpdateTypeConstraints) *Ca
 			} else {
 				stream.DefaultStreamProperties.UpdateType = updateType
 			}
-			// Selected streams only carry overrides, so append-only lives on the defaults.
+			// Lets the UI tell an append-only destination from "no intersection"; both list none.
 			stream.DefaultStreamProperties.AppendMode = stream.DefaultStreamProperties.AppendMode || constraints.AppendOnly
 		}
 
@@ -354,11 +350,6 @@ func pinImplicitUpdateType(metadata *StreamMetadata, oldStream, newStream *Strea
 // recreate, so the user must pick the new one explicitly, and a blank update_type fails
 // validation until they do.
 func mergeUpdateType(metadata *StreamMetadata, streamID string, constraints UpdateTypeConstraints) {
-	// An append-only destination cannot apply upserts, so append is the only mode it allows.
-	if constraints.AppendOnly {
-		appendMode := true
-		metadata.AppendMode = &appendMode
-	}
 	if metadata.UpdateType == nil {
 		return
 	}
@@ -375,17 +366,8 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, constraints Upda
 		return
 	}
 
-	// Append streams never use the value, so clearing it needs no warning. Only the explicit
-	// override is visible here; the default lives on the stream.
-	switch {
-	case metadata.AppendMode != nil && *metadata.AppendMode:
-	case len(available) == 0:
-		logger.Warnf("Stream %s update mode %s is not supported by the selected query engines or the destination, and no other mode is; cleared, switch the stream to append mode",
-			streamID, *metadata.UpdateType)
-	default:
-		logger.Warnf("Stream %s update mode %s is not supported by the selected query engines or the destination; cleared, choose one of %v",
-			streamID, *metadata.UpdateType, available)
-	}
+	logger.Warnf("Stream %s update mode %s is not supported by the selected query engines or the destination; cleared, choose one of %v or append mode",
+		streamID, *metadata.UpdateType, available)
 	metadata.UpdateType = new(string)
 }
 

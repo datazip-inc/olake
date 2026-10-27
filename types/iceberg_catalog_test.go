@@ -231,14 +231,3 @@ func TestGetWrappedCatalogAppendOnlyDestination(t *testing.T) {
 	assert.Equal(t, []UpdateType{}, streams[0].AvailableUpdateTypes)
 	require.NoError(t, effective(catalog, streams[0]).ValidateUpdateType(Parquet))
 }
-
-// A stream configured as upsert before the job pointed at Parquet is moved to append.
-func TestMergeUpdateTypeForcesAppendOnAppendOnlyDestination(t *testing.T) {
-	// The user had explicitly chosen upsert, so the override itself must flip.
-	metadata := &StreamMetadata{StreamName: "users", AppendMode: new(false), UpdateType: new(string(UpdateTypePosition))}
-
-	mergeUpdateType(metadata, "public.users", UpdateTypeConstraints{AppendOnly: true})
-
-	assert.Equal(t, new(true), metadata.AppendMode)
-	assert.Equal(t, new(""), metadata.UpdateType)
-}
