@@ -1333,6 +1333,8 @@ func TestGetStreamsDelta(t *testing.T) {
 		name       string
 		oldCatalog *Catalog
 		newCatalog *Catalog
+		// empty compares every property, like a difference run without --destination
+		destinationType DestinationType
 		// nil means no delta. A changed stream is carried with the new values, except the
 		// destination, which keeps the old one so clear-destination drops the table holding the data.
 		expectedDelta *Catalog
@@ -1702,11 +1704,134 @@ func TestGetStreamsDelta(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DedupKeys: []string{"id", "region"}}}},
 			},
 		},
+		// parquet always appends: append_mode, dedup_keys and update_type never change what is written
+		{
+			name:            "parquet: append_mode change is not a delta",
+			destinationType: Parquet,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false)}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(true)}}},
+			},
+		},
+		{
+			name:            "parquet: dedup_keys change is not a delta",
+			destinationType: Parquet,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DedupKeys: []string{"id"}}}},
+			},
+		},
+		{
+			name:            "parquet: update_type pos -> dv is not a delta",
+			destinationType: Parquet,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypePosition))}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypeDeletionVector))}}},
+			},
+		},
+		{
+			name:            "parquet: update_type dv -> eq is not a delta",
+			destinationType: Parquet,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypeDeletionVector))}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypeEquality))}}},
+			},
+		},
+		{
+			name:            "parquet: normalization change is still a delta",
+			destinationType: Parquet,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(false), AppendMode: new(false)}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true), AppendMode: new(true)}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true), AppendMode: new(true)}}},
+			},
+		},
+		{
+			// an S3 job saved before the UI forced append_mode: only the added stream needs a clear
+			name:            "parquet: adding a stream with append_mode forced on the others only reports the new stream",
+			destinationType: Parquet,
+			oldCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "s1", Namespace: "public"}},
+					{Stream: &Stream{Name: "s2", Namespace: "public"}},
+				},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "s1", AppendMode: new(false)}}},
+			},
+			newCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "s1", Namespace: "public"}},
+					{Stream: &Stream{Name: "s2", Namespace: "public"}},
+				},
+				SelectedStreams: map[string][]StreamMetadata{"public": {
+					{StreamName: "s1", AppendMode: new(true)},
+					{StreamName: "s2", AppendMode: new(true)},
+				}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "s2", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "s2", AppendMode: new(true)}}},
+			},
+		},
+		{
+			name:            "iceberg: append_mode change is a delta",
+			destinationType: Iceberg,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false)}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(true)}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(true)}}},
+			},
+		},
+		{
+			name:            "iceberg: update_type pos -> dv is a delta",
+			destinationType: Iceberg,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypePosition))}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypeDeletionVector))}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypeDeletionVector))}}},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			delta := GetStreamsDelta(tc.oldCatalog, tc.newCatalog)
+			delta := GetStreamsDelta(tc.oldCatalog, tc.newCatalog, tc.destinationType)
 			if tc.expectedDelta == nil {
 				assert.Empty(t, delta.Streams)
 				assert.Empty(t, delta.SelectedStreams)

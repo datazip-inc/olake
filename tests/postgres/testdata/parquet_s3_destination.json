@@ -1,6 +1,7 @@
 {
   "type": "PARQUET",
   "writer": {
+    "storage_type": "S3",
     "s3_bucket": "warehouse",
     "s3_region": "us-east-1",
     "s3_access_key": "admin",

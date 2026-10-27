@@ -21,8 +21,8 @@ const (
 	// so the writer is forced to roll into a handful of files. Shared with the driver's
 	// "rolling_seed" ExecuteQuery case so the assertion and the seed stay in lock-step.
 	RollingSeedRows = 50000
-	// rollingMaxFileBytes must match "max_file_size_mb" in the driver's
-	// parquet_destination.json (1 MB).
+	// rollingMaxFileBytes must match "max_file_size_mb" in parquet_s3_destination.json
+	// and parquet_azure_destination.json (1 MB).
 	rollingMaxFileBytes = 1 * 1024 * 1024
 )
 
@@ -32,19 +32,26 @@ const (
 // parquet_destination.json.
 var parquetRollingTestDrivers = []constants.DriverType{constants.Postgres}
 
+// rolledParquetFile is one promoted parquet object the rolling assertions score.
+type rolledParquetFile struct {
+	name string
+	size int64
+	body []byte
+}
+
 // hasParquetRollingTest reports whether the driver participates in the Parquet Rolling sub-test.
 func hasParquetRollingTest(driver string) bool {
 	return slices.Contains(parquetRollingTestDrivers, constants.DriverType(driver))
 }
 
-// testParquetRolling exercises the parquet writer's memory/size-based file rolling against a
-// real S3 (MinIO) destination. It runs as the last sub-test of the common Sync flow and reuses
-// that flow's table and catalog: it bulk-seeds the table, re-syncs it to parquet, and asserts
-// the writer split the output into multiple size-bounded files without losing rows.
+// testParquetRolling exercises the parquet writer's size-based file rolling against MinIO and
+// Azurite. It runs as the last sub-test of the common Sync flow and reuses that flow's table
+// and catalog: it bulk-seeds the table once, then syncs that table to each parquet destination
+// and asserts the writer split the output into multiple size-bounded files without losing rows.
 //
 // The seeded data (~8MB) is far smaller than the backfill chunk size (EffectiveParquetSize,
-// 2GB), so the whole table is one chunk handled by one writer — meaning multiple bounded
-// files can only come from rolling, not from chunk fan-out.
+// 2GB), so the whole table is one chunk handled by one writer — multiple bounded files can
+// only come from rolling, not from chunk fan-out.
 func (th *TestHandler) testParquetRolling(ctx context.Context, t *testing.T, testTable string) error {
 	// Rolling needs the whole table to land in a single writer, so drop the partition regex
 	// (identity partitioning would fan the rows out into a file per value) and the filter config
@@ -55,12 +62,18 @@ func (th *TestHandler) testParquetRolling(ctx context.Context, t *testing.T, tes
 		return fmt.Errorf("failed to clear partition regex and filter config in the catalog: %s", err)
 	}
 
-	// Swap the handful of datatype rows for a bulk payload.
+	// Swap the handful of datatype rows for a bulk payload. Both destinations read this seed.
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "clean")
 	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "rolling_seed")
 
-	// Start from an empty destination folder — the earlier parquet sub-tests leave files and
-	// destination metadata behind, while this is an independent initial sync.
+	if err := th.rollToMinIO(ctx, t, testTable); err != nil {
+		return err
+	}
+	return th.rollToAzurite(ctx, t, testTable)
+}
+
+// rollToMinIO wipes the table prefix, full-refreshes into MinIO, and checks the rolled files.
+func (th *TestHandler) rollToMinIO(ctx context.Context, t *testing.T, testTable string) error {
 	if err := testutils.DeleteParquetTable(t, th.TestConfig.DestinationDB, testTable); err != nil {
 		return fmt.Errorf("failed to reset parquet table before rolling sync: %s", err)
 	}
@@ -70,54 +83,107 @@ func (th *TestHandler) testParquetRolling(ctx context.Context, t *testing.T, tes
 		}
 	}()
 
-	// Full load (no --state) with a small buffer so rolled files hug the threshold.
-	if code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.SyncArgs(th.TestConfig, false, parquetDestinationFile)...); err != nil || code != 0 {
-		return fmt.Errorf("rolling sync failed (%d): %v\n%s", code, err, out)
+	if err := th.syncParquetDestination(ctx, t, parquetS3DestinationFile); err != nil {
+		return err
 	}
-
-	th.verifyParquetRolling(t, testTable)
+	assertRolledParquet(t, "minio", th.readMinIORolledFiles(t, testTable))
 	return nil
 }
 
-// verifyParquetRolling reads the rolled objects from MinIO and asserts the writer
-// (1) produced multiple files, (2) bounded every file near the roll threshold (the core
-// proof — a broken roll would leave one oversized file), and (3) preserved every row.
-func (th *TestHandler) verifyParquetRolling(t *testing.T, table string) {
+// rollToAzurite wipes the table prefix, full-refreshes into Azurite, and checks the rolled blobs.
+// The roll threshold comes from max_file_size_mb on parquet_azure_destination.json.
+func (th *TestHandler) rollToAzurite(ctx context.Context, t *testing.T, testTable string) error {
+	client := requireAzurite(t)
+	prefix := azureParquetPrefix(th.TestConfig.DestinationDB, testTable)
+	if err := deleteAzureParquetPrefix(ctx, client, prefix); err != nil {
+		return fmt.Errorf("failed to reset azurite prefix before rolling sync: %w", err)
+	}
+	defer func() {
+		if err := deleteAzureParquetPrefix(context.WithoutCancel(ctx), client, prefix); err != nil {
+			t.Logf("cleanup: failed to reset azurite prefix: %v", err)
+		}
+	}()
+
+	if err := th.syncParquetDestination(ctx, t, parquetAzureDestinationFile); err != nil {
+		return err
+	}
+	assertRolledParquet(t, "azurite", th.readAzuriteRolledFiles(t, testTable))
+	return nil
+}
+
+// syncParquetDestination runs a full refresh (no --state) against one parquet destination config.
+func (th *TestHandler) syncParquetDestination(ctx context.Context, t *testing.T, destinationFile string) error {
+	code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.SyncArgs(th.TestConfig, false, destinationFile)...)
+	if err != nil || code != 0 {
+		return fmt.Errorf("%s rolling sync failed (%d): %v\n%s", destinationFile, code, err, out)
+	}
+	return nil
+}
+
+func (th *TestHandler) readMinIORolledFiles(t *testing.T, table string) []rolledParquetFile {
 	t.Helper()
 	ctx := t.Context()
 
 	client, err := testutils.NewMinIOClient()
 	require.NoError(t, err)
-
 	objects, err := testutils.ListParquetObjects(ctx, client, th.TestConfig.DestinationDB, table)
 	require.NoError(t, err, "failed to list rolled parquet files")
 
-	var totalSize int64
-	for _, obj := range objects {
-		require.LessOrEqualf(t, obj.Size, int64(2*rollingMaxFileBytes),
-			"file %s is %d bytes, exceeding 2x the roll threshold — rolling did not bound file size", obj.Key, obj.Size)
-		totalSize += obj.Size
-	}
-
-	require.GreaterOrEqualf(t, len(objects), 2,
-		"expected the writer to roll into multiple parquet files for table %s, got %d", table, len(objects))
-	require.Greaterf(t, totalSize, int64(4*rollingMaxFileBytes),
-		"total parquet size %d is too small to meaningfully exercise rolling", totalSize)
-
-	// Sum footer row counts across every rolled file — no rows may be lost at a roll boundary.
-	var totalRows int64
+	files := make([]rolledParquetFile, 0, len(objects))
 	for _, obj := range objects {
 		reader, gerr := client.GetObject(ctx, testutils.ParquetTestBucket, obj.Key, minio.GetObjectOptions{})
 		require.NoErrorf(t, gerr, "failed to get object %s", obj.Key)
 		data, rerr := io.ReadAll(reader)
 		_ = reader.Close()
 		require.NoErrorf(t, rerr, "failed to read object %s", obj.Key)
-		pf, oerr := pqgo.OpenFile(bytes.NewReader(data), int64(len(data)))
-		require.NoErrorf(t, oerr, "failed to open parquet %s", obj.Key)
+		files = append(files, rolledParquetFile{name: obj.Key, size: obj.Size, body: data})
+	}
+	return files
+}
+
+func (th *TestHandler) readAzuriteRolledFiles(t *testing.T, table string) []rolledParquetFile {
+	t.Helper()
+	ctx := t.Context()
+
+	client := requireAzurite(t)
+	objects, err := listAzureParquetBlobs(ctx, client, th.TestConfig.DestinationDB, table)
+	require.NoError(t, err, "failed to list rolled azure parquet files")
+
+	files := make([]rolledParquetFile, 0, len(objects))
+	for _, obj := range objects {
+		resp, derr := client.DownloadStream(ctx, testutils.AzuriteContainer, obj.name, nil)
+		require.NoError(t, derr, "failed to download blob %s", obj.name)
+		data, rerr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		require.NoError(t, rerr, "failed to read blob %s", obj.name)
+		files = append(files, rolledParquetFile{name: obj.name, size: obj.size, body: data})
+	}
+	return files
+}
+
+// assertRolledParquet checks that the writer (1) produced multiple files, (2) bounded every
+// file near the roll threshold, and (3) preserved every seeded row across the roll boundaries.
+func assertRolledParquet(t *testing.T, store string, files []rolledParquetFile) {
+	t.Helper()
+
+	var totalSize int64
+	for _, file := range files {
+		require.LessOrEqualf(t, file.size, int64(2*rollingMaxFileBytes),
+			"%s file %s is %d bytes, exceeding 2x the roll threshold — rolling did not bound file size", store, file.name, file.size)
+		totalSize += file.size
+	}
+	require.GreaterOrEqualf(t, len(files), 2,
+		"expected the writer to roll into multiple parquet files on %s, got %d", store, len(files))
+	require.Greaterf(t, totalSize, int64(4*rollingMaxFileBytes),
+		"%s total parquet size %d is too small to meaningfully exercise rolling", store, totalSize)
+
+	var totalRows int64
+	for _, file := range files {
+		pf, err := pqgo.OpenFile(bytes.NewReader(file.body), int64(len(file.body)))
+		require.NoErrorf(t, err, "failed to open parquet %s", file.name)
 		totalRows += pf.NumRows()
 	}
-	require.Equalf(t, int64(RollingSeedRows), totalRows, "row count mismatch across rolled files")
-
-	t.Logf("parquet rolling OK: %d files, %d bytes total, %d rows (threshold %d bytes)",
-		len(objects), totalSize, totalRows, rollingMaxFileBytes)
+	require.Equalf(t, int64(RollingSeedRows), totalRows, "row count mismatch across rolled %s files", store)
+	t.Logf("%s parquet rolling OK: %d files, %d bytes total, %d rows (threshold %d bytes)",
+		store, len(files), totalSize, totalRows, rollingMaxFileBytes)
 }
