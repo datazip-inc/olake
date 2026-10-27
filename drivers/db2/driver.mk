@@ -3,7 +3,7 @@
 # The db2 container initializes a full instance on first boot; probe slowly.
 WAIT_RETRIES.db2 := 30
 WAIT_SLEEP.db2 := 25
-PROBE.db2 = docker exec db2-test bash -c "su - db2inst1 -c 'db2 connect to TESTDB'"
+PROBE.db2 = docker logs db2-test 2>&1 | grep -q "Setup has completed" && docker exec db2-test bash -c "su - db2inst1 -c 'db2 connect to TESTDB'"
 
 # Compiling drivers/db2 needs cgo against IBM's clidriver. prepare.db2 finds
 # an existing install or downloads the build for this OS/arch (mirrors
@@ -60,3 +60,6 @@ endif
 # it off for everything else). Deliberately no DYLD_LIBRARY_PATH: it cannot
 # survive SIP (see prepare.db2's install-name fix, which makes it unnecessary).
 GO_ENV.db2 = export CGO_ENABLED=1 IBM_DB_HOME="$(CLIDRIVER_DIR)" CGO_CFLAGS="-I$(CLIDRIVER_DIR)/include" CGO_LDFLAGS="-L$(CLIDRIVER_DIR)/lib -Wl,-rpath,$(CLIDRIVER_RUNTIME_DIR)/lib" LD_LIBRARY_PATH="$(CLIDRIVER_DIR)/lib";
+
+# cgo against IBM's x86-64 clidriver can't cross-compile, so db2's image compiles on its target platform.
+DOCKER_BUILD_ARGS.db2 := --build-arg GO_BUILD=target

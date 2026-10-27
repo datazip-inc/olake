@@ -164,6 +164,12 @@ const PostgresUISchema = `{
         },
         "type": {
           "ui:widget": "hidden"
+        },
+        "replication_slot": {
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/setup/generic/#8-create-logical-replication-slot"
+        },
+        "publication": {
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/setup/generic/#7-create-publication"
         }
       },
       "ssh_config": {
@@ -527,11 +533,33 @@ const ParquetUISchema = `{
   },
   "writer": {
     "ui:grid": [
+      { "storage_type": 12, "azure_auth_type": 12 },
       { "s3_bucket": 12, "s3_region": 12 },
       { "s3_endpoint": 12, "s3_access_key": 12 },
       { "s3_secret_key": 12, "s3_path": 12 },
+      { "azure_storage_account_name": 12, "azure_container_name": 12 },
+      { "azure_path": 12, "azure_endpoint": 12 },
+      { "azure_storage_account_key": 12, "azure_sas_token": 12 },
+      { "azure_connection_string": 24 },
       { "max_file_size_mb": 12 }
     ],
+    "azure_auth_type": {
+      "ui:enumNames": [
+        "Shared Key",
+        "SAS Token",
+        "Connection String"
+      ]
+    },
+    "azure_storage_account_key": {
+      "ui:widget": "password"
+    },
+    "azure_sas_token": {
+      "ui:widget": "password"
+    },
+    "azure_connection_string": {
+      "ui:widget": "password",
+      "ui:help": "This string needs AccountName or BlobEndpoint, and AccountKey or SharedAccessSignature. UseDevelopmentStorage=true is not supported."
+    },
     "ui:options": {
       "label": false
     }

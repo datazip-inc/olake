@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -92,7 +93,14 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			var mtState any
 			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, &mtState, nil)
 
+			// threadID is derived from the cursor, which moves only when records are read. Committing
+			// metadata state for a record-less sync would store state whose ID equals the next sync's
+			// threadID, which the recovery check below treats as a failed state update, stalling the stream.
+			recordsRead := false
 			defer func() {
+				if !recordsRead {
+					return
+				}
 				mtStateMap := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}
 				if secondaryCursor != "" {
 					mtStateMap[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
@@ -135,6 +143,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 			// No retry logic here - retry happens at Read level
 			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any, sourceBytes int64) error {
+				recordsRead = true
 				maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 				olakeColumns := map[string]any{
 					constants.OlakeID:        utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...),
@@ -164,7 +173,26 @@ func ReformatCursorValue(cursorField string, cursorValue any, stream types.Strea
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cursor column type: %w", err)
 	}
+	cursorValue, err = DecodeCursorValue(cursorField, cursorColType, cursorValue)
+	if err != nil {
+		return nil, err
+	}
 	return typeutils.ReformatValue(cursorColType, cursorValue)
+}
+
+// DecodeCursorValue returns the value a cursor's state entry stands for, given the cursor column's
+// type. JSON cannot carry bytes, so FormatCursorValue keeps a binary cursor as hex and it decodes
+// back to its bytes here; every other cursor is kept in state as its value.
+func DecodeCursorValue(cursorField string, cursorType types.DataType, stateValue any) (any, error) {
+	encoded, isString := stateValue.(string)
+	if !isString || cursorType != types.Binary {
+		return stateValue, nil
+	}
+	decoded, err := hex.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode the state value of binary cursor[%s]: %w", cursorField, err)
+	}
+	return decoded, nil
 }
 
 // returns typecasted increment cursor
@@ -207,6 +235,13 @@ func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 		return v.UTC().Format(constants.DefaultStateTimestampFormat)
 	case primitive.ObjectID:
 		return v.Hex()
+	case []byte:
+		switch {
+		case !utils.IsBinarySupported():
+			return cursorValue
+		default:
+			return hex.EncodeToString(v)
+		}
 	default:
 		return cursorValue
 	}

@@ -165,18 +165,6 @@ public class IcebergTableOperator {
     }
   
     completeWriter();
-  
-    if (filesToCommit.isEmpty()) {
-      LOGGER.info("No files to commit for thread: {}", threadId);
-      rewrittenDeleteFiles.clear();
-      if (table.currentSnapshot() != null) {
-        return 0L;
-      }
-      return 0;
-    }
-  
-    // Refresh once before committing
-    table.refresh();
 
     boolean hasAnyDeletes = false;
     int totalDataFiles = 0;
@@ -197,13 +185,21 @@ public class IcebergTableOperator {
       }
     }
   
-    if (totalDataFiles == 0 && totalDeleteFiles == 0) {
-      LOGGER.info("No files to commit for thread: {}", threadId);
+    // CDC positions (LSN, resume token, offsets) move without records, so a thread with no files
+    // still commits its state; only a backfill thread, which carries no payload, has nothing to commit
+    boolean hasFiles = totalDataFiles > 0 || totalDeleteFiles > 0;
+    if (!hasFiles) {
       filesToCommit.clear();
       rewrittenDeleteFiles.clear();
-      return 0L;
+      if (payload == null || payload.isEmpty()) {
+        LOGGER.info("No files to commit for thread: {}", threadId);
+        return 0L;
+      }
     }
-  
+
+    // Refresh once before committing
+    table.refresh();
+
     try {
       Transaction transaction = table.newTransaction();
 
@@ -213,6 +209,14 @@ public class IcebergTableOperator {
       updateJsonState(table, updateProperties, threadId, payload);
       
       updateProperties.commit();
+
+      // a property update creates no snapshot for the indexer to checkpoint; an unchanged state
+      // leaves the transaction empty, so committing it writes nothing
+      if (!hasFiles) {
+        transaction.commitTransaction();
+        LOGGER.info("No files to commit for thread: {}, committed {} state only", threadId, STATE_KEY_2PC);
+        return 0L;
+      }
 
       // 2. Stage Data Commit
       if (!hasAnyDeletes) {
@@ -640,6 +644,7 @@ public class IcebergTableOperator {
                     case DOUBLE_VALUE -> protoValue.getDoubleValue();
                     case STRING_VALUE -> protoValue.getStringValue();
                     case BOOL_VALUE -> protoValue.getBoolValue();
+                    case BYTES_VALUE -> protoValue.getBytesValue().asReadOnlyByteBuffer();
                     case VALUE_NOT_SET -> null;
                };
                partitionData.set(i, value);

@@ -1,0 +1,1 @@
+{"selected_streams":{"MYUSER":[{"partition_regex":"","stream_name":"TEST_TABLE_OLAKE_${SUITE}","sync_mode":"incremental","cursor_field":"COL_BIGINT"}]}}

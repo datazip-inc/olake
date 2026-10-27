@@ -2,10 +2,11 @@ package parquet
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,14 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -44,17 +37,18 @@ type FileMetadata struct {
 	relativePath string
 }
 
-// Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
+// Parquet destination writes Parquet files to a local path and optionally uploads them to S3 or Azure.
 type Parquet struct {
 	options          *destination.Options
 	config           *Config
 	stream           types.StreamInterface
 	basePath         string                     // construct with streamNamespace/streamName
 	partitionedFiles map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
-	s3Client         s3iface.S3API
-	s3Uploader       s3manageriface.UploaderAPI
-	tempDir          string
-	schema           typeutils.Fields
+
+	store objectStore // S3 or Azure Blob Storage
+
+	tempDir string
+	schema  typeutils.Fields
 
 	maxFileBytes         int64 // roll a partition into a new file once its on-disk size reaches this
 	checkIntervalForRoll int   // number of []RawRecord written between on-disk size checks within a batch
@@ -71,31 +65,19 @@ func (p *Parquet) Spec() any {
 	return Config{}
 }
 
-// setup s3 client if credentials provided
-func (p *Parquet) initS3Writer() error {
-	if p.config.Bucket == "" || p.config.Region == "" {
+// initStore initializes the ObjectStore(S3 or Azure Blob Storage).
+func (p *Parquet) initStore() error {
+	if p.store != nil {
 		return nil
 	}
-
-	s3Config := aws.Config{
-		Region: aws.String(p.config.Region),
+	if !p.config.usingAzure() && !p.config.usingS3() {
+		return nil
 	}
-	if p.config.S3Endpoint != "" {
-		s3Config.Endpoint = aws.String(p.config.S3Endpoint)
-		// Force path-style URLs (e.g., http://minio:9000/bucket/key) to support MinIO and avoid bucket-based DNS resolution
-		s3Config.S3ForcePathStyle = aws.Bool(true)
-	}
-	if p.config.AccessKey != "" && p.config.SecretKey != "" {
-		s3Config.Credentials = credentials.NewStaticCredentials(p.config.AccessKey, p.config.SecretKey, "")
-	}
-	sess, err := session.NewSession(&s3Config)
+	store, err := newObjectStore(p.config)
 	if err != nil {
-		return fmt.Errorf("failed to create AWS session: %w", err)
+		return fmt.Errorf("failed to create object store: %w", err)
 	}
-	p.s3Client = s3.New(sess)
-	// Initialize uploader for multipart uploads (handles files > 5GB automatically)
-	p.s3Uploader = s3manager.NewUploader(sess)
-
+	p.store = store
 	return nil
 }
 
@@ -106,7 +88,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	}
 
 	directoryPath := filepath.Join(p.config.Path, basePath)
-	if p.s3Client != nil {
+	if p.store != nil {
 		if p.tempDir == "" {
 			if err := os.MkdirAll(p.config.Path, os.ModePerm); err != nil {
 				return fmt.Errorf("failed to create parquet temp path[%s]: %s", p.config.Path, err)
@@ -163,7 +145,7 @@ func (p *Parquet) getOrCreatePartitionFile(basePath string) (*FileMetadata, erro
 	return files[len(files)-1], nil
 }
 
-// Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
+// Setup configures the parquet writer, including local paths, file names, and optional ObjectStore.
 func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, *types.MetadataState, error) {
 	p.options = options
 	p.stream = stream
@@ -181,18 +163,18 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schem
 		p.checkIntervalForRoll = defaultRollCheckInterval
 	}
 
-	// for s3 p.config.path may not be provided
+	// ObjectStore writers may omit local_path
 	if p.config.Path == "" {
 		p.config.Path = os.TempDir()
 	}
 
-	err := p.initS3Writer()
+	err := p.initStore()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to initialize store: %w", err)
 	}
 
 	var prevMetadataState *types.MetadataState
-	if p.s3Client != nil {
+	if p.store != nil {
 		prevMetadataState, err = p.load2PCState(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -211,10 +193,9 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schem
 		p.schema = fields.Clone()
 		return fields, prevMetadataState, nil
 	}
-
 	fields := make(typeutils.Fields)
 	fields.FromSchema(stream.Schema(), stream.ResolveColumnName)
-	p.schema = fields.Clone() // update schema
+	p.schema = fields.Clone()
 	return fields, prevMetadataState, nil
 }
 
@@ -239,6 +220,9 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		}
 
 		if p.stream.NormalizationEnabled() {
+			if err := p.checkFixedWidths(record.Data); err != nil {
+				return destination.WriteFailure(fmt.Errorf("failed to write in parquet file: %w", err))
+			}
 			_, err = partitionFile.writer.Write([]any{record.Data})
 		} else {
 			dataBytes, merr := json.Marshal(record.Data)
@@ -264,6 +248,20 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	return nil
 }
 
+// checkFixedWidths rejects a fixed_binary(n) value that is not n bytes, which parquet-go panics on.
+func (p *Parquet) checkFixedWidths(data map[string]any) error {
+	for column, value := range data {
+		b, isBytes := value.([]byte)
+		if !isBytes || p.schema[column] == nil {
+			continue
+		}
+		if width, isFixed := types.FixedBinaryWidth(p.schema[column].Type()); isFixed && len(b) != width {
+			return fmt.Errorf("field[%s]: %s holds exactly %d bytes, got %d", column, p.schema[column].Type(), width, len(b))
+		}
+	}
+	return nil
+}
+
 // roll gives true when we need to check for rolling based on the current index of record
 func (p *Parquet) checkForRoll(index, total int) bool {
 	interval := p.checkIntervalForRoll
@@ -283,7 +281,7 @@ func (p *Parquet) checkForRoll(index, total int) bool {
 //
 // Sealed files are intentionally NOT uploaded here — every file is uploaded in Close, after the
 // whole partition has rolled successfully, so a mid-sync failure never leaves partial objects in
-// S3 (files exist only on local disk until then).
+// the ObjectStore (files exist only on local disk until then).
 func (p *Parquet) rollPartitionFile(pf *FileMetadata) error {
 	if pf.writer.Size() < p.maxFileBytes {
 		return nil
@@ -302,8 +300,8 @@ func (p *Parquet) rollPartitionFile(pf *FileMetadata) error {
 	return nil
 }
 
-// Check validates local paths and S3 credentials if applicable.
-func (p *Parquet) Check(_ context.Context) error {
+// Check validates local paths and ObjectStore if applicable.
+func (p *Parquet) Check(ctx context.Context) error {
 	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	threadID := fmt.Sprintf("test_parquet_destination_%s", uniqueSuffix)
 
@@ -311,30 +309,22 @@ func (p *Parquet) Check(_ context.Context) error {
 		ThreadID: threadID,
 	}
 
-	// check for s3 writer configuration
-	err := p.initS3Writer()
-	if err != nil {
+	if err := p.initStore(); err != nil {
 		return err
 	}
-	// test for s3 permissions
-	if p.s3Client != nil {
-		testKey := filepath.Join(p.config.Prefix, "olake_writer_test", utils.TimestampedFileName(".txt"))
-		// Try to upload a small test file
-		_, err = p.s3Client.PutObject(&s3.PutObjectInput{
-			Bucket: aws.String(p.config.Bucket),
-			Key:    aws.String(testKey),
-			Body:   strings.NewReader("S3 write test"),
-		})
-		if err != nil {
-			return fmt.Errorf("failed to write test file to S3: %w", err)
+
+	var err error
+	switch {
+	case p.store != nil:
+		testKey := p.store.ObjectKey(path.Join("olake_writer_test", utils.TimestampedFileName(".txt")))
+		if err := p.store.Put(ctx, testKey, []byte("write test")); err != nil {
+			return fmt.Errorf("failed to write test file to %s: %w", storeKind(p.store), err)
 		}
 		p.config.Path = os.TempDir()
-		// trim '/' from prefix path
-		p.config.Prefix = strings.Trim(p.config.Prefix, "/")
-		logger.Infof("Thread[%s]: s3 writer configuration found", p.options.ThreadID)
-	} else if p.config.Path != "" {
+		logger.Infof("Thread[%s]: %s writer configuration found", p.options.ThreadID, storeKind(p.store))
+	case p.config.Path != "":
 		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
-	} else {
+	default:
 		return errs.Precondition(errs.ConfigInvalid, codeNoDestinationConfigured,
 			fmt.Errorf("invalid configuration found"))
 	}
@@ -354,7 +344,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-// pendingDataFiles returns files awaiting close and S3 staging for this writer.
+// pendingDataFiles returns files awaiting close and ObjectStore upload for this writer
 func (p *Parquet) pendingDataFiles() []*FileMetadata {
 	var dataFiles []*FileMetadata
 	for _, parquetFiles := range p.partitionedFiles {
@@ -405,37 +395,33 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []*FileMetadata) 
 	concurrency := min(runtime.GOMAXPROCS(0)*2, len(dataFiles))
 	return utils.Concurrent(ctx, dataFiles, concurrency, func(uploadCtx context.Context, info *FileMetadata, _ int) error {
 		stagingKey := p.stagingObjectKey(info.relativePath)
-		err := p.retryS3(uploadCtx, func(retryCtx context.Context) error {
+
+		err := p.retryRemote(uploadCtx, func(retryCtx context.Context) error {
 			file, err := os.Open(info.path)
 			if err != nil {
 				return fmt.Errorf("failed to open file %s: %s", info.path, err)
 			}
 			defer file.Close()
-
-			_, err = p.s3Uploader.UploadWithContext(retryCtx, &s3manager.UploadInput{
-				Bucket: aws.String(p.config.Bucket),
-				Key:    aws.String(stagingKey),
-				Body:   file,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to put object into s3 (%s): %w", stagingKey, err)
+			if err := p.store.UploadFile(retryCtx, stagingKey, file); err != nil {
+				return fmt.Errorf("failed to upload file to %s (%s): %w", storeKind(p.store), stagingKey, err)
 			}
 			return nil
 		})
+
 		if err != nil {
 			return err
 		}
 
 		if err := os.Remove(info.path); err != nil {
-			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.path, err)
+			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to %s): %s", p.options.ThreadID, info.path, storeKind(p.store), err)
 		}
-		logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, stagingKey)
+		logger.Infof("Thread[%s]: successfully uploaded file to /%s : /%s", p.options.ThreadID, storeKind(p.store), stagingKey)
 		return nil
 	})
 }
 
 func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
-	if p.s3Client == nil {
+	if p.store == nil {
 		// TODO: add 2PC support for local Parquet destinations.
 		if err := p.closePqFiles(ctx.Err() != nil); err != nil {
 			return err
@@ -454,7 +440,9 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	}()
 
 	dataFiles := p.pendingDataFiles()
-	if !p.options.Backfill && len(dataFiles) == 0 {
+	// CDC positions can move without new records, so the metadata is committed on every sync;
+	// only a close without data and without metadata state (incremental with no records) is a no-op.
+	if !p.options.Backfill && len(dataFiles) == 0 && finalMetadataState == nil {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -536,7 +524,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 				persistedTypes := p.schema[columnName].Types()
 				if _, exist := utils.ArrayContains(persistedTypes, func(elem types.DataType) bool {
-					return elem == detectedType
+					return elem.ValueType() == detectedType
 				}); !exist {
 					diffFound.Store(true)
 					break
@@ -651,6 +639,9 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 					logger.Debugf("Thread[%s]: failed to convert value to timestamp: %s", p.options.ThreadID, err)
 				}
 			}
+			if b, isBytes := value.([]byte); isBytes {
+				return url.QueryEscape(base64.StdEncoding.EncodeToString(b))
+			}
 			return fmt.Sprintf("%v", value)
 		}
 		if colName == "now()" {
@@ -680,9 +671,8 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 }
 
 func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.StreamInterface) error {
-	// check for s3 writer configuration
-	err := p.initS3Writer()
-	if err != nil {
+	// check for ObjectStore writer configuration
+	if err := p.initStore(); err != nil {
 		return err
 	}
 
@@ -696,13 +686,13 @@ func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.Strea
 		paths = append(paths, stream.GetDestinationDatabase(nil)+"."+stream.GetDestinationTable())
 	}
 
-	if p.s3Client == nil {
+	if p.store == nil {
 		if err := p.clearLocalFiles(paths); err != nil {
 			return fmt.Errorf("failed to clear local files: %w", err)
 		}
 	} else {
-		if err := p.clearS3Files(ctx, paths); err != nil {
-			return fmt.Errorf("failed to clear S3 files: %w", err)
+		if err := p.clearRemoteFiles(ctx, paths); err != nil {
+			return fmt.Errorf("failed to clear %s files: %w", storeKind(p.store), err)
 		}
 	}
 	return nil
@@ -733,114 +723,19 @@ func (p *Parquet) clearLocalFiles(paths []string) error {
 	return nil
 }
 
-// isRateLimitError checks if the error is a rate-limit/throttle response from S3 or GCP.
-// AWS S3 returns HTTP 503 for throttling (SlowDown / ServiceUnavailable).
-// GCP Cloud Storage returns HTTP 429 (Too Many Requests).
-//
-// For batch delete operations, errors are wrapped in s3manager.BatchError which does NOT
-// implement awserr.RequestFailure directly. The actual RequestFailure is nested inside
-// BatchError.Errors[].OrigErr, so we must inspect those inner errors as well.
-func isRateLimitError(err error) bool {
-	isThrottled := func(target error) bool {
-		var rf awserr.RequestFailure
-		return errors.As(target, &rf) && (rf.StatusCode() == 429 || rf.StatusCode() == 503)
-	}
-	if isThrottled(err) {
-		return true
-	}
-	// AWS SDK v1 batch errors don't implement Unwrap(), so we peel one layer manually.
-	var batchErr awserr.Error
-	if errors.As(err, &batchErr) {
-		return isThrottled(batchErr.OrigErr())
-	}
-	return false
-}
-
-func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
-	deleteS3PrefixIndividually := func(filtPath string) error {
-		var pageErr error
-		listErr := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
-			pageErr = nil
-			return p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
-				Bucket: aws.String(p.config.Bucket),
-				Prefix: aws.String(filtPath),
-			}, func(page *s3.ListObjectsOutput, _ bool) bool {
-				pageKeys := make([]string, 0, len(page.Contents))
-				for _, obj := range page.Contents {
-					pageKeys = append(pageKeys, *obj.Key)
-				}
-				if len(pageKeys) == 0 {
-					return true
-				}
-
-				logger.Debugf("individual delete: found %d objects under %s, deleting", len(pageKeys), filtPath)
-
-				// GCP allows 5000 mutations per second per bucket
-				concurrency := min(runtime.GOMAXPROCS(0)*4, len(pageKeys))
-				if pageErr = utils.Concurrent(ctx, pageKeys, concurrency, func(_ context.Context, key string, _ int) error {
-					return utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
-						_, err := p.s3Client.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
-							Bucket: aws.String(p.config.Bucket),
-							Key:    aws.String(key),
-						})
-						if err != nil {
-							return err
-						}
-						return nil
-					})
-				}); pageErr != nil {
-					return false
-				}
-				return true
-			})
-		})
-		if listErr != nil {
-			return fmt.Errorf("failed to list objects for prefix %s: %w", filtPath, listErr)
-		}
-		return pageErr
-	}
-
-	deleteS3PrefixStandard := func(filtPath string) error {
-		err := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
-			iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
-				Bucket: aws.String(p.config.Bucket),
-				Prefix: aws.String(filtPath),
-			})
-			return s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter)
-		})
-
-		if err != nil {
-			logger.Warnf("batch delete failed for filtPath %s, falling back to individual deletes: %v", filtPath, err)
-			if fallbackErr := deleteS3PrefixIndividually(filtPath); fallbackErr != nil {
-				return fmt.Errorf("batch delete failed: %v, fallback individual delete also failed: %w", err, fallbackErr)
-			}
-		}
-		return nil
-	}
-
+func (p *Parquet) clearRemoteFiles(ctx context.Context, paths []string) error {
 	for _, streamID := range paths {
 		parts := strings.SplitN(streamID, ".", 2)
 		if len(parts) != 2 {
 			logger.Warnf("invalid stream ID format: %s, skipping", streamID)
 			continue
 		}
-		prefix, namespace, tableName := strings.Trim(p.config.Prefix, "/"), parts[0], parts[1]
-		s3TablePath := path.Join(prefix, namespace, tableName) + "/"
-
-		logger.Debugf("clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
-
-		var err error
-		if strings.Contains(p.config.S3Endpoint, "googleapis.com") {
-			err = deleteS3PrefixIndividually(s3TablePath)
-		} else {
-			err = deleteS3PrefixStandard(s3TablePath)
+		prefix := p.store.ObjectKey(path.Join(parts[0], parts[1])) + "/"
+		logger.Debugf("clearing %s prefix: %s", storeKind(p.store), prefix)
+		if err := p.store.DeletePrefix(ctx, prefix); err != nil {
+			return fmt.Errorf("failed to clear %s prefix %s: %w", storeKind(p.store), prefix, err)
 		}
-
-		if err != nil {
-			return fmt.Errorf("failed to clear S3 prefix %s: %w", s3TablePath, err)
-		}
-
-		logger.Debugf("successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
+		logger.Debugf("successfully cleared %s prefix: %s", storeKind(p.store), prefix)
 	}
 	return nil
 }

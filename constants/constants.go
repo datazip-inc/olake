@@ -33,7 +33,12 @@ const (
 	ConfigFolder           = "CONFIG_FOLDER"
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
+	AvailableStreamsPath   = "AVAILABLE_STREAMS_PATH"
+	SelectedStreamsPath    = "SELECTED_STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
+	// output paths of a streams v2 difference
+	DifferenceAvailableStreamsPath = "DIFFERENCE_AVAILABLE_STREAMS_PATH"
+	DifferenceSelectedStreamsPath  = "DIFFERENCE_SELECTED_STREAMS_PATH"
 	// RecommendedCDCLogRetention is the change-log retention (binlog, oplog) recommended so a
 	// paused sync can resume without a full resync.
 	RecommendedCDCLogRetention = 7 * 24 * time.Hour

@@ -153,11 +153,14 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 
 	globalState := p.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		p.state.SetGlobal(waljs.WALState{LSN: slot.CurrentLSN.String()})
-		p.state.ResetStreams()
-		if err := waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String()); err != nil {
+		// advance before seeding state: AdvanceLSN returns the position the slot confirmed,
+		// so the state file and confirmed_flush_lsn agree by construction
+		confirmedLSN, err := waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
+		if err != nil {
 			return err
 		}
+		p.state.SetGlobal(waljs.WALState{LSN: confirmedLSN.String()})
+		p.state.ResetStreams()
 	}
 	p.streams = streams
 	return nil
@@ -186,7 +189,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 					fmt.Errorf("failed to unmarshal metadata state: %w", err))
 			}
 
-			// Recovery is only needed when metadata is strictly AHEAD of state .
+			// Recovery is only needed when metadata is strictly AHEAD of state.
 			parsedMetaLSN, err := pglogrepl.ParseLSN(mtState.LSN)
 			if err != nil {
 				return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
@@ -202,7 +205,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 				metadataCommittedLSN = mtState.LSN
 				finishedStreams = append(finishedStreams, streamID)
 			}
-			// state >= metadata: blank sync scenario — stream forward normally
+			// state >= metadata: state is up to date, stream forward normally
 		} else {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateNotString,
 				fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState))

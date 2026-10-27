@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/pkg/binlog"
+	"github.com/datazip-inc/olake/drivers/mysql/internal/binlog"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -28,6 +29,11 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		}
 	}
 
+	serverFlavor, _, _, err := jdbc.MySQLVersion(ctx, m.client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect server flavor for binlog: %w", err)
+	}
+
 	port := m.config.Port
 	if port <= 0 || port > math.MaxUint16 {
 		return nil, errs.Precondition(errs.ConfigInvalid, codePortInvalid,
@@ -36,7 +42,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 
 	config := &binlog.Config{
 		ServerID:                mySQLGlobalState.ServerID,
-		Flavor:                  "mysql",
+		Flavor:                  binlogFlavor(serverFlavor),
 		Host:                    m.config.Host,
 		Port:                    uint16(port),
 		User:                    m.config.Username,
@@ -51,7 +57,22 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		SchemaClient:            m.client,
 	}
 
-	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, mySQLGlobalState.State, streamsToSync, m.dataTypeConverter)
+}
+
+// mariaDBServerFlavor must match the MariaDB flavor string returned by jdbc.MySQLVersion.
+const mariaDBServerFlavor = "MariaDB"
+
+// binlogFlavor maps the flavor reported by jdbc.MySQLVersion to a go-mysql replication flavor.
+// MariaDB must use its own flavor so the syncer declares GTID capability; without it the server
+// downgrades GTID events for a legacy replica and aborts with ERROR 1236 on any it cannot convert.
+func binlogFlavor(serverFlavor string) string {
+	switch serverFlavor {
+	case mariaDBServerFlavor:
+		return mysql.MariaDBFlavor
+	default:
+		return mysql.MySQLFlavor
+	}
 }
 
 func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
@@ -126,7 +147,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 				recoveryPos = mysqlMetadataState.Position
 				finishedStreams = append(finishedStreams, streamID)
 			}
-			// state >= metadata: blank sync scenario — stream forward normally
+			// state >= metadata: state is up to date, stream forward normally
 		} else {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
 				fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState))
@@ -178,9 +199,7 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 	default:
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
-			State: binlog.Binlog{
-				Position: m.BinlogConn.CurrentPos,
-			},
+			State:    m.BinlogConn.State(),
 		})
 		return nil
 	}
