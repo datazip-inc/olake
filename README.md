@@ -230,11 +230,31 @@ Below are other different ways you can run OLake Go:
 
 ### 🧭 Roadmap Highlights
 
-- [x] Oracle Full Load Support
-- [x] Oracle Incremental
-- [x] Filters for Full Load and Incremental
-- [ ] Interoperability (Coming Soon)
-- [ ] Iceberg V3 Support
+<table border="0" cellspacing="0" cellpadding="0">
+<tr valign="top">
+<td>
+
+<table>
+<tr><th>🏁 Recently Shipped</th></tr>
+<tr><td>Oracle Full Load Support</td></tr>
+<tr><td>Oracle Incremental</td></tr>
+<tr><td>Filters for Full Load and Incremental</td></tr>
+<tr><td>Interoperability</td></tr>
+<tr><td>Iceberg V3 Support</td></tr>
+</table>
+
+</td>
+<td width="60px"></td>
+<td>
+
+<table>
+<tr><th>🔭 What's Next</th></tr>
+<tr><td>Paid Managed Software</td></tr>
+</table>
+
+</td>
+</tr>
+</table>
 
 ---
 
