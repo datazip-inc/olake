@@ -122,7 +122,7 @@ DEST_COMPOSE := destination/iceberg/local-test/docker-compose.yml
 DEST_DATA_DIR := destination/iceberg/local-test/data
 # Only these services are needed by the tests; a bare `up -d` would also start
 # the unused lakekeeper REST catalog and its migrate job.
-DEST_SERVICES := minio mc postgres spark-iceberg
+DEST_SERVICES := minio mc postgres spark-iceberg azurite
 ICEBERG_WRITER_DIR := destination/iceberg/olake-iceberg-java-writer
 ICEBERG_JAR := $(ICEBERG_WRITER_DIR)/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
 ICEBERG_JAR_SRCS := $(ICEBERG_WRITER_DIR)/pom.xml $(shell find $(ICEBERG_WRITER_DIR)/src -type f 2>/dev/null)
@@ -136,6 +136,12 @@ WAIT_SLEEP := 5
 WAIT_RETRIES.spark := 60
 PROBE.minio = curl -f http://localhost:9000/minio/health/live
 PROBE.spark = docker exec spark-iceberg grep -q ':3A9A' /proc/net/tcp6
+# Port 11000 and account devstoreaccount1 must match the Azurite service in
+# $(DEST_COMPOSE) and tests/testdata/parquet/parquet_azure_destination.json.
+# Anonymous List Containers gets 403 under --oauth basic, so 200|403 both
+# prove the service is up (tests themselves use SharedKey auth).
+PROBE.azurite = curl -s --max-time 5 -o /dev/null -w '%{http_code}' 'http://127.0.0.1:11000/devstoreaccount1?comp=list' | grep -qE '^(200|403)'
+
 
 # Optional per-service recovery hooks: wait_ready runs RECOVER.<name> after
 # every failed probe, for services that cannot come back by themselves. Hooks
@@ -287,6 +293,7 @@ olake.destination.all.up: olake.minio.up
 
 olake.destination.all.wait:
 	@$(call wait_ready,minio)
+	@$(call wait_ready,azurite)
 	@$(call wait_ready,spark)
 
 olake.destination.all.start:
@@ -457,7 +464,7 @@ help:
 	@printf "  %-44s %s\n" "olake.<driver>.up | olake.<driver>.wait" "the two halves of start, for running each in parallel"
 	@printf "  %-44s %s\n" "olake.<driver>.verify" "assert the running stack is the one asked for (VERIFY_STACK.<driver>)"
 	@echo ""
-	@echo "Destination stack (minio + mc + iceberg catalog + spark-connect):"
+	@echo "Destination stack (minio + mc + iceberg catalog + spark-connect + azurite):"
 	@printf "  %-44s %s\n" "olake.destination.all.start|stop" "the iceberg/parquet test stack"
 	@printf "  %-44s %s\n" "olake.destination.all.restart" "stop then start (keep data)"
 	@printf "  %-44s %s\n" "olake.destination.all.teardown" "down --volumes + DELETE $(DEST_DATA_DIR)"
