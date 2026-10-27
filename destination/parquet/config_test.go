@@ -3,7 +3,9 @@ package parquet
 import (
 	"testing"
 
+	"github.com/datazip-inc/olake/destination/parquet/azure"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigValidateMaxFileSizeMB(t *testing.T) {
@@ -45,6 +47,290 @@ func TestConfigValidateMaxFileSizeMB(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestConfigValidateStore(t *testing.T) {
+	azureCfg := Config{
+		StorageType:             storageTypeAzure,
+		AzureStorageAccountName: "myaccount",
+		AzureContainerName:      "mycontainer",
+	}
+
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr string
+	}{
+		{
+			name: "omitted storage_type is valid",
+			cfg: &Config{
+				Bucket: "my-bucket",
+				Region: "us-east-1",
+			},
+		},
+		{
+			name: "storage_type s3 is valid",
+			cfg: &Config{
+				StorageType: storageTypeS3,
+				Bucket:      "my-bucket",
+				Region:      "us-east-1",
+			},
+		},
+		{
+			name: "storage_type s3 is case-insensitive",
+			cfg: &Config{
+				StorageType: "s3",
+				Bucket:      "my-bucket",
+				Region:      "us-east-1",
+			},
+		},
+		{
+			name: "storage_type azure is case-insensitive",
+			cfg: func() *Config {
+				c := azureCfg
+				c.StorageType = "azure"
+				c.AzureAuthType = azure.AuthSharedKey
+				c.AzureStorageAccountKey = "mykey"
+				return &c
+			}(),
+		},
+		{
+			name: "azure fields without storage_type skip azure validate",
+			cfg: &Config{
+				AzureStorageAccountName: "myaccount",
+				AzureContainerName:      "mycontainer",
+			},
+		},
+		{
+			name: "invalid storage_type",
+			cfg: &Config{
+				StorageType: "GCS",
+			},
+			wantErr: "storage_type must be",
+		},
+		{
+			name: "azure shared key",
+			cfg: func() *Config {
+				c := azureCfg
+				c.AzureAuthType = azure.AuthSharedKey
+				c.AzureStorageAccountKey = "mykey"
+				return &c
+			}(),
+		},
+		{
+			name: "azure sas token",
+			cfg: func() *Config {
+				c := azureCfg
+				c.AzureAuthType = azure.AuthSASToken
+				c.AzureSASToken = "sv=2023-11-03&sig=fake"
+				return &c
+			}(),
+		},
+		{
+			name: "azure connection string",
+			cfg: func() *Config {
+				c := azureCfg
+				c.AzureAuthType = azure.AuthConnectionString
+				c.AzureConnectionString = "AccountName=myaccount;AccountKey=key"
+				return &c
+			}(),
+		},
+		{
+			name: "azure managed identity does not require dest JSON ids",
+			cfg: func() *Config {
+				c := azureCfg
+				c.AzureAuthType = azure.AuthManagedIdentity
+				return &c
+			}(),
+		},
+		{
+			name: "azure requires container",
+			cfg: &Config{
+				StorageType:   storageTypeAzure,
+				AzureAuthType: azure.AuthSharedKey,
+			},
+			wantErr: "azure_container_name is required",
+		},
+		{
+			name: "azure shared key requires account name and key",
+			cfg: func() *Config {
+				c := azureCfg
+				c.AzureAuthType = azure.AuthSharedKey
+				return &c
+			}(),
+			wantErr: "azure_storage_account_key and azure_storage_account_name are required for shared-key",
+		},
+		{
+			name: "azure sas requires token and account name",
+			cfg: func() *Config {
+				c := azureCfg
+				c.AzureAuthType = azure.AuthSASToken
+				return &c
+			}(),
+			wantErr: "azure_sas_token and azure_storage_account_name are required for sas-token",
+		},
+		{
+			name: "azure token auth requires account name",
+			cfg: &Config{
+				StorageType:        storageTypeAzure,
+				AzureAuthType:      azure.AuthManagedIdentity,
+				AzureContainerName: "mycontainer",
+			},
+			wantErr: "azure_storage_account_name is required",
+		},
+		{
+			name: "azure connection string does not require account name",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "AccountName=myaccount;AccountKey=key",
+			},
+		},
+		{
+			name: "azure connection string ignores account name and endpoint",
+			cfg: &Config{
+				StorageType:             storageTypeAzure,
+				AzureAuthType:           azure.AuthConnectionString,
+				AzureContainerName:      "mycontainer",
+				AzureStorageAccountName: "otheraccount",
+				AzureEndpoint:           "http://127.0.0.1:10000/devstoreaccount1",
+				AzureConnectionString:   "AccountName=myaccount;AccountKey=key",
+			},
+		},
+		{
+			name: "azure connection string accepts a SAS and blob endpoint",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;SharedAccessSignature=sv=2023-11-03&sig=fake",
+			},
+		},
+		{
+			name: "azure connection string rejects UseDevelopmentStorage alone",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "UseDevelopmentStorage=true",
+			},
+			wantErr: "UseDevelopmentStorage=true is not supported; set AccountName, AccountKey, and BlobEndpoint",
+		},
+		{
+			name: "azure connection string needs an account or blob endpoint",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "AccountKey=key",
+			},
+			wantErr: "azure_connection_string needs AccountName or BlobEndpoint",
+		},
+		{
+			name: "azure connection string needs a key or SAS",
+			cfg: &Config{
+				StorageType:           storageTypeAzure,
+				AzureAuthType:         azure.AuthConnectionString,
+				AzureContainerName:    "mycontainer",
+				AzureConnectionString: "AccountName=myaccount",
+			},
+			wantErr: "azure_connection_string needs AccountKey or SharedAccessSignature",
+		},
+		{
+			name: "azure connection string requires connection string",
+			cfg: func() *Config {
+				c := azureCfg
+				c.AzureAuthType = azure.AuthConnectionString
+				return &c
+			}(),
+			wantErr: "azure_connection_string is required for connection-string",
+		},
+		{
+			name: "azure requires auth type",
+			cfg: func() *Config {
+				c := azureCfg
+				return &c
+			}(),
+			wantErr: "azure_auth_type must be",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestConfigUsingObjectStore(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       *Config
+		wantAzure bool
+		wantS3    bool
+		wantKind  string
+	}{
+		{
+			name: "bucket and region use s3",
+			cfg: &Config{
+				Bucket: "my-bucket",
+				Region: "us-east-1",
+			},
+			wantS3:   true,
+			wantKind: storageTypeS3,
+		},
+		{
+			name: "bucket without region does not use s3",
+			cfg: &Config{
+				Bucket: "my-bucket",
+			},
+			wantKind: storageTypeS3,
+		},
+		{
+			name: "azure fields without storage_type do not use azure",
+			cfg: &Config{
+				AzureStorageAccountName: "myaccount",
+				AzureContainerName:      "mycontainer",
+			},
+			wantKind: storageTypeS3,
+		},
+		{
+			name: "storage_type azure uses azure even with s3 fields",
+			cfg: &Config{
+				StorageType:             storageTypeAzure,
+				AzureStorageAccountName: "myaccount",
+				AzureContainerName:      "mycontainer",
+				Bucket:                  "my-bucket",
+				Region:                  "us-east-1",
+			},
+			wantAzure: true,
+			wantKind:  storageTypeAzure,
+		},
+		{
+			name: "storage_type azure is case-insensitive",
+			cfg: &Config{
+				StorageType:             "AZURE",
+				AzureStorageAccountName: "myaccount",
+				AzureContainerName:      "mycontainer",
+			},
+			wantAzure: true,
+			wantKind:  storageTypeAzure,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.wantKind, tt.cfg.storageKind())
+			require.Equal(t, tt.wantAzure, tt.cfg.usingAzure())
+			require.Equal(t, tt.wantS3, tt.cfg.usingS3())
 		})
 	}
 }
