@@ -84,11 +84,12 @@
                 "azure_auth_type": {
                   "type": "string",
                   "title": "Azure Auth Type",
-                  "description": "How OLake authenticates to Azure Blob",
+                  "description": "How OLake authenticates to Azure Blob. managed-identity uses DefaultAzureCredential on the process (Entra VM IMDS and AKS workload identity). Not dest JSON client id/secret",
                   "enum": [
                     "shared-key",
                     "sas-token",
-                    "connection-string"
+                    "connection-string",
+                    "managed-identity"
                   ],
                   "default": "shared-key"
                 },
@@ -178,6 +179,26 @@
                       },
                       "required": [
                         "azure_connection_string"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "azure_auth_type": {
+                          "const": "managed-identity"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "The name of an existing Azure storage account with appropriate access permissions to store output files"
+                        },
+                        "azure_endpoint": {
+                          "type": "string",
+                          "title": "Azure Endpoint",
+                          "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/. Use http://host:port/account for Azurite"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_name"
                       ]
                     }
                   ]

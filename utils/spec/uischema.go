@@ -547,7 +547,8 @@ const ParquetUISchema = `{
       "ui:enumNames": [
         "Shared Key",
         "SAS Token",
-        "Connection String"
+        "Connection String",
+        "Managed Identity"
       ]
     },
     "azure_storage_account_key": {
