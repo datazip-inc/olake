@@ -77,17 +77,17 @@
                             "server_ca": {
                                 "type": "string",
                                 "title": "Server CA Certificate",
-                                "description": "CA certificate content (PEM format) for server verification"
+                                "description": "CA certificate content (PEM format) or file path, for server verification"
                             },
                             "client_cert": {
                                 "type": "string",
                                 "title": "Client Certificate",
-                                "description": "Client certificate content (PEM format) for mutual TLS authentication"
+                                "description": "Client certificate content (PEM format) or file path, for mutual TLS authentication"
                             },
                             "client_key": {
                                 "type": "string",
                                 "title": "Client Key",
-                                "description": "Client private key content (PEM format) for mutual TLS authentication"
+                                "description": "Client private key content (PEM format) or file path, for mutual TLS authentication"
                             }
                         },
                         "required": [
@@ -108,17 +108,17 @@
                             "server_ca": {
                                 "type": "string",
                                 "title": "Server CA Certificate",
-                                "description": "CA certificate content (PEM format) for server verification"
+                                "description": "CA certificate content (PEM format) or file path, for server verification"
                             },
                             "client_cert": {
                                 "type": "string",
                                 "title": "Client Certificate",
-                                "description": "Client certificate content (PEM format) for mutual TLS authentication"
+                                "description": "Client certificate content (PEM format) or file path, for mutual TLS authentication"
                             },
                             "client_key": {
                                 "type": "string",
                                 "title": "Client Key",
-                                "description": "Client private key content (PEM format) for mutual TLS authentication"
+                                "description": "Client private key content (PEM format) or file path, for mutual TLS authentication"
                             }
                         },
                         "required": [

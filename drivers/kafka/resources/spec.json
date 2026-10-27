@@ -89,19 +89,19 @@
                                 "server_ca": {
                                     "type": "string",
                                     "title": "CA Certificate",
-                                    "description": "CA certificate content in PEM format",
+                                    "description": "CA certificate content in PEM format or file path",
                                     "multiline": true
                                 },
                                 "client_cert": {
                                     "type": "string",
                                     "title": "Client Certificate",
-                                    "description": "Client certificate content for mTLS authentication in PEM format",
+                                    "description": "Client certificate content for mTLS authentication in PEM format or file path",
                                     "multiline": true
                                 },
                                 "client_key": {
                                     "type": "string",
                                     "title": "Client Key",
-                                    "description": "Client private key content for mTLS authentication in PEM format",
+                                    "description": "Client private key content for mTLS authentication in PEM format or file path",
                                     "multiline": true
                                 }
                             }
@@ -134,19 +134,19 @@
                                 "server_ca": {
                                     "type": "string",
                                     "title": "CA Certificate",
-                                    "description": "CA certificate content in PEM format",
+                                    "description": "CA certificate content in PEM format or file path",
                                     "multiline": true
                                 },
                                 "client_cert": {
                                     "type": "string",
                                     "title": "Client Certificate",
-                                    "description": "Client certificate content for mTLS authentication in PEM format",
+                                    "description": "Client certificate content for mTLS authentication in PEM format or file path",
                                     "multiline": true
                                 },
                                 "client_key": {
                                     "type": "string",
                                     "title": "Client Key",
-                                    "description": "Client private key content for mTLS authentication in PEM format",
+                                    "description": "Client private key content for mTLS authentication in PEM format or file path",
                                     "multiline": true
                                 }
                             }
