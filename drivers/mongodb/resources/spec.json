@@ -324,9 +324,7 @@
                             "const": "no_tunnel"
                         }
                     },
-                    "required": [
-                        "type"
-                    ]
+                    "required": ["type"]
                 },
                 {
                     "type": "object",
@@ -423,10 +421,7 @@
                         "use_iam": {
                             "const": false
                         },
-                        "password": {
-                            "type": "string",
-                            "minLength": 1
-                        }
+                        "password": { "type": "string", "minLength": 1 }
                     },
                     "required": [
                         "authdb",
