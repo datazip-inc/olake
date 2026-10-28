@@ -31,12 +31,19 @@ func (m UpdateType) NeedsTableIndex(destinationType DestinationType) bool {
 	return destinationType == Iceberg && (m == UpdateTypePosition || m == UpdateTypeDeletionVector)
 }
 
-func (m UpdateType) Validate() error {
-	if slices.Contains(writableUpdateTypes, m) {
-		return nil
+// PreferredUpdateType returns the cheapest available format, empty when none satisfies
+// every engine.
+func PreferredUpdateType(available []UpdateType, indexRequired bool) UpdateType {
+	for _, u := range available {
+		if indexRequired && u == UpdateTypeEquality {
+			continue
+		}
+
+		return u
 	}
 
-	return fmt.Errorf("invalid update mode: %s", m)
+	// if none found (NOTE: this only happen if no mode is supported)
+	return UpdateTypeEquality
 }
 
 // ValidateAgainst reports whether m is a delete format OLake can write and one the stream
@@ -45,12 +52,8 @@ func (m UpdateType) Validate() error {
 // means the catalog predates target query engines, so only writability is checked; an empty
 // one rejects every mode.
 func (m UpdateType) ValidateAgainst(available []UpdateType) error {
-	if err := m.Validate(); err != nil {
-		return err
-	}
-
 	if available != nil && !slices.Contains(available, m) {
-		return fmt.Errorf("update mode %q is not supported by the target query engines or the destination catalog; available are %v", m, available)
+		return fmt.Errorf("update mode %q is not supported by the target query engines or the destination catalog; supported update modes: %v", m, available)
 	}
 
 	return nil

@@ -27,10 +27,12 @@ var discoverCmd = &cobra.Command{
 		if err := validateDifferenceFlags(); err != nil {
 			return err
 		}
+
 		// optional: the stream difference uses its type to skip fields the destination ignores
 		if err := loadDestinationConfig(); err != nil {
 			return err
 		}
+
 		if convertStreams {
 			if streamsPath == "" {
 				return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
@@ -38,9 +40,11 @@ var discoverCmd = &cobra.Command{
 			}
 			return nil
 		}
+
 		if isStreamDifferenceCommand() {
 			return nil
 		}
+
 		if configPath == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		}
@@ -48,6 +52,7 @@ var discoverCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
+
 		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "") {
@@ -66,6 +71,7 @@ var discoverCmd = &cobra.Command{
 		if convertStreams {
 			return convertLegacyStreams()
 		}
+
 		if isStreamDifferenceCommand() {
 			return compareStreams()
 		}
@@ -86,7 +92,9 @@ var discoverCmd = &cobra.Command{
 		discoverCtx, cancel := context.WithTimeout(cmd.Context(), discoverTimeout)
 		defer cancel()
 
-		streams, err := connector.Discover(discoverCtx, maxDiscoverThreads, false)
+		appendMode := !types.UpsertSupported(destinationConfig.Type)
+
+		streams, err := connector.Discover(discoverCtx, maxDiscoverThreads, appendMode, availableUpdateTypes, false)
 		if err != nil {
 			return err
 		}
@@ -95,7 +103,8 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, availableUpdateTypes, types.PreferredUpdateType(availableUpdateTypes), !types.UpsertSupported(destinationConfig.Type))
+
+		types.LogCatalog(streams, catalog, availableUpdateTypes)
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled

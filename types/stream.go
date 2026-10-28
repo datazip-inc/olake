@@ -193,10 +193,10 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 // oldCatalog is the prior catalog (legacy streams.json already converted); nil means first-ever discover.
 // available is the stream's delete formats from AvailableUpdateTypes, defaultUpdateType the one
 // streams start on; appendOnly marks a destination that cannot upsert.
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, available []UpdateType, defaultUpdateType UpdateType, appendOnly bool) {
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, available []UpdateType) {
 	message := Message{
 		Type:    CatalogMessage,
-		Catalog: GetWrappedCatalog(streams, available, defaultUpdateType, appendOnly),
+		Catalog: GetWrappedCatalog(streams),
 	}
 	logger.Info(message)
 

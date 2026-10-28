@@ -111,11 +111,11 @@ func TestAvailableUpdateTypes(t *testing.T) {
 
 func TestPreferredUpdateType(t *testing.T) {
 	// Equality outranks positional: it needs no identifier -> RowLocation index.
-	assert.Equal(t, UpdateTypeEquality, PreferredUpdateType([]UpdateType{UpdateTypeEquality, UpdateTypePosition}))
-	assert.Equal(t, UpdateTypePosition, PreferredUpdateType([]UpdateType{UpdateTypePosition}))
+	assert.Equal(t, UpdateTypeEquality, PreferredUpdateType([]UpdateType{UpdateTypeEquality, UpdateTypePosition}, false))
+	assert.Equal(t, UpdateTypePosition, PreferredUpdateType([]UpdateType{UpdateTypePosition}, false))
 	// Deletion vectors need a v3 table, so positional stays the default while it is readable.
-	assert.Equal(t, UpdateTypePosition, PreferredUpdateType([]UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}))
-	assert.Equal(t, UpdateType(""), PreferredUpdateType(nil))
+	assert.Equal(t, UpdateTypePosition, PreferredUpdateType([]UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}, false))
+	assert.Equal(t, UpdateType(""), PreferredUpdateType(nil, false))
 }
 
 func TestUpdateTypeValidateAgainst(t *testing.T) {
@@ -153,7 +153,7 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
 	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, "")
-	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available), false)
+	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available, false), false)
 
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
@@ -166,7 +166,7 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 	}}
 
 	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, "")
-	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available), false)
+	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available, false), false)
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	assert.NotContains(t, string(serialized), "target_query_engines")

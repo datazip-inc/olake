@@ -37,7 +37,7 @@ type QueryEngineSpec struct {
 // needs no index, positional needs a full identifier -> RowLocation index, and deletion
 // vectors need the same index plus a format version 3 table, so they are never the default
 // while positional is still readable.
-var writableUpdateTypes = []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}
+var WritableUpdateTypes = []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}
 
 // queryEngines is the read-capability matrix: a format is listed only when the engine's
 // current stable release resolves it on read, so an OLake-written table never returns rows
@@ -68,7 +68,7 @@ var queryEngines = []QueryEngineSpec{
 func QueryEngineCatalog() map[string]interface{} {
 	return map[string]interface{}{
 		"engines":               queryEngines,
-		"writable_update_types": writableUpdateTypes,
+		"writable_update_types": WritableUpdateTypes,
 	}
 }
 
@@ -109,24 +109,14 @@ func AvailableUpdateTypes(engines []QueryEngine, destination *WriterConfig) ([]U
 }
 
 func availableUpdateTypes(engines []QueryEngine, catalogType string) []UpdateType {
-	available := make([]UpdateType, 0, len(writableUpdateTypes))
-	for _, updateType := range writableUpdateTypes {
+	available := make([]UpdateType, 0, len(WritableUpdateTypes))
+	for _, updateType := range WritableUpdateTypes {
 		if readableByAll(engines, updateType) && supportedByCatalog(catalogType, updateType) {
 			available = append(available, updateType)
 		}
 	}
 
 	return available
-}
-
-// PreferredUpdateType returns the cheapest available format, empty when none satisfies
-// every engine.
-func PreferredUpdateType(available []UpdateType) UpdateType {
-	if len(available) == 0 {
-		return ""
-	}
-
-	return available[0]
 }
 
 func readableByAll(engines []QueryEngine, updateType UpdateType) bool {

@@ -78,7 +78,7 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, skipSchema bool) ([]*types.Stream, error) {
+func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, appendMode bool, availableUpdateTypes []types.UpdateType, skipSchema bool) ([]*types.Stream, error) {
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream names: %w", err)
@@ -150,15 +150,12 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 			convStream.SyncMode = types.FULLREFRESH
 		}
 
+		indexRequired := a.driver.Type() == string(constants.Kafka)
 		// add default stream properties
 		convStream.DefaultStreamProperties = &types.DefaultStreamProperties{
 			Normalization: types.IsDriverRelational(a.driver.Type()),
-			AppendMode:    types.IsDriverAppendOnly(a.driver.Type()),
-			UpdateType:    types.UpdateTypeEquality,
-		}
-		// Kafka upsert always writes positional deletes; append-mode streams never consult this.
-		if a.driver.Type() == string(constants.Kafka) {
-			convStream.DefaultStreamProperties.UpdateType = types.UpdateTypePosition
+			AppendMode:    types.IsDriverAppendOnly(a.driver.Type()) || appendMode,
+			UpdateType:    types.PreferredUpdateType(availableUpdateTypes, indexRequired),
 		}
 
 		finalStreams = append(finalStreams, convStream)
