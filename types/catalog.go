@@ -206,13 +206,12 @@ func (c *Catalog) WriteToFile(path string) error {
 }
 
 // GetWrappedCatalog wraps discovered streams, stamping each with available (see AvailableUpdateTypes)
-// and defaulting it to the cheapest of them. appendOnly defaults every stream to append mode.
-func GetWrappedCatalog(streams []*Stream, available []UpdateType, appendOnly bool) *Catalog {
+// and defaulting it to defaultUpdateType. appendOnly defaults every stream to append mode.
+func GetWrappedCatalog(streams []*Stream, available []UpdateType, defaultUpdateType UpdateType, appendOnly bool) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
-	updateType := PreferredUpdateType(available)
 
 	for _, stream := range streams {
 		stream.RefreshSelectableColumns()
@@ -222,7 +221,7 @@ func GetWrappedCatalog(streams []*Stream, available []UpdateType, appendOnly boo
 			if stream.DefaultStreamProperties.UpdateType == UpdateTypePosition && slices.Contains(available, UpdateTypePosition) {
 				stream.DefaultStreamProperties.UpdateType = UpdateTypePosition
 			} else {
-				stream.DefaultStreamProperties.UpdateType = updateType
+				stream.DefaultStreamProperties.UpdateType = defaultUpdateType
 			}
 			// Lets the UI tell an append-only destination from "no intersection"; both list none.
 			stream.DefaultStreamProperties.AppendMode = stream.DefaultStreamProperties.AppendMode || appendOnly

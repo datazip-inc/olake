@@ -134,7 +134,8 @@ func TestGetWrappedCatalogUsesCatalogDerivedUpdateType(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	catalog := GetWrappedCatalog(streams, availableUpdateTypes(nil, "horizon"), false)
+	available := availableUpdateTypes(nil, "horizon")
+	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available), false)
 
 	// Equality would be the default, but Horizon rejects it from external engines.
 	assert.Equal(t, UpdateTypePosition, streams[0].DefaultStreamProperties.UpdateType)
@@ -160,7 +161,8 @@ func TestGetWrappedCatalogKeepsUpsertWhenNothingQualifies(t *testing.T) {
 	}}
 
 	// Athena cannot read deletion vectors, the only format Unity offers.
-	catalog := GetWrappedCatalog(streams, availableUpdateTypes([]QueryEngine{QueryEngineAthena}, "unity"), false)
+	available := availableUpdateTypes([]QueryEngine{QueryEngineAthena}, "unity")
+	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available), false)
 
 	assert.False(t, effective(catalog, streams[0]).AppendModeEnabled())
 	assert.False(t, streams[0].DefaultStreamProperties.AppendMode)
@@ -228,7 +230,7 @@ func TestGetWrappedCatalogAppendOnlyDestination(t *testing.T) {
 
 	available, err := AvailableUpdateTypes([]QueryEngine{QueryEngineSpark}, &WriterConfig{Type: Parquet})
 	require.NoError(t, err)
-	catalog := GetWrappedCatalog(streams, available, true)
+	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available), true)
 
 	// Selected streams only carry overrides, so append-only shows on the defaults.
 	assert.True(t, streams[0].DefaultStreamProperties.AppendMode)
