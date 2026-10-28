@@ -19,6 +19,9 @@ const (
 	SSLModeVerifyCA   = "verify-ca"
 	SSLModeVerifyFull = "verify-full"
 
+	SSLCertSourceInline = "inline"
+	SSLCertSourcePath   = "path"
+
 	Unknown = ""
 )
 
@@ -47,10 +50,15 @@ type SSLConfig struct {
 
 // LoadCertFiles reads the files at ServerCAPath, ClientCertPath and ClientKeyPath into
 // ServerCA, ClientCert and ClientKey when CertSource is "path". It is a no-op otherwise,
-// so all later code works on PEM content only.
+// so all later code works on PEM content only. Any CertSource other than "", "inline" or
+// "path" is rejected.
 func (sc *SSLConfig) LoadCertFiles() error {
-	if sc == nil || sc.CertSource != "path" {
+	if sc == nil || sc.CertSource == Unknown || sc.CertSource == SSLCertSourceInline {
 		return nil
+	}
+	if sc.CertSource != SSLCertSourcePath {
+		return errs.Precondition(errs.ConfigInvalid, codeSSLCertSourceInvalid,
+			fmt.Errorf("'ssl.cert_source' must be '%s' or '%s', got '%s'", SSLCertSourceInline, SSLCertSourcePath, sc.CertSource))
 	}
 	for _, cert := range []struct {
 		filePath  string  // file to read
@@ -76,9 +84,10 @@ func (sc *SSLConfig) LoadCertFiles() error {
 
 const (
 	// The ssl block itself is missing a field.
-	codeSSLMissing         = "config.ssl_missing"
-	codeSSLModeMissing     = "config.ssl_mode_missing"
-	codeSSLServerCAMissing = "config.ssl_server_ca_missing"
+	codeSSLMissing           = "config.ssl_missing"
+	codeSSLModeMissing       = "config.ssl_mode_missing"
+	codeSSLServerCAMissing   = "config.ssl_server_ca_missing"
+	codeSSLCertSourceInvalid = "config.ssl_cert_source_invalid"
 
 	// Certificate file could not be read from disk.
 	codeSSLFileUnreadable = "config.ssl_file_unreadable"
