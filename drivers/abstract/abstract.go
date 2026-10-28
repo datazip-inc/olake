@@ -82,12 +82,6 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-// RequiresTableIndex reports whether the source reads rows back through the destination's table index. Valid after Setup.
-func (a *AbstractDriver) RequiresTableIndex() bool {
-	reader, ok := a.driver.(TableIndexReader)
-	return ok && reader.RequiresTableIndex()
-}
-
 func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, skipSchema bool) ([]*types.Stream, error) {
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {

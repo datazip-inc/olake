@@ -205,13 +205,19 @@ func (c *Catalog) WriteToFile(path string) error {
 	return logger.FileLoggerWithPath(c, path)
 }
 
-func GetWrappedCatalog(streams []*Stream, engines []QueryEngine, indexRequired bool) *Catalog {
+func GetWrappedCatalog(streams []*Stream, engines []QueryEngine) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
-	// The default delete format is the cheapest one every target engine can read.
-	available := AvailableUpdateTypes(engines, indexRequired)
+	available := AvailableUpdateTypes(engines)
+	// A driver that supports only some delete formats sets them on its streams, the same for every
+	// stream of the source; offer those the engines can also read.
+	if len(streams) > 0 && streams[0].AvailableUpdateTypes != nil {
+		available = slices.DeleteFunc(available, func(updateType UpdateType) bool {
+			return !slices.Contains(streams[0].AvailableUpdateTypes, updateType)
+		})
+	}
 	updateType := PreferredUpdateType(available)
 
 	for _, stream := range streams {
@@ -256,7 +262,7 @@ func streamMapByID(streams []*ConfiguredStream) map[string]*ConfiguredStream {
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 4. UpdateType: Keep the previous delete format while the target query engines can read it
 // 5. Everything else: Keep as new catalog
-func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine, indexRequired bool) *Catalog {
+func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -280,7 +286,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine, index
 						MergeSelectedColumns(&metadata, oldConfigured.Stream, newStream)
 						pinImplicitUpdateType(&metadata, oldConfigured.Stream, newStream)
 					}
-					mergeUpdateType(&metadata, streamID, engines, indexRequired)
+					mergeUpdateType(&metadata, streamID, engines)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -345,7 +351,7 @@ func pinImplicitUpdateType(metadata *StreamMetadata, oldStream, newStream *Strea
 // target query engine can still read it. An unreadable choice is cleared rather than
 // replaced: switching delete formats can force a table recreate, so the user must pick the
 // new one explicitly, and a blank update_type fails validation until they do.
-func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine, indexRequired bool) {
+func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine) {
 	if metadata.UpdateType == nil {
 		return
 	}
@@ -362,7 +368,7 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryE
 		return
 	}
 
-	available := AvailableUpdateTypes(engines, indexRequired)
+	available := AvailableUpdateTypes(engines)
 	if slices.Contains(available, UpdateType(*metadata.UpdateType)) {
 		return
 	}

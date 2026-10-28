@@ -523,6 +523,7 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+	// TODO: add indexing in parquet destination as well as toast post reading.
 	if !p.stream.NormalizationEnabled() {
 		return false, records, nil, nil
 	}

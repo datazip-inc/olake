@@ -109,9 +109,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		// get all types of selected streams
-		// the source reads rows back through the Iceberg table index (Postgres preserve_toast_values)
-		indexRequired := connector.RequiresTableIndex() && destinationConfig.Type == types.Iceberg
-		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state, indexRequired)
+		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
@@ -196,9 +194,7 @@ var syncCmd = &cobra.Command{
 	},
 }
 
-// classifyStreams sorts the selected streams by sync mode, skipping invalid ones. indexRequired
-// fails the run for a CDC stream whose update type keeps no table index.
-func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State, indexRequired bool) (*StreamClassification, error) {
+func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
 		SelectedStreams:    []types.StreamInterface{},
@@ -249,19 +245,10 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
-		// With indexRequired, a CDC stream that keeps no table index (eq) could never recover the
-		// values the source leaves out: fail rather than skip it or sync it with placeholders.
-		isCDC := elem.GetSyncMode() == types.CDC || elem.GetSyncMode() == types.STRICTCDC
-		if indexRequired && isCDC && !elem.AppendModeEnabled() && !elem.GetUpdateType().NeedsTableIndex(types.Iceberg) {
-			failure = errs.Precondition(errs.ConfigInvalid, codeUpdateTypeWithoutIndex,
-				fmt.Errorf("stream %s uses update type %q, which keeps no table index, but the source reads unchanged values back through it (preserve_toast_values); set update_type to pos or dv",
-					elem.ID(), elem.GetUpdateType()))
-			return true
-		}
-
 		if err := elem.ValidateUpdateType(); err != nil {
-			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
-			return false
+			failure = errs.Precondition(errs.ConfigInvalid, codeUpdateTypeInvalid,
+				fmt.Errorf("stream %s has an invalid update type: %w", elem.ID(), err))
+			return true
 		}
 
 		filter, isLegacy, err := elem.GetFilter()
