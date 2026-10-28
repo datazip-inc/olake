@@ -112,7 +112,7 @@ func TestAvailableUpdateTypesFromDestination(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := AvailableUpdateTypes([]QueryEngine{QueryEngineSpark}, tc.destination)
+			got, err := AvailableUpdateTypes([]QueryEngine{QueryEngineSpark}, tc.destination, nil)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -135,7 +135,8 @@ func TestGetWrappedCatalogUsesCatalogDerivedUpdateType(t *testing.T) {
 	}}
 
 	available := availableUpdateTypes(nil, "horizon")
-	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available), false)
+	ApplyDestinationDefaults(streams, available, false)
+	catalog := GetWrappedCatalog(streams)
 
 	// Equality would be the default, but Horizon rejects it from external engines.
 	assert.Equal(t, UpdateTypePosition, streams[0].DefaultStreamProperties.UpdateType)
@@ -162,7 +163,8 @@ func TestGetWrappedCatalogKeepsUpsertWhenNothingQualifies(t *testing.T) {
 
 	// Athena cannot read deletion vectors, the only format Unity offers.
 	available := availableUpdateTypes([]QueryEngine{QueryEngineAthena}, "unity")
-	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available), false)
+	ApplyDestinationDefaults(streams, available, false)
+	catalog := GetWrappedCatalog(streams)
 
 	assert.False(t, effective(catalog, streams[0]).AppendModeEnabled())
 	assert.False(t, streams[0].DefaultStreamProperties.AppendMode)
@@ -228,9 +230,10 @@ func TestGetWrappedCatalogAppendOnlyDestination(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	available, err := AvailableUpdateTypes([]QueryEngine{QueryEngineSpark}, &WriterConfig{Type: Parquet})
+	available, err := AvailableUpdateTypes([]QueryEngine{QueryEngineSpark}, &WriterConfig{Type: Parquet}, nil)
 	require.NoError(t, err)
-	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available), true)
+	ApplyDestinationDefaults(streams, available, true)
+	catalog := GetWrappedCatalog(streams)
 
 	// Selected streams only carry overrides, so append-only shows on the defaults.
 	assert.True(t, streams[0].DefaultStreamProperties.AppendMode)

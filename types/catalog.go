@@ -205,9 +205,9 @@ func (c *Catalog) WriteToFile(path string) error {
 	return logger.FileLoggerWithPath(c, path)
 }
 
-// GetWrappedCatalog wraps discovered streams, stamping each with available (see AvailableUpdateTypes)
-// and defaulting it to defaultUpdateType. appendOnly defaults every stream to append mode.
-func GetWrappedCatalog(streams []*Stream, available []UpdateType, defaultUpdateType UpdateType, appendOnly bool) *Catalog {
+// GetWrappedCatalog wraps discovered streams into a catalog with every stream listed in
+// selected_streams. Destination-dependent defaults are set beforehand by ApplyDestinationDefaults.
+func GetWrappedCatalog(streams []*Stream) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
@@ -215,18 +215,6 @@ func GetWrappedCatalog(streams []*Stream, available []UpdateType, defaultUpdateT
 
 	for _, stream := range streams {
 		stream.RefreshSelectableColumns()
-		stream.AvailableUpdateTypes = available
-		if stream.DefaultStreamProperties != nil {
-			// A driver may preset positional deletes (Kafka upsert always writes them); keep it when offered.
-			if stream.DefaultStreamProperties.UpdateType == UpdateTypePosition && slices.Contains(available, UpdateTypePosition) {
-				stream.DefaultStreamProperties.UpdateType = UpdateTypePosition
-			} else {
-				stream.DefaultStreamProperties.UpdateType = defaultUpdateType
-			}
-			// Lets the UI tell an append-only destination from "no intersection"; both list none.
-			stream.DefaultStreamProperties.AppendMode = stream.DefaultStreamProperties.AppendMode || appendOnly
-		}
-
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
 		})

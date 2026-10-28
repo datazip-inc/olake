@@ -191,12 +191,12 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 // LogCatalog merges the fresh discover result with the prior catalog, then writes
 // available_streams.json, selected_streams.json, and streams.json from that one merge.
 // oldCatalog is the prior catalog (legacy streams.json already converted); nil means first-ever discover.
-// available is the stream's delete formats from AvailableUpdateTypes, defaultUpdateType the one
-// streams start on; appendOnly marks a destination that cannot upsert.
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, available []UpdateType, defaultUpdateType UpdateType, appendOnly bool) {
+// available is the delete formats from AvailableUpdateTypes; a previously chosen update_type
+// outside it is cleared.
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, available []UpdateType) {
 	message := Message{
 		Type:    CatalogMessage,
-		Catalog: GetWrappedCatalog(streams, available, defaultUpdateType, appendOnly),
+		Catalog: GetWrappedCatalog(streams),
 	}
 	logger.Info(message)
 

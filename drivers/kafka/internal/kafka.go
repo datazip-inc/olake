@@ -63,6 +63,12 @@ func (k *Kafka) Type() string {
 	return string(constants.Kafka)
 }
 
+// SupportedUpdateTypes is positional only: upserts on dedup_keys always write positional
+// deletes (see types.ConfiguredStream.GetUpdateType).
+func (k *Kafka) SupportedUpdateTypes() []types.UpdateType {
+	return []types.UpdateType{types.UpdateTypePosition}
+}
+
 func (k *Kafka) MaxConnections() int {
 	// return number of readers if available else default
 	if k.readerManager != nil {
