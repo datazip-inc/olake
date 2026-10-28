@@ -65,8 +65,8 @@ const MongoDBUISchema = `{
             "ui:widget": "select"
         },
         "cert_source": {
-          "ui:widget": "radio",
-          "ui:docLink": "https://olake.io/docs/connectors/ssl-certificates"
+            "ui:widget": "radio",
+            "ui:docLink": "https://olake.io/docs/connectors/ssl-certificates"
         },
         "server_ca": {
             "ui:widget": "textarea",
@@ -81,6 +81,24 @@ const MongoDBUISchema = `{
             }
         },
         "client_key": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "server_ca_path": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_cert_path": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_key_path": {
             "ui:widget": "textarea",
             "ui:options": {
                 "rows": 1
@@ -165,6 +183,24 @@ const PostgresUISchema = `{
           "ui:options": {
             "rows": 1
           }
+        },
+        "server_ca_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_cert_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_key_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
         }
       },
       "update_method": {
@@ -242,6 +278,18 @@ const MySQLUISchema = `{
       "ui:options": { "rows": 1 }
     },
     "client_key": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "server_ca_path": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_cert_path": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_key_path": {
       "ui:widget": "textarea",
       "ui:options": { "rows": 1 }
     }
