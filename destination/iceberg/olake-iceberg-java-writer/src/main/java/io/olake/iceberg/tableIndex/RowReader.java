@@ -1,6 +1,7 @@
 package io.olake.iceberg.tableIndex;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -46,6 +47,16 @@ import io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest;
  * without one it reads whole row groups (correct, but more data).
  */
 public final class RowReader {
+  /**
+   * A row whose values pass this is sent as several parts, so one message stays under the 2 GB
+   * gRPC limit however many large values the row holds: a message is then at most this, the
+   * rows batched before it, and one value (Postgres caps a value at 1 GB).
+   */
+  static final int ROW_PART_BYTES = 16 * 1024 * 1024;
+
+  /** Marks a soft-deleted row ("d"), and is repeated in every part of a split row. */
+  private static final String OP_TYPE = "_op_type";
+
   private RowReader() {
   }
 
@@ -168,6 +179,7 @@ public final class RowReader {
       RowConsumer consumer) throws Exception {
     RecordReader<Group> records = columnIO.getRecordReader(pages, new GroupRecordConverter(projection), FilterCompat.NOOP);
     PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes().orElse(null);
+    Integer opTypeSlot = slots.get(OP_TYPE);
 
     // every wanted row is among the rows read, which come in position order
     int cursor = 0;
@@ -178,16 +190,63 @@ public final class RowReader {
         continue;
       }
 
+      // a soft-deleted row has nothing to recover: only its _op_type goes back, which the
+      // caller skips the row on
+      boolean deleted = opTypeSlot != null && group.getFieldRepetitionCount(opTypeSlot) > 0
+          && "d".equals(group.getString(opTypeSlot, 0));
       ReadRowsBatch.Row.Builder row = ReadRowsBatch.Row.newBuilder().setFilePath(filePath).setPosition(position);
       for (String column : wanted.get(cursor).getColumnsList()) {
         Integer slot = slots.get(column);
-        if (slot != null) {
+        if (slot != null && (!deleted || column.equals(OP_TYPE))) {
           row.putValues(column, value(group, slot));
         }
       }
-      consumer.accept(row.build());
+      for (ReadRowsBatch.Row part : split(row.build(), ROW_PART_BYTES)) {
+        consumer.accept(part);
+      }
       cursor++;
     }
+  }
+
+  /**
+   * Splits a row whose values pass maxBytes into parts of the same file and position, each
+   * holding some of the columns and _op_type; the caller merges them. A part passes maxBytes
+   * only by its one value.
+   */
+  static List<ReadRowsBatch.Row> split(ReadRowsBatch.Row row, int maxBytes) {
+    // summed as long: the row's own size is an int and overflows past 2 GB
+    long rowBytes = 0;
+    for (FieldValue value : row.getValuesMap().values()) {
+      rowBytes += value.getSerializedSize();
+    }
+    if (rowBytes <= maxBytes) {
+      return List.of(row);
+    }
+
+    // Go asks for _op_type on every row and every data file carries it
+    ReadRowsBatch.Row.Builder empty = ReadRowsBatch.Row.newBuilder()
+        .setFilePath(row.getFilePath()).setPosition(row.getPosition())
+        .putValues(OP_TYPE, row.getValuesOrThrow(OP_TYPE));
+
+    List<ReadRowsBatch.Row> parts = new ArrayList<>();
+    ReadRowsBatch.Row.Builder part = empty.clone();
+    long partBytes = 0;
+    for (Map.Entry<String, FieldValue> value : row.getValuesMap().entrySet()) {
+      if (value.getKey().equals(OP_TYPE)) {
+        continue;
+      }
+      long size = value.getValue().getSerializedSize();
+      if (partBytes > 0 && partBytes + size > maxBytes) {
+        parts.add(part.build());
+        part = empty.clone();
+        partBytes = 0;
+      }
+      part.putValues(value.getKey(), value.getValue());
+      partBytes += size;
+    }
+    parts.add(part.build());
+
+    return parts;
   }
 
   /**

@@ -177,9 +177,14 @@ class RowReaderTest {
         for (long position : positions) {
             Map<String, FieldValue> values = read.get(position).getValuesMap();
             assertEquals(filePath, read.get(position).getFilePath());
-            assertEquals(2, values.size());
             assertEquals(position % 7 == 0 ? "d" : "u", values.get("_op_type").getStringValue(),
                     "_op_type of " + position);
+            if (position % 7 == 0) {
+                // a soft-deleted row sends only its _op_type, nothing to recover from it
+                assertEquals(1, values.size(), "values of deleted row " + position);
+                continue;
+            }
+            assertEquals(2, values.size());
             if (position % 2 == 1) {
                 assertEquals(position * 1.5, values.get("amt").getDoubleValue(), "amt of " + position);
             } else if (position % 13 == 0) {
@@ -198,15 +203,15 @@ class RowReaderTest {
                 Arguments.of("a column the file was written without is left out", "later", null, null),
                 // Iceberg's writer escapes the space, so the file stores it as big_x20doc
                 Arguments.of("a column the file stores under an escaped name is read",
-                        "big doc", "big_x20doc", "doc7"),
+                        "big doc", "big_x20doc", "doc8"),
                 // escaped too, and the dot must not be taken for a nested field
-                Arguments.of("a column with a dot in its name is read", "a.b", "a_x2Eb", "dot7"),
+                Arguments.of("a column with a dot in its name is read", "a.b", "a_x2Eb", "dot8"),
                 // other punctuation Postgres allows in a quoted identifier
-                Arguments.of("a column with a dash in its name is read", "a-b", "a_x2Db", "dash7"),
-                Arguments.of("a column with a comma in its name is read", "a,b", "a_x2Cb", "comma7"),
-                Arguments.of("a column with a colon in its name is read", "a:b", "a_x3Ab", "colon7"),
+                Arguments.of("a column with a dash in its name is read", "a-b", "a_x2Db", "dash8"),
+                Arguments.of("a column with a comma in its name is read", "a,b", "a_x2Cb", "comma8"),
+                Arguments.of("a column with a colon in its name is read", "a:b", "a_x3Ab", "colon8"),
                 Arguments.of("a column with quotes and a space in its name is read",
-                        "say \"okay\"", "say_x20_x22okay_x22", "quote7"));
+                        "say \"okay\"", "say_x20_x22okay_x22", "quote8"));
     }
 
     // a table column is found in the file by Iceberg field id, never by its table name
@@ -222,9 +227,10 @@ class RowReaderTest {
             }
         }
 
-        // Go always asks for _op_type too, so a row is read even when no other column is in the file
+        // Go always asks for _op_type too, so a row is read even when no other column is in the
+        // file; row 8 is live (every 7th row is soft-deleted and sends only its _op_type)
         Map<String, FieldValue> values = read(List.of(ReadRowsRequest.Row.newBuilder()
-                .setPosition(7).addColumns("_op_type").addColumns(column).build())).get(7L).getValuesMap();
+                .setPosition(8).addColumns("_op_type").addColumns(column).build())).get(8L).getValuesMap();
 
         if (expected == null) {
             assertFalse(values.containsKey(column), "a column the file does not carry must be left out");
@@ -240,6 +246,35 @@ class RowReaderTest {
     void failsOnUnsupportedColumnTypes() {
         assertThrows(IllegalArgumentException.class,
                 () -> read(List.of(ReadRowsRequest.Row.newBuilder().setPosition(5).addColumns("id").build())));
+    }
+
+    // a row whose values add up past the 2 GB message limit must still reach Go, in parts it merges
+    @Test
+    @DisplayName("a row past the part size is split by column, with _op_type in every part")
+    void splitsLargeRowsIntoParts() {
+        ReadRowsBatch.Row row = ReadRowsBatch.Row.newBuilder().setFilePath("f").setPosition(7)
+                .putValues("_op_type", text("u"))
+                .putValues("a", text("x".repeat(100)))
+                .putValues("b", text("y".repeat(100)))
+                .putValues("c", text("z".repeat(10)))
+                .build();
+
+        assertEquals(List.of(row), RowReader.split(row, 1000));
+
+        List<ReadRowsBatch.Row> parts = RowReader.split(row, 150);
+        assertEquals(2, parts.size());
+        Map<String, FieldValue> merged = new HashMap<>();
+        for (ReadRowsBatch.Row part : parts) {
+            assertEquals("f", part.getFilePath());
+            assertEquals(7, part.getPosition());
+            assertEquals(text("u"), part.getValuesOrThrow("_op_type"));
+            merged.putAll(part.getValuesMap());
+        }
+        assertEquals(row.getValuesMap(), merged);
+    }
+
+    private static FieldValue text(String value) {
+        return FieldValue.newBuilder().setStringValue(value).build();
     }
 
     /** Reads the rows, keyed by position; a position emitted twice fails the test. */

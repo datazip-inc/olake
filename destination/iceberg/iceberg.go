@@ -166,8 +166,31 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	return schema, &metadataState, nil
 }
 
+// Write sends records in order, split into chunks of at most MaxDestinationBatchBytes when values
+// recovered from the destination (unchanged TOAST) grew the batch past what the buffer measured,
+// so no single write exceeds the 2 GB message limit.
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
-	return i.writer.Write(ctx, records)
+	if i.unavailableValues == nil || i.unavailableValues.filledBytes == 0 {
+		return i.writer.Write(ctx, records)
+	}
+
+	start, size := 0, int64(0)
+	for idx := range records {
+		// a fixed overhead for the record, plus the size of every value it holds
+		recordSize := carryEntryOverhead
+		for _, value := range records[idx].Data {
+			recordSize += valueSize(value)
+		}
+		if idx > start && size+recordSize > constants.MaxDestinationBatchBytes {
+			if err := i.writer.Write(ctx, records[start:idx]); err != nil {
+				return err
+			}
+			start, size = idx, 0
+		}
+		size += recordSize
+	}
+
+	return i.writer.Write(ctx, records[start:])
 }
 
 func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error) {

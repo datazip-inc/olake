@@ -77,6 +77,8 @@ type testReader struct {
 	readErr  error
 	recvErr  error
 	requests []*proto.ReadRowsRequest
+	// inParts sends each row the way the Java reader sends a large one: a part per column
+	inParts bool
 }
 
 func (r *testReader) ReadRows(_ context.Context, request *proto.ReadRowsRequest, _ ...grpc.CallOption) (grpc.ServerStreamingClient[proto.ReadRowsBatch], error) {
@@ -100,11 +102,37 @@ func (r *testReader) ReadRows(_ context.Context, request *proto.ReadRowsRequest,
 					row.Values[column] = testFieldValue(value)
 				}
 			}
+			if r.inParts {
+				batch.Rows = append(batch.Rows, testRowParts(row)...)
+				continue
+			}
 			batch.Rows = append(batch.Rows, row)
 		}
 	}
 
 	return &testStream{batches: []*proto.ReadRowsBatch{batch}, err: r.recvErr}, nil
+}
+
+// testRowParts splits a row into a part per column, each carrying _op_type, as the Java
+// reader splits a row too large for one message.
+func testRowParts(row *proto.ReadRowsBatch_Row) []*proto.ReadRowsBatch_Row {
+	var parts []*proto.ReadRowsBatch_Row
+	for column, value := range row.GetValues() {
+		if column == constants.OpType {
+			continue
+		}
+		part := &proto.ReadRowsBatch_Row{
+			FilePath: row.GetFilePath(),
+			Position: row.GetPosition(),
+			Values:   map[string]*proto.IcebergPayload_IceRecord_FieldValue{column: value},
+		}
+		if opType, present := row.GetValues()[constants.OpType]; present {
+			part.Values[constants.OpType] = opType
+		}
+		parts = append(parts, part)
+	}
+
+	return parts
 }
 
 // testFieldValue mirrors what the Java reader sends: an unset value for a stored NULL.
@@ -507,6 +535,59 @@ func TestResolve(t *testing.T) {
 			assert.Equal(t, tc.expectedRecovered, resolver.recovered, "recovered")
 			assert.Equal(t, tc.expectedFromTable, resolver.fromTable, "from table")
 			assert.Equal(t, tc.expectedUnresolved, resolver.unresolved, "unresolved")
+		})
+	}
+}
+
+// A row too large for one message comes back in parts; each part must be merged into the row,
+// and a deleted row must stay unrecovered whichever part arrives first.
+func TestResolveRowInParts(t *testing.T) {
+	testCases := []struct {
+		name               string
+		opType             string
+		expected           map[string]any
+		expectedRecovered  int64
+		expectedUnresolved int64
+		expectedFilled     int64 // bytes Resolve reports it added to the batch
+	}{
+		{
+			name:              "every part of a live row is recovered",
+			opType:            "u",
+			expected:          map[string]any{"payload": "big value", "doc": "big doc"},
+			expectedRecovered: 2,
+			expectedFilled:    int64(len("big value") + len("big doc")),
+		},
+		{
+			name:               "no part of a deleted row is recovered",
+			opType:             "d",
+			expected:           map[string]any{"payload": placeholder, "doc": placeholder},
+			expectedUnresolved: 2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			writer := &testWriter{locations: map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}}}
+			table := testTable{
+				{"a.parquet", 0, constants.OpType}: tc.opType,
+				{"a.parquet", 0, "payload"}:        "big value",
+				{"a.parquet", 0, "doc"}:            "big doc",
+			}
+			resolver := testResolver(t, true, writer, &testReader{table: table, inParts: true})
+
+			records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder, "doc": placeholder}, "payload", "doc")}
+			require.NoError(t, resolver.Resolve(context.Background(), records))
+
+			for column, expected := range tc.expected {
+				assert.Equal(t, expected, records[0].Data[column], column)
+			}
+			assert.Equal(t, tc.expectedRecovered, resolver.recovered, "recovered")
+			assert.Equal(t, tc.expectedUnresolved, resolver.unresolved, "unresolved")
+			assert.Equal(t, tc.expectedFilled, resolver.filledBytes, "filled bytes")
+
+			// the next batch fills nothing, so it must not report the previous batch's bytes
+			require.NoError(t, resolver.Resolve(context.Background(), []types.RawRecord{testRecord("2", "c", map[string]any{"id": 2})}))
+			assert.Zero(t, resolver.filledBytes, "filled bytes of a batch without markers")
 		})
 	}
 }

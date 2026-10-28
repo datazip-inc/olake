@@ -44,6 +44,9 @@ type unavailableValuesResolver struct {
 	recovered  int64 // values filled into records
 	fromTable  int64 // values read from the destination
 	unresolved int64 // values left as the placeholder
+
+	// filledBytes is what the last Resolve added to its batch, which the buffer did not count
+	filledBytes int64
 }
 
 const (
@@ -108,6 +111,7 @@ func newUnavailableValuesResolver(threadID string, stream types.StreamInterface,
 // Resolve fills every unavailable value in the batch it can recover. The rest keep
 // constants.UnavailableValue, as before this feature.
 func (r *unavailableValuesResolver) Resolve(ctx context.Context, records []types.RawRecord) error {
+	r.filledBytes = 0
 	marked := r.track(records)
 	// Once a column is tracked, every later batch is processed so carry stays up to date, even batches with no marker.
 	if len(r.tracked) == 0 {
@@ -140,6 +144,7 @@ func (r *unavailableValuesResolver) Resolve(ctx context.Context, records []types
 				if value, carried := row.values[column]; carried {
 					record.Data[column] = value
 					r.recovered++
+					r.filledBytes += valueSize(value)
 					continue
 				}
 			}
@@ -420,6 +425,8 @@ func valueSize(value any) int64 {
 	case string:
 		return int64(len(typed))
 	case json.RawMessage:
+		return int64(len(typed))
+	case []byte:
 		return int64(len(typed))
 	case []any: // Postgres arrays
 		size := int64(0)
