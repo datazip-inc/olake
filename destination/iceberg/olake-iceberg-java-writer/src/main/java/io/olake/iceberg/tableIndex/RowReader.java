@@ -10,6 +10,8 @@ import java.util.PrimitiveIterator;
 import java.util.Set;
 import java.util.stream.IntStream;
 
+import com.google.protobuf.ByteString;
+
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.InputFile;
@@ -264,7 +266,7 @@ public final class RowReader {
       return FieldValue.newBuilder().setDoubleValue(group.getDouble(slot, 0)).build();
     }
     if (type.getLogicalTypeAnnotation() instanceof StringLogicalTypeAnnotation) {
-      return FieldValue.newBuilder().setStringValue(group.getString(slot, 0)).build();
+      return FieldValue.newBuilder().setStringValueBytes(ByteString.copyFrom(group.getBinary(slot, 0).toByteBuffer())).build();
     }
     throw new IllegalArgumentException("cannot read back column " + type.getName() + " of type " + type
         + ": only string and double columns are supported");
