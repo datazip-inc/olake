@@ -63,10 +63,11 @@ func (k *Kafka) Type() string {
 	return string(constants.Kafka)
 }
 
-// SupportedUpdateTypes is positional only: upserts on dedup_keys always write positional
-// deletes (see types.ConfiguredStream.GetUpdateType).
+// SupportedUpdateTypes excludes equality: an upsert on dedup_keys cannot tell an insert from an
+// update, so the writer looks the row up in the table index, which only pos and dv maintain
+// (see types.ConfiguredStream.GetUpdateType).
 func (k *Kafka) SupportedUpdateTypes() []types.UpdateType {
-	return []types.UpdateType{types.UpdateTypePosition}
+	return []types.UpdateType{types.UpdateTypePosition, types.UpdateTypeDeletionVector}
 }
 
 func (k *Kafka) MaxConnections() int {

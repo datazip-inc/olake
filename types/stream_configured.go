@@ -318,16 +318,18 @@ func (s *ConfiguredStream) AppendModeEnabled() bool {
 	return s.defaultStreamProperties().AppendMode
 }
 
-// GetUpdateType returns the stream's delete format. Upsert streams always use positional deletes;
-// otherwise an omitted (nil) update_type follows the stream's default_stream_properties
+// GetUpdateType returns the stream's delete format. An omitted (nil) update_type follows the
+// stream's default_stream_properties. Upsert ops resolve insert vs update through the table index,
+// so a format without one (equality) becomes positional.
 func (s *ConfiguredStream) GetUpdateType() UpdateType {
-	if s.ResolveUpsertOp() {
+	updateType := resolveConfigurableField(s.defaultStreamProperties().UpdateType, UpdateTypeEquality)
+	if s.StreamMetadata.UpdateType != nil {
+		updateType = resolveConfigurableField(UpdateType(*s.StreamMetadata.UpdateType), UpdateTypeEquality)
+	}
+	if s.ResolveUpsertOp() && !updateType.NeedsTableIndex(Iceberg) {
 		return UpdateTypePosition
 	}
-	if s.StreamMetadata.UpdateType == nil {
-		return resolveConfigurableField(s.defaultStreamProperties().UpdateType, UpdateTypeEquality)
-	}
-	return resolveConfigurableField(UpdateType(*s.StreamMetadata.UpdateType), UpdateTypeEquality)
+	return updateType
 }
 
 // ValidateUpdateType reports whether the stream's delete format is set, writable, and readable
