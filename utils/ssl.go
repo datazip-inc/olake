@@ -48,17 +48,27 @@ type SSLConfig struct {
 	ClientKeyPath  string `mapstructure:"client_key_path,omitempty" json:"client_key_path,omitempty" yaml:"client_key_path,omitempty"`
 }
 
-// LoadCertFiles reads the files at ServerCAPath, ClientCertPath and ClientKeyPath into
-// ServerCA, ClientCert and ClientKey when CertSource is "path". It is a no-op otherwise,
-// so all later code works on PEM content only. Any CertSource other than "", "inline" or
-// "path" is rejected.
-func (sc *SSLConfig) LoadCertFiles() error {
-	if sc == nil || sc.CertSource == Unknown || sc.CertSource == SSLCertSourceInline {
+// ValidateCertSource rejects any CertSource other than "", "inline" or "path".
+// Callers must run it before LoadCertFiles.
+func (sc *SSLConfig) ValidateCertSource() error {
+	if sc == nil {
 		return nil
 	}
-	if sc.CertSource != SSLCertSourcePath {
-		return errs.Precondition(errs.ConfigInvalid, codeSSLCertSourceInvalid,
-			fmt.Errorf("'ssl.cert_source' must be '%s' or '%s', got '%s'", SSLCertSourceInline, SSLCertSourcePath, sc.CertSource))
+	switch sc.CertSource {
+	case Unknown, SSLCertSourceInline, SSLCertSourcePath:
+		return nil
+	}
+	return errs.Precondition(errs.ConfigInvalid, codeSSLCertSourceInvalid,
+		fmt.Errorf("'ssl.cert_source' must be '%s' or '%s', got '%s'", SSLCertSourceInline, SSLCertSourcePath, sc.CertSource))
+}
+
+// LoadCertFiles reads the files at ServerCAPath, ClientCertPath and ClientKeyPath into
+// ServerCA, ClientCert and ClientKey when CertSource is "path". It is a no-op otherwise,
+// so all later code works on PEM content only. It does not validate CertSource; call
+// ValidateCertSource first.
+func (sc *SSLConfig) LoadCertFiles() error {
+	if sc == nil || sc.CertSource != SSLCertSourcePath {
+		return nil
 	}
 	for _, cert := range []struct {
 		filePath  string  // file to read
@@ -78,8 +88,7 @@ func (sc *SSLConfig) LoadCertFiles() error {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable,
 				fmt.Errorf("'%s': failed to read file: %w", cert.configKey, err))
 		}
-		// After the first load the field equals the file content, so repeat calls (e.g. from
-		// BuildTLSConfig) do not warn again; only a user-set, different inline value does.
+
 		if inline := strings.TrimSpace(*cert.pemField); inline != "" && inline != strings.TrimSpace(string(data)) {
 			logger.Warnf("'%s' is ignored: ssl.cert_source is 'path', so the file at '%s' (%q) is used instead", cert.inlineKey, cert.configKey, strings.TrimSpace(cert.filePath))
 		}
@@ -121,19 +130,24 @@ func (sc *SSLConfig) Validate() error {
 			errors.New("'ssl' config is required"))
 	}
 
-	if err := sc.LoadCertFiles(); err != nil {
-		return err
-	}
-
 	if sc.Mode == Unknown {
 		return errs.Precondition(errs.ConfigInvalid, codeSSLModeMissing,
 			errors.New("'ssl.mode' is required parameter"))
 	}
 
+	if err := sc.ValidateCertSource(); err != nil {
+		return err
+	}
+
+	// Cert files are read only for modes that consume them; a stale path must not
+	// reject a config whose mode ignores the certificates.
 	if sc.Mode == SSLModeVerifyCA || sc.Mode == SSLModeVerifyFull {
+		if err := sc.LoadCertFiles(); err != nil {
+			return err
+		}
 		if sc.ServerCA == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLServerCAMissing,
-				errors.New("'ssl.server_ca' is required parameter"))
+				errors.New("server CA certificate is required: provide 'ssl.server_ca', or a non-empty file at 'ssl.server_ca_path'"))
 		}
 	}
 
@@ -154,10 +168,6 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 			InsecureSkipVerify: true, // #nosec G402
 			MinVersion:         tls.VersionTLS12,
 		}, nil
-	}
-
-	if err := sc.LoadCertFiles(); err != nil {
-		return nil, err
 	}
 
 	rootCertPool := x509.NewCertPool()
