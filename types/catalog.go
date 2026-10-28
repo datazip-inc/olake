@@ -205,15 +205,15 @@ func (c *Catalog) WriteToFile(path string) error {
 	return logger.FileLoggerWithPath(c, path)
 }
 
-func GetWrappedCatalog(streams []*Stream, constraints UpdateTypeConstraints) *Catalog {
+// GetWrappedCatalog wraps discovered streams, stamping each with available (see AvailableUpdateTypes)
+// and defaulting it to the cheapest of them.
+func GetWrappedCatalog(streams []*Stream, available []UpdateType, destinationType DestinationType) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
-	// The default delete format is the cheapest one every target engine can read and the
-	// destination can apply.
-	available := constraints.Available()
 	updateType := PreferredUpdateType(available)
+	appendOnly := !UpsertSupported(destinationType)
 
 	for _, stream := range streams {
 		stream.RefreshSelectableColumns()
@@ -226,7 +226,7 @@ func GetWrappedCatalog(streams []*Stream, constraints UpdateTypeConstraints) *Ca
 				stream.DefaultStreamProperties.UpdateType = updateType
 			}
 			// Lets the UI tell an append-only destination from "no intersection"; both list none.
-			stream.DefaultStreamProperties.AppendMode = stream.DefaultStreamProperties.AppendMode || constraints.AppendOnly
+			stream.DefaultStreamProperties.AppendMode = stream.DefaultStreamProperties.AppendMode || appendOnly
 		}
 
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
@@ -259,7 +259,7 @@ func streamMapByID(streams []*ConfiguredStream) map[string]*ConfiguredStream {
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 4. UpdateType: Keep the previous delete format while the target query engines and destination allow it
 // 5. Everything else: Keep as new catalog
-func mergeCatalogs(oldCatalog, newCatalog *Catalog, constraints UpdateTypeConstraints) *Catalog {
+func mergeCatalogs(oldCatalog, newCatalog *Catalog, available []UpdateType) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -283,7 +283,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, constraints UpdateTypeConstr
 						MergeSelectedColumns(&metadata, oldConfigured.Stream, newStream)
 						pinImplicitUpdateType(&metadata, oldConfigured.Stream, newStream)
 					}
-					mergeUpdateType(&metadata, streamID, constraints)
+					mergeUpdateType(&metadata, streamID, available)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -344,12 +344,12 @@ func pinImplicitUpdateType(metadata *StreamMetadata, oldStream, newStream *Strea
 	metadata.UpdateType = &pinned
 }
 
-// mergeUpdateType keeps a previously configured delete format only while every current
-// target query engine can still read it and the destination can still apply it. Anything
+// mergeUpdateType keeps a previously configured delete format only while it is still in
+// available, the list this discover computed. Anything
 // else is cleared rather than replaced: switching delete formats can force a table
 // recreate, so the user must pick the new one explicitly, and a blank update_type fails
 // validation until they do.
-func mergeUpdateType(metadata *StreamMetadata, streamID string, constraints UpdateTypeConstraints) {
+func mergeUpdateType(metadata *StreamMetadata, streamID string, available []UpdateType) {
 	if metadata.UpdateType == nil {
 		return
 	}
@@ -361,7 +361,6 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, constraints Upda
 		metadata.UpdateType = &equality
 	}
 
-	available := constraints.Available()
 	if slices.Contains(available, UpdateType(*metadata.UpdateType)) {
 		return
 	}

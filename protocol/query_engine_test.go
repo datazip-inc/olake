@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveUpdateTypeConstraints(t *testing.T) {
+func TestResolveAvailableUpdateTypes(t *testing.T) {
 	writeDestination := func(t *testing.T, content string) string {
 		path := filepath.Join(t.TempDir(), "destination.json")
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
@@ -21,20 +21,19 @@ func TestResolveUpdateTypeConstraints(t *testing.T) {
 		name        string
 		flag        []string
 		destination string // file content; empty means --destination not passed
-		expected    types.UpdateTypeConstraints
+		expected    []types.UpdateType
 		wantErr     bool
 	}{
 		{
 			// Nothing is persisted, so omitted flags mean unconstrained, not "reuse".
-			name:     "no flags leave everything unconstrained",
-			expected: types.UpdateTypeConstraints{Engines: []types.QueryEngine{}},
+			name:     "no flags leave every format",
+			expected: []types.UpdateType{types.UpdateTypeEquality, types.UpdateTypePosition, types.UpdateTypeDeletionVector},
 		},
 		{
-			name: "engine flag is normalized",
-			flag: []string{" Spark ", "duckdb"},
-			expected: types.UpdateTypeConstraints{
-				Engines: []types.QueryEngine{types.QueryEngineSpark, types.QueryEngineDuckDB},
-			},
+			// Flag values are normalized; Athena cannot read deletion vectors.
+			name:     "engine flag narrows",
+			flag:     []string{" Spark ", "athena"},
+			expected: []types.UpdateType{types.UpdateTypeEquality, types.UpdateTypePosition},
 		},
 		{
 			name:    "unknown engine fails the run",
@@ -44,28 +43,21 @@ func TestResolveUpdateTypeConstraints(t *testing.T) {
 		{
 			// Databricks reads only deletion vectors and Athena none, so no format fits both.
 			// Append needs no delete format, so discover still succeeds.
-			name: "engines without a common delete format still discover",
-			flag: []string{"databricks", "athena"},
-			expected: types.UpdateTypeConstraints{
-				Engines: []types.QueryEngine{types.QueryEngineDatabricks, types.QueryEngineAthena},
-			},
+			name:     "engines without a common delete format still discover",
+			flag:     []string{"databricks", "athena"},
+			expected: []types.UpdateType{},
 		},
 		{
 			name:        "destination catalog is read from --destination",
 			destination: `{"type":"ICEBERG","writer":{"catalog_type":"unity"}}`,
-			expected: types.UpdateTypeConstraints{
-				Engines: []types.QueryEngine{},
-				Catalog: "unity",
-			},
+			expected:    []types.UpdateType{types.UpdateTypeDeletionVector},
 		},
 		{
-			// Parquet writes no delete files, so it constrains streams to append.
-			name:        "parquet destination is append only",
+			// Parquet writes no delete files, so streams can only append.
+			name:        "parquet destination offers none",
+			flag:        []string{"athena"},
 			destination: `{"type":"PARQUET","writer":{}}`,
-			expected: types.UpdateTypeConstraints{
-				Engines:    []types.QueryEngine{},
-				AppendOnly: true,
-			},
+			expected:    []types.UpdateType{},
 		},
 		{
 			name:        "malformed destination fails the run",
@@ -80,24 +72,23 @@ func TestResolveUpdateTypeConstraints(t *testing.T) {
 			if tc.destination != "" {
 				destinationPath = writeDestination(t, tc.destination)
 			}
-			targetQueryEngines, destinationConfigPath = tc.flag, destinationPath
-			destinationConfig, updateTypeConstraints = nil, types.UpdateTypeConstraints{}
+			targetQueryEngines, destinationConfigPath, destinationConfig = tc.flag, destinationPath, nil
 			t.Cleanup(func() {
-				targetQueryEngines, destinationConfigPath = nil, "not-set"
-				destinationConfig, updateTypeConstraints = nil, types.UpdateTypeConstraints{}
+				targetQueryEngines, destinationConfigPath, destinationConfig = nil, "not-set", nil
 			})
 
-			// PreRunE loads --destination before resolving, as discover does.
+			// PreRunE loads --destination before RunE resolves, as discover does.
+			var available []types.UpdateType
 			err := loadDestinationConfig()
 			if err == nil {
-				err = resolveUpdateTypeConstraints()
+				available, err = resolveAvailableUpdateTypes()
 			}
 			if tc.wantErr {
 				require.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, updateTypeConstraints)
+			assert.Equal(t, tc.expected, available)
 		})
 	}
 }

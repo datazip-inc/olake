@@ -71,46 +71,54 @@ func TestCatalogRestrictionsUseDestinationCatalogNames(t *testing.T) {
 	}
 }
 
-func TestUpdateTypeConstraintsWithCatalog(t *testing.T) {
+func TestAvailableUpdateTypesWithCatalog(t *testing.T) {
 	testCases := []struct {
-		name        string
-		constraints UpdateTypeConstraints
-		expected    []UpdateType
+		name     string
+		engines  []QueryEngine
+		catalog  string
+		expected []UpdateType
 	}{
-		{
-			// Unity rejects identifier fields and supports neither eq nor pos delete files.
-			name:        "unity offers only deletion vectors",
-			constraints: UpdateTypeConstraints{Catalog: "unity"},
-			expected:    []UpdateType{UpdateTypeDeletionVector},
-		},
-		{
-			// Nessie does not support table spec v3.
-			name:        "nessie drops deletion vectors",
-			constraints: UpdateTypeConstraints{Catalog: "nessie"},
-			expected:    []UpdateType{UpdateTypeEquality, UpdateTypePosition},
-		},
-		{
-			// Athena reads eq and pos; Horizon rejects eq from external engines.
-			name:        "engines and catalog intersect",
-			constraints: UpdateTypeConstraints{Engines: []QueryEngine{QueryEngineAthena}, Catalog: "horizon"},
-			expected:    []UpdateType{UpdateTypePosition},
-		},
-		{
-			// Athena cannot read deletion vectors, the only format Unity offers; discover fails on this.
-			name:        "disjoint engines and catalog leave nothing",
-			constraints: UpdateTypeConstraints{Engines: []QueryEngine{QueryEngineAthena}, Catalog: "unity"},
-			expected:    []UpdateType{},
-		},
-		{
-			name:        "permissive catalog leaves the engine set",
-			constraints: UpdateTypeConstraints{Engines: []QueryEngine{QueryEngineAthena}, Catalog: "glue"},
-			expected:    []UpdateType{UpdateTypeEquality, UpdateTypePosition},
-		},
+		// Unity rejects identifier fields and supports neither eq nor pos delete files.
+		{name: "unity offers only deletion vectors", catalog: "unity", expected: []UpdateType{UpdateTypeDeletionVector}},
+		// Nessie does not support table spec v3.
+		{name: "nessie drops deletion vectors", catalog: "nessie", expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition}},
+		// Athena reads eq and pos; Horizon rejects eq from external engines.
+		{name: "engines and catalog intersect", engines: []QueryEngine{QueryEngineAthena}, catalog: "horizon", expected: []UpdateType{UpdateTypePosition}},
+		// Athena cannot read deletion vectors, the only format Unity offers.
+		{name: "disjoint engines and catalog leave nothing", engines: []QueryEngine{QueryEngineAthena}, catalog: "unity", expected: []UpdateType{}},
+		{name: "permissive catalog leaves the engine set", engines: []QueryEngine{QueryEngineAthena}, catalog: "glue", expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, tc.constraints.Available())
+			assert.Equal(t, tc.expected, availableUpdateTypes(tc.engines, tc.catalog))
+		})
+	}
+}
+
+func TestAvailableUpdateTypesFromDestination(t *testing.T) {
+	testCases := []struct {
+		name        string
+		destination *WriterConfig
+		expected    []UpdateType
+		wantErr     bool
+	}{
+		{name: "no destination leaves every format", destination: &WriterConfig{}, expected: writableUpdateTypes},
+		{name: "iceberg catalog narrows", destination: icebergConfig(map[string]any{"catalog_type": "unity"}), expected: []UpdateType{UpdateTypeDeletionVector}},
+		// Parquet writes no delete files, whatever the engines read.
+		{name: "parquet offers none", destination: &WriterConfig{Type: Parquet, WriterConfig: map[string]any{}}, expected: []UpdateType{}},
+		{name: "unreadable writer config fails", destination: &WriterConfig{Type: Iceberg, WriterConfig: "not an object"}, wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := AvailableUpdateTypes([]QueryEngine{QueryEngineSpark}, tc.destination)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
 		})
 	}
 }
@@ -126,7 +134,7 @@ func TestGetWrappedCatalogUsesCatalogDerivedUpdateType(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	catalog := GetWrappedCatalog(streams, UpdateTypeConstraints{Catalog: "horizon"})
+	catalog := GetWrappedCatalog(streams, availableUpdateTypes(nil, "horizon"), Iceberg)
 
 	// Equality would be the default, but Horizon rejects it from external engines.
 	assert.Equal(t, UpdateTypePosition, streams[0].DefaultStreamProperties.UpdateType)
@@ -138,7 +146,7 @@ func TestMergeUpdateTypeClearsCatalogUnsupportedValue(t *testing.T) {
 	// Configured as equality before the job pointed at a Unity destination.
 	metadata := &StreamMetadata{StreamName: "users", UpdateType: new(string(UpdateTypeEquality))}
 
-	mergeUpdateType(metadata, "public.users", UpdateTypeConstraints{Catalog: "unity"})
+	mergeUpdateType(metadata, "public.users", availableUpdateTypes(nil, "unity"))
 
 	assert.Equal(t, new(""), metadata.UpdateType)
 }
@@ -152,9 +160,7 @@ func TestGetWrappedCatalogKeepsUpsertWhenNothingQualifies(t *testing.T) {
 	}}
 
 	// Athena cannot read deletion vectors, the only format Unity offers.
-	catalog := GetWrappedCatalog(streams, UpdateTypeConstraints{
-		Engines: []QueryEngine{QueryEngineAthena}, Catalog: "unity",
-	})
+	catalog := GetWrappedCatalog(streams, availableUpdateTypes([]QueryEngine{QueryEngineAthena}, "unity"), Iceberg)
 
 	assert.False(t, effective(catalog, streams[0]).AppendModeEnabled())
 	assert.False(t, streams[0].DefaultStreamProperties.AppendMode)
@@ -220,10 +226,9 @@ func TestGetWrappedCatalogAppendOnlyDestination(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	// Engines that would otherwise allow every format must not widen an append-only destination.
-	catalog := GetWrappedCatalog(streams, UpdateTypeConstraints{
-		Engines: []QueryEngine{QueryEngineSpark}, AppendOnly: true,
-	})
+	available, err := AvailableUpdateTypes([]QueryEngine{QueryEngineSpark}, &WriterConfig{Type: Parquet})
+	require.NoError(t, err)
+	catalog := GetWrappedCatalog(streams, available, Parquet)
 
 	// Selected streams only carry overrides, so append-only shows on the defaults.
 	assert.True(t, streams[0].DefaultStreamProperties.AppendMode)

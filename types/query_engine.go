@@ -92,25 +92,26 @@ func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 	return engines, nil
 }
 
-// UpdateTypeConstraints are every input that narrows a stream's delete formats: the target
-// query engines limit what can be read, the destination catalog what can be written.
-type UpdateTypeConstraints struct {
-	Engines []QueryEngine
-	Catalog string
-	// AppendOnly marks a destination that writes no delete files (Parquet): streams can only
-	// append, so no delete format applies.
-	AppendOnly bool
+// AvailableUpdateTypes is the single place that decides a stream's delete formats: those every
+// target engine can read and the destination can apply, cheapest first. A destination that writes
+// no delete files (Parquet) gets none; no engines and no catalog leave every writable format.
+func AvailableUpdateTypes(engines []QueryEngine, destination *WriterConfig) ([]UpdateType, error) {
+	if destination != nil && !UpsertSupported(destination.Type) {
+		return []UpdateType{}, nil
+	}
+
+	catalogType, err := CatalogTypeFromConfig(destination)
+	if err != nil {
+		return nil, err
+	}
+
+	return availableUpdateTypes(engines, catalogType), nil
 }
 
-// Available returns the writable delete formats every engine can read and the catalog can
-// apply, cheapest first. No constraints leaves every writable format.
-func (c UpdateTypeConstraints) Available() []UpdateType {
+func availableUpdateTypes(engines []QueryEngine, catalogType string) []UpdateType {
 	available := make([]UpdateType, 0, len(writableUpdateTypes))
-	if c.AppendOnly {
-		return available
-	}
 	for _, updateType := range writableUpdateTypes {
-		if readableByAll(c.Engines, updateType) && supportedByCatalog(c.Catalog, updateType) {
+		if readableByAll(engines, updateType) && supportedByCatalog(catalogType, updateType) {
 			available = append(available, updateType)
 		}
 	}

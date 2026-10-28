@@ -47,7 +47,6 @@ var (
 	connector                      *abstract.AbstractDriver
 	availableQueryEngines          bool
 	targetQueryEngines             []string
-	updateTypeConstraints          types.UpdateTypeConstraints
 )
 
 // RootCmd represents the base command when called without any subcommands

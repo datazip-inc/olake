@@ -57,10 +57,6 @@ var discoverCmd = &cobra.Command{
 			}
 		}
 
-		if err := resolveUpdateTypeConstraints(); err != nil {
-			return err
-		}
-
 		//version
 		logger.Infof("Running OLake sync with version %s", version.GetOlakeCLIVersion())
 
@@ -74,7 +70,13 @@ var discoverCmd = &cobra.Command{
 			return compareStreams()
 		}
 
-		err := connector.Setup(cmd.Context())
+		// resolved before the slow discover so a bad flag or destination fails fast
+		availableUpdateTypes, err := resolveAvailableUpdateTypes()
+		if err != nil {
+			return err
+		}
+
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -93,7 +95,7 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, updateTypeConstraints)
+		types.LogCatalog(streams, catalog, availableUpdateTypes, destinationConfig.Type)
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -129,37 +131,27 @@ func convertLegacyStreams() error {
 	return nil
 }
 
-// resolveUpdateTypeConstraints reads what this discover run must satisfy: the target query
-// engines from --target-query-engines and the destination's catalog from --destination. Both
-// are pure inputs: the run turns them into each stream's available_update_types and keeps
-// nothing else, so a caller that wants them applied passes both flags every time.
-func resolveUpdateTypeConstraints() error {
+// resolveAvailableUpdateTypes turns --target-query-engines and --destination into the delete
+// formats every stream may use. Neither input is persisted, so a caller that wants them applied
+// passes both flags on every discover.
+func resolveAvailableUpdateTypes() ([]types.UpdateType, error) {
 	engines, err := types.ParseQueryEngines(targetQueryEngines)
 	if err != nil {
-		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
+		return nil, errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
 	}
 
-	// destinationConfig was loaded from --destination by loadDestinationConfig in PreRunE.
-	catalogType, err := types.CatalogTypeFromConfig(destinationConfig)
+	available, err := types.AvailableUpdateTypes(engines, destinationConfig)
 	if err != nil {
-		return errs.Precondition(errs.ConfigInvalid, codeDestinationConfigInvalid, err)
+		return nil, errs.Precondition(errs.ConfigInvalid, codeDestinationConfigInvalid, err)
 	}
 
-	constraints := types.UpdateTypeConstraints{
-		Engines:    engines,
-		Catalog:    catalogType,
-		AppendOnly: !types.UpsertSupported(destinationConfig.Type),
-	}
-	// Only upsert needs a delete format and append writes none, so the job stays valid: each
-	// stream gets an empty available_update_types for the UI to report. Expected, so silent,
-	// for an append-only destination.
-	if !constraints.AppendOnly && len(constraints.Available()) == 0 {
-		logger.Warnf("No delete format is readable by all of the selected query engines %v and writable to destination catalog %q; upsert streams need append mode to sync",
-			engines, catalogType)
+	// Not fatal: append writes no deletes, and the empty list tells the UI to warn. Expected,
+	// so silent, for an append-only destination.
+	if len(available) == 0 && types.UpsertSupported(destinationConfig.Type) {
+		logger.Warnf("No delete format is readable by all of the selected query engines %v and writable to the destination; upsert streams need append mode to sync", engines)
 	}
 
-	updateTypeConstraints = constraints
-	return nil
+	return available, nil
 }
 
 // compareStreams reads the old and new catalogs, computes the difference, and writes the result to
