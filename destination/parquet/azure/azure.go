@@ -47,6 +47,7 @@ type Config struct {
 	Endpoint         string
 	SASToken         string // user client SAS with own expiration time
 	ConnectionString string
+	ClientID         string // user-assigned MI; empty uses AZURE_CLIENT_ID / system-assigned
 }
 
 // Store is the implementation of the ObjectStore interface for Azure Blob Storage.
@@ -93,7 +94,7 @@ func newServiceClient(cfg Config, serviceURL string) (*azblob.Client, error) {
 		return getServiceClientSharedKey(cfg.AccountName, cfg.AccountKey, serviceURL)
 	case AuthManagedIdentity:
 		// DefaultAzureCredential: service principal, workload identity, then managed identity.
-		return getServiceClientTokenCredential(serviceURL)
+		return getServiceClientTokenCredential(serviceURL, cfg.ClientID)
 	default:
 		return nil, fmt.Errorf("unsupported azure auth type %q", cfg.AuthType)
 	}
@@ -286,13 +287,30 @@ func (a *Store) IsRateLimitError(err error) bool {
 	return errors.As(err, &respErr) && (respErr.StatusCode == 429 || respErr.StatusCode == 503)
 }
 
-// Service principal, then workload identity, then managed identity.
-// Token refresh is the SDK. Needs a valid serviceURL.
-func getServiceClientTokenCredential(accountURL string) (*azblob.Client, error) {
-	// Create a new service client with token credential
-	credential, err := azidentity.NewDefaultAzureCredential(nil)
+// azureTokenCredential: empty clientID uses DefaultAzureCredential (AKS WI, then system-assigned MI).
+// azure_client_id selects a user-assigned identity via ManagedIdentityCredential.
+func azureTokenCredential(clientID string) (azcore.TokenCredential, error) {
+	if clientID == "" {
+		credential, err := azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create default Azure credential: %w", err)
+		}
+		return credential, nil
+	}
+	credential, err := azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
+		ID: azidentity.ClientID(clientID),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create default Azure credential: %w", err)
+		return nil, fmt.Errorf("failed to create Azure managed identity credential: %w", err)
+	}
+	return credential, nil
+}
+
+// Token refresh is the SDK. Needs a valid serviceURL.
+func getServiceClientTokenCredential(accountURL, clientID string) (*azblob.Client, error) {
+	credential, err := azureTokenCredential(clientID)
+	if err != nil {
+		return nil, err
 	}
 
 	client, err := azblob.NewClient(accountURL, credential, blobClientOptions())
