@@ -539,6 +539,7 @@ const ParquetUISchema = `{
       { "s3_secret_key": 12, "s3_path": 12 },
       { "azure_storage_account_name": 12, "azure_container_name": 12 },
       { "azure_path": 12, "azure_endpoint": 12 },
+      { "azure_client_id": 24 },
       { "azure_storage_account_key": 12, "azure_sas_token": 12 },
       { "azure_connection_string": 24 },
       { "max_file_size_mb": 12 }

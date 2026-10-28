@@ -84,7 +84,7 @@
                 "azure_auth_type": {
                   "type": "string",
                   "title": "Azure Auth Type",
-                  "description": "How OLake authenticates to Azure Blob. managed-identity uses DefaultAzureCredential on the process (Entra VM IMDS and AKS workload identity). Not dest JSON client id/secret",
+                  "description": "How OLake authenticates to Azure Blob. managed-identity uses DefaultAzureCredential on the process (Entra VM IMDS and AKS workload identity). Optional azure_client_id pins a user-assigned identity",
                   "enum": [
                     "shared-key",
                     "sas-token",
@@ -195,6 +195,11 @@
                           "type": "string",
                           "title": "Azure Endpoint",
                           "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/. Use http://host:port/account for Azurite"
+                        },
+                        "azure_client_id": {
+                          "type": "string",
+                          "title": "Azure Client ID",
+                          "description": "Client ID of a user-assigned managed identity. Leave empty for system-assigned MI or AKS workload identity (AZURE_CLIENT_ID on the process)"
                         }
                       },
                       "required": [
