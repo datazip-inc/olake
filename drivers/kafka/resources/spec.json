@@ -86,25 +86,92 @@
                             "title": "SSL Configuration",
                             "description": "SSL/TLS certificate configuration (optional for AWS MSK)",
                             "properties": {
-                                "server_ca": {
+                                "cert_source": {
                                     "type": "string",
-                                    "title": "CA Certificate",
-                                    "description": "CA certificate content in PEM format or file path",
-                                    "multiline": true
-                                },
-                                "client_cert": {
-                                    "type": "string",
-                                    "title": "Client Certificate",
-                                    "description": "Client certificate content for mTLS authentication in PEM format or file path",
-                                    "multiline": true
-                                },
-                                "client_key": {
-                                    "type": "string",
-                                    "title": "Client Key",
-                                    "description": "Client private key content for mTLS authentication in PEM format or file path",
-                                    "multiline": true
+                                    "title": "Certificate Input",
+                                    "description": "Choose how to provide certificates: paste the PEM content, or give the file path of each certificate on the OLake host. See the linked guide to configure certificates.",
+                                    "default": "inline",
+                                    "oneOf": [
+                                        {
+                                            "const": "inline",
+                                            "title": "Inline Certificate (PEM)"
+                                        },
+                                        {
+                                            "const": "path",
+                                            "title": "Certificate File Path"
+                                        }
+                                    ]
                                 }
-                            }
+                            },
+                            "allOf": [
+                                {
+                                    "if": {
+                                        "not": {
+                                            "properties": {
+                                                "cert_source": {
+                                                    "const": "path"
+                                                }
+                                            },
+                                            "required": [
+                                                "cert_source"
+                                            ]
+                                        }
+                                    },
+                                    "then": {
+                                        "properties": {
+                                            "server_ca": {
+                                                "type": "string",
+                                                "title": "CA Certificate",
+                                                "description": "CA certificate content in PEM format",
+                                                "multiline": true
+                                            },
+                                            "client_cert": {
+                                                "type": "string",
+                                                "title": "Client Certificate",
+                                                "description": "Client certificate content for mTLS authentication in PEM format",
+                                                "multiline": true
+                                            },
+                                            "client_key": {
+                                                "type": "string",
+                                                "title": "Client Key",
+                                                "description": "Client private key content for mTLS authentication in PEM format",
+                                                "multiline": true
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "if": {
+                                        "properties": {
+                                            "cert_source": {
+                                                "const": "path"
+                                            }
+                                        },
+                                        "required": [
+                                            "cert_source"
+                                        ]
+                                    },
+                                    "then": {
+                                        "properties": {
+                                            "server_ca_path": {
+                                                "type": "string",
+                                                "title": "Server CA Certificate Path",
+                                                "description": "File path of the CA certificate (PEM format) for server verification"
+                                            },
+                                            "client_cert_path": {
+                                                "type": "string",
+                                                "title": "Client Certificate Path",
+                                                "description": "File path of the client certificate (PEM format) for mutual TLS authentication"
+                                            },
+                                            "client_key_path": {
+                                                "type": "string",
+                                                "title": "Client Key Path",
+                                                "description": "File path of the client private key (PEM format) for mutual TLS authentication"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "required": [
@@ -131,25 +198,92 @@
                             "title": "SSL Configuration",
                             "description": "SSL/TLS certificate configuration (all fields optional for AWS MSK)",
                             "properties": {
-                                "server_ca": {
+                                "cert_source": {
                                     "type": "string",
-                                    "title": "CA Certificate",
-                                    "description": "CA certificate content in PEM format or file path",
-                                    "multiline": true
-                                },
-                                "client_cert": {
-                                    "type": "string",
-                                    "title": "Client Certificate",
-                                    "description": "Client certificate content for mTLS authentication in PEM format or file path",
-                                    "multiline": true
-                                },
-                                "client_key": {
-                                    "type": "string",
-                                    "title": "Client Key",
-                                    "description": "Client private key content for mTLS authentication in PEM format or file path",
-                                    "multiline": true
+                                    "title": "Certificate Input",
+                                    "description": "Choose how to provide certificates: paste the PEM content, or give the file path of each certificate on the OLake host. See the linked guide to configure certificates.",
+                                    "default": "inline",
+                                    "oneOf": [
+                                        {
+                                            "const": "inline",
+                                            "title": "Inline Certificate (PEM)"
+                                        },
+                                        {
+                                            "const": "path",
+                                            "title": "Certificate File Path"
+                                        }
+                                    ]
                                 }
-                            }
+                            },
+                            "allOf": [
+                                {
+                                    "if": {
+                                        "not": {
+                                            "properties": {
+                                                "cert_source": {
+                                                    "const": "path"
+                                                }
+                                            },
+                                            "required": [
+                                                "cert_source"
+                                            ]
+                                        }
+                                    },
+                                    "then": {
+                                        "properties": {
+                                            "server_ca": {
+                                                "type": "string",
+                                                "title": "CA Certificate",
+                                                "description": "CA certificate content in PEM format",
+                                                "multiline": true
+                                            },
+                                            "client_cert": {
+                                                "type": "string",
+                                                "title": "Client Certificate",
+                                                "description": "Client certificate content for mTLS authentication in PEM format",
+                                                "multiline": true
+                                            },
+                                            "client_key": {
+                                                "type": "string",
+                                                "title": "Client Key",
+                                                "description": "Client private key content for mTLS authentication in PEM format",
+                                                "multiline": true
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "if": {
+                                        "properties": {
+                                            "cert_source": {
+                                                "const": "path"
+                                            }
+                                        },
+                                        "required": [
+                                            "cert_source"
+                                        ]
+                                    },
+                                    "then": {
+                                        "properties": {
+                                            "server_ca_path": {
+                                                "type": "string",
+                                                "title": "Server CA Certificate Path",
+                                                "description": "File path of the CA certificate (PEM format) for server verification"
+                                            },
+                                            "client_cert_path": {
+                                                "type": "string",
+                                                "title": "Client Certificate Path",
+                                                "description": "File path of the client certificate (PEM format) for mutual TLS authentication"
+                                            },
+                                            "client_key_path": {
+                                                "type": "string",
+                                                "title": "Client Key Path",
+                                                "description": "File path of the client private key (PEM format) for mutual TLS authentication"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "required": [

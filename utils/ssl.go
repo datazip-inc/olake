@@ -36,6 +36,42 @@ type SSLConfig struct {
 	ServerCA   string `mapstructure:"server_ca,omitempty" json:"server_ca,omitempty" yaml:"server_ca,omitempty"`
 	ClientCert string `mapstructure:"client_cert,omitempty" json:"client_cert,omitempty" yaml:"client_cert,omitempty"`
 	ClientKey  string `mapstructure:"client_key,omitempty" json:"client_key,omitempty" yaml:"client_key,omitempty"`
+
+	// CertSource is "inline" (default) to use the PEM content fields above, or "path"
+	// to read them from the files at ServerCAPath, ClientCertPath and ClientKeyPath.
+	CertSource     string `mapstructure:"cert_source,omitempty" json:"cert_source,omitempty" yaml:"cert_source,omitempty"`
+	ServerCAPath   string `mapstructure:"server_ca_path,omitempty" json:"server_ca_path,omitempty" yaml:"server_ca_path,omitempty"`
+	ClientCertPath string `mapstructure:"client_cert_path,omitempty" json:"client_cert_path,omitempty" yaml:"client_cert_path,omitempty"`
+	ClientKeyPath  string `mapstructure:"client_key_path,omitempty" json:"client_key_path,omitempty" yaml:"client_key_path,omitempty"`
+}
+
+// LoadCertFiles reads the files at ServerCAPath, ClientCertPath and ClientKeyPath into
+// ServerCA, ClientCert and ClientKey when CertSource is "path". It is a no-op otherwise,
+// so all later code works on PEM content only.
+func (sc *SSLConfig) LoadCertFiles() error {
+	if sc == nil || sc.CertSource != "path" {
+		return nil
+	}
+	for _, cert := range []struct {
+		filePath  string  // file to read
+		pemField  *string // receives the PEM content read from filePath
+		configKey string  // path config key named in errors
+	}{
+		{sc.ServerCAPath, &sc.ServerCA, "ssl.server_ca_path"},
+		{sc.ClientCertPath, &sc.ClientCert, "ssl.client_cert_path"},
+		{sc.ClientKeyPath, &sc.ClientKey, "ssl.client_key_path"},
+	} {
+		if strings.TrimSpace(cert.filePath) == "" {
+			continue
+		}
+		data, err := os.ReadFile(strings.TrimSpace(cert.filePath))
+		if err != nil {
+			return errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable,
+				fmt.Errorf("'%s': failed to read file: %w", cert.configKey, err))
+		}
+		*cert.pemField = string(data)
+	}
+	return nil
 }
 
 const (
@@ -70,6 +106,10 @@ func (sc *SSLConfig) Validate() error {
 			errors.New("'ssl' config is required"))
 	}
 
+	if err := sc.LoadCertFiles(); err != nil {
+		return err
+	}
+
 	if sc.Mode == Unknown {
 		return errs.Precondition(errs.ConfigInvalid, codeSSLModeMissing,
 			errors.New("'ssl.mode' is required parameter"))
@@ -99,6 +139,10 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 			InsecureSkipVerify: true, // #nosec G402
 			MinVersion:         tls.VersionTLS12,
 		}, nil
+	}
+
+	if err := sc.LoadCertFiles(); err != nil {
+		return nil, err
 	}
 
 	rootCertPool := x509.NewCertPool()
@@ -176,18 +220,14 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 }
 
 func readPEMData(value string, field SSLField, parseAsCert bool) ([]byte, error) {
-	if strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
 		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLMaterialMissing,
 			fmt.Errorf("'%s' is required", string(field)))
 	}
 
 	// PEM files may contain multiple blocks (e.g., certificate chains).
-	pemData, err := ReadPEMOrFile(value)
-	if err != nil {
-		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable,
-			fmt.Errorf("'%s': %w", string(field), err))
-	}
-	remaining := pemData
+	remaining := []byte(trimmed)
 	foundBlock := false
 
 	for {
@@ -219,20 +259,5 @@ func readPEMData(value string, field SSLField, parseAsCert bool) ([]byte, error)
 			fmt.Errorf("'%s' must contain only PEM blocks", string(field)))
 	}
 
-	return pemData, nil
-}
-
-// ReadPEMOrFile returns PEM bytes from value. If value is valid PEM it is returned
-// as-is (inline PEM content). Anything else is treated as a file path and read from disk;
-// returns an error if the file cannot be read.
-func ReadPEMOrFile(value string) ([]byte, error) {
-	trimmed := strings.TrimSpace(value)
-	if block, _ := pem.Decode([]byte(trimmed)); block != nil {
-		return []byte(trimmed), nil
-	}
-	data, err := os.ReadFile(trimmed)
-	if err != nil {
-		return nil, fmt.Errorf("value is neither valid PEM content nor a readable certificate file: %w", err)
-	}
-	return []byte(strings.TrimSpace(string(data))), nil
+	return []byte(trimmed), nil
 }

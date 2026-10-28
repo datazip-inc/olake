@@ -51,6 +51,9 @@ func (c *Config) Validate() error {
 
 	if c.Protocol.SecurityProtocol == "SSL" || c.Protocol.SecurityProtocol == "SASL_SSL" {
 		if c.Protocol.SSL != nil {
+			if err := c.Protocol.SSL.LoadCertFiles(); err != nil {
+				return err
+			}
 			// Server CA is always required
 			if c.Protocol.SSL.ServerCA == "" {
 				return errs.Precondition(errs.ConfigInvalid, codeServerCAMissing,
