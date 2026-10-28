@@ -206,14 +206,13 @@ func (c *Catalog) WriteToFile(path string) error {
 }
 
 // GetWrappedCatalog wraps discovered streams, stamping each with available (see AvailableUpdateTypes)
-// and defaulting it to the cheapest of them.
-func GetWrappedCatalog(streams []*Stream, available []UpdateType, destinationType DestinationType) *Catalog {
+// and defaulting it to the cheapest of them. appendOnly defaults every stream to append mode.
+func GetWrappedCatalog(streams []*Stream, available []UpdateType, appendOnly bool) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
 	updateType := PreferredUpdateType(available)
-	appendOnly := !UpsertSupported(destinationType)
 
 	for _, stream := range streams {
 		stream.RefreshSelectableColumns()

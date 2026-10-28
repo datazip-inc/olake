@@ -95,7 +95,7 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, availableUpdateTypes, destinationConfig.Type)
+		types.LogCatalog(streams, catalog, availableUpdateTypes, !types.UpsertSupported(destinationConfig.Type))
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled

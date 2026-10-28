@@ -152,7 +152,7 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema(), DefaultStreamProperties: &DefaultStreamProperties{}}}
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
-	catalog := GetWrappedCatalog(streams, availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, ""), Iceberg)
+	catalog := GetWrappedCatalog(streams, availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, ""), false)
 
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
@@ -164,7 +164,7 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	catalog := GetWrappedCatalog(streams, availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, ""), Iceberg)
+	catalog := GetWrappedCatalog(streams, availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, ""), false)
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	assert.NotContains(t, string(serialized), "target_query_engines")

@@ -272,7 +272,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetWrappedCatalog(tc.streams, writableUpdateTypes, Iceberg)
+			result := GetWrappedCatalog(tc.streams, writableUpdateTypes, false)
 			compareCatalogs(t, tc.expected, result, tc.name)
 
 			if len(tc.streams) > 0 {
@@ -2167,7 +2167,7 @@ func TestLogCatalog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, t.TempDir())
 
-			LogCatalog(tc.discovered, tc.oldCatalog, writableUpdateTypes, Iceberg)
+			LogCatalog(tc.discovered, tc.oldCatalog, writableUpdateTypes, false)
 
 			// available_streams.json: streams[] only
 			var available Catalog
