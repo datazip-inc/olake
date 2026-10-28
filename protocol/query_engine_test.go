@@ -81,7 +81,7 @@ func TestResolveAvailableUpdateTypes(t *testing.T) {
 			var available []types.UpdateType
 			err := loadDestinationConfig()
 			if err == nil {
-				available, err = resolveAvailableUpdateTypes()
+				available, err = resolveAvailableUpdateTypes(nil)
 			}
 			if tc.wantErr {
 				require.Error(t, err)

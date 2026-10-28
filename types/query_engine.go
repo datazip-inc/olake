@@ -92,10 +92,11 @@ func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 	return engines, nil
 }
 
-// AvailableUpdateTypes is the single place that decides a stream's delete formats: those every
-// target engine can read and the destination can apply, cheapest first. A destination that writes
-// no delete files (Parquet) gets none; no engines and no catalog leave every writable format.
-func AvailableUpdateTypes(engines []QueryEngine, destination *WriterConfig) ([]UpdateType, error) {
+// AvailableUpdateTypes is the single place that decides a stream's delete formats: those the source
+// can feed, every target engine can read and the destination can apply, cheapest first. A nil
+// sourceSupported means the source has no restriction. A destination that writes no delete files
+// (Parquet) gets none; no engines and no catalog leave every writable format.
+func AvailableUpdateTypes(engines []QueryEngine, destination *WriterConfig, sourceSupported []UpdateType) ([]UpdateType, error) {
 	if destination != nil && !UpsertSupported(destination.Type) {
 		return []UpdateType{}, nil
 	}
@@ -105,7 +106,12 @@ func AvailableUpdateTypes(engines []QueryEngine, destination *WriterConfig) ([]U
 		return nil, err
 	}
 
-	return availableUpdateTypes(engines, catalogType), nil
+	available := availableUpdateTypes(engines, catalogType)
+	if sourceSupported != nil {
+		available = slices.DeleteFunc(available, func(u UpdateType) bool { return !slices.Contains(sourceSupported, u) })
+	}
+
+	return available, nil
 }
 
 func availableUpdateTypes(engines []QueryEngine, catalogType string) []UpdateType {

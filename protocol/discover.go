@@ -27,10 +27,12 @@ var discoverCmd = &cobra.Command{
 		if err := validateDifferenceFlags(); err != nil {
 			return err
 		}
+
 		// optional: the stream difference uses its type to skip fields the destination ignores
 		if err := loadDestinationConfig(); err != nil {
 			return err
 		}
+
 		if convertStreams {
 			if streamsPath == "" {
 				return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
@@ -38,9 +40,11 @@ var discoverCmd = &cobra.Command{
 			}
 			return nil
 		}
+
 		if isStreamDifferenceCommand() {
 			return nil
 		}
+
 		if configPath == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		}
@@ -48,6 +52,7 @@ var discoverCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
+
 		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "") {
@@ -66,12 +71,13 @@ var discoverCmd = &cobra.Command{
 		if convertStreams {
 			return convertLegacyStreams()
 		}
+
 		if isStreamDifferenceCommand() {
 			return compareStreams()
 		}
 
 		// resolved before the slow discover so a bad flag or destination fails fast
-		availableUpdateTypes, err := resolveAvailableUpdateTypes()
+		availableUpdateTypes, err := resolveAvailableUpdateTypes(connector.SupportedUpdateTypes())
 		if err != nil {
 			return err
 		}
@@ -95,7 +101,9 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, availableUpdateTypes, types.PreferredUpdateType(availableUpdateTypes), !types.UpsertSupported(destinationConfig.Type))
+
+		types.ApplyDestinationDefaults(streams, availableUpdateTypes, !types.UpsertSupported(destinationConfig.Type))
+		types.LogCatalog(streams, catalog, availableUpdateTypes)
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -131,16 +139,16 @@ func convertLegacyStreams() error {
 	return nil
 }
 
-// resolveAvailableUpdateTypes turns --target-query-engines and --destination into the delete
-// formats every stream may use. Neither input is persisted, so a caller that wants them applied
-// passes both flags on every discover.
-func resolveAvailableUpdateTypes() ([]types.UpdateType, error) {
+// resolveAvailableUpdateTypes turns --target-query-engines, --destination and the source's own
+// restriction (sourceSupported, nil for none) into the delete formats every stream may use. The
+// flags are not persisted, so a caller that wants them applied passes both on every discover.
+func resolveAvailableUpdateTypes(sourceSupported []types.UpdateType) ([]types.UpdateType, error) {
 	engines, err := types.ParseQueryEngines(targetQueryEngines)
 	if err != nil {
 		return nil, errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
 	}
 
-	available, err := types.AvailableUpdateTypes(engines, destinationConfig)
+	available, err := types.AvailableUpdateTypes(engines, destinationConfig, sourceSupported)
 	if err != nil {
 		return nil, errs.Precondition(errs.ConfigInvalid, codeDestinationConfigInvalid, err)
 	}
