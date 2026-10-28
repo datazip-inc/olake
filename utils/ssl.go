@@ -64,10 +64,11 @@ func (sc *SSLConfig) LoadCertFiles() error {
 		filePath  string  // file to read
 		pemField  *string // receives the PEM content read from filePath
 		configKey string  // path config key named in errors
+		inlineKey string  // inline config key replaced by the file content
 	}{
-		{sc.ServerCAPath, &sc.ServerCA, "ssl.server_ca_path"},
-		{sc.ClientCertPath, &sc.ClientCert, "ssl.client_cert_path"},
-		{sc.ClientKeyPath, &sc.ClientKey, "ssl.client_key_path"},
+		{sc.ServerCAPath, &sc.ServerCA, "ssl.server_ca_path", "server_ca"},
+		{sc.ClientCertPath, &sc.ClientCert, "ssl.client_cert_path", "client_cert"},
+		{sc.ClientKeyPath, &sc.ClientKey, "ssl.client_key_path", "client_key"},
 	} {
 		if strings.TrimSpace(cert.filePath) == "" {
 			continue
@@ -76,6 +77,11 @@ func (sc *SSLConfig) LoadCertFiles() error {
 		if err != nil {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable,
 				fmt.Errorf("'%s': failed to read file: %w", cert.configKey, err))
+		}
+		// After the first load the field equals the file content, so repeat calls (e.g. from
+		// BuildTLSConfig) do not warn again; only a user-set, different inline value does.
+		if inline := strings.TrimSpace(*cert.pemField); inline != "" && inline != strings.TrimSpace(string(data)) {
+			logger.Warnf("'%s' is ignored: ssl.cert_source is 'path', so the file at '%s' (%q) is used instead", cert.inlineKey, cert.configKey, strings.TrimSpace(cert.filePath))
 		}
 		*cert.pemField = string(data)
 	}
