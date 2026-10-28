@@ -116,6 +116,11 @@ func TestPreferredUpdateType(t *testing.T) {
 	// Deletion vectors need a v3 table, so positional stays the default while it is readable.
 	assert.Equal(t, UpdateTypePosition, PreferredUpdateType([]UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}, false))
 	assert.Equal(t, UpdateType(""), PreferredUpdateType(nil, false))
+	// Kafka upserts always write positional deletes, so equality is skipped when anything else is offered.
+	assert.Equal(t, UpdateTypePosition, PreferredUpdateType([]UpdateType{UpdateTypeEquality, UpdateTypePosition}, true))
+	assert.Equal(t, UpdateTypeDeletionVector, PreferredUpdateType([]UpdateType{UpdateTypeEquality, UpdateTypeDeletionVector}, true))
+	assert.Equal(t, UpdateTypeEquality, PreferredUpdateType([]UpdateType{UpdateTypeEquality}, true))
+	assert.Equal(t, UpdateType(""), PreferredUpdateType(nil, true))
 }
 
 func TestUpdateTypeValidateAgainst(t *testing.T) {
@@ -153,7 +158,8 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
 	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, "")
-	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available, false), false)
+	ApplyDestinationDefaults(streams, available, false)
+	catalog := GetWrappedCatalog(streams)
 
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
@@ -166,7 +172,8 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 	}}
 
 	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, "")
-	catalog := GetWrappedCatalog(streams, available, PreferredUpdateType(available, false), false)
+	ApplyDestinationDefaults(streams, available, false)
+	catalog := GetWrappedCatalog(streams)
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	assert.NotContains(t, string(serialized), "target_query_engines")

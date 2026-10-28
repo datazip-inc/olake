@@ -97,14 +97,13 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
 		if discoverSchema {
 			logger.Infof("Schema discovery enabled for sync; validating configured streams against source")
 		}
 
 		// Default: skip ProduceSchema (fast path). With --discover-schema, full
 		// Get Source Streams. Pass --discover-schema to re-discover and validate.
-		streams, err := connector.Discover(cmd.Context(), maxDiscoverThreads, false, types.WritableUpdateTypes, !discoverSchema)
+		streams, err := connector.Discover(cmd.Context(), maxDiscoverThreads, !discoverSchema)
 		if err != nil {
 			return err
 		}

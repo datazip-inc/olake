@@ -92,9 +92,7 @@ var discoverCmd = &cobra.Command{
 		discoverCtx, cancel := context.WithTimeout(cmd.Context(), discoverTimeout)
 		defer cancel()
 
-		appendMode := !types.UpsertSupported(destinationConfig.Type)
-
-		streams, err := connector.Discover(discoverCtx, maxDiscoverThreads, appendMode, availableUpdateTypes, false)
+		streams, err := connector.Discover(discoverCtx, maxDiscoverThreads, false)
 		if err != nil {
 			return err
 		}
@@ -104,6 +102,7 @@ var discoverCmd = &cobra.Command{
 				errors.New("no streams found in connector"))
 		}
 
+		types.ApplyDestinationDefaults(streams, availableUpdateTypes, !types.UpsertSupported(destinationConfig.Type))
 		types.LogCatalog(streams, catalog, availableUpdateTypes)
 
 		// Discover Telemetry Tracking

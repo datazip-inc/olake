@@ -205,8 +205,8 @@ func (c *Catalog) WriteToFile(path string) error {
 	return logger.FileLoggerWithPath(c, path)
 }
 
-// GetWrappedCatalog wraps discovered streams, stamping each with available (see AvailableUpdateTypes)
-// and defaulting it to defaultUpdateType. appendOnly defaults every stream to append mode.
+// GetWrappedCatalog wraps discovered streams into a catalog with every stream listed in
+// selected_streams. Destination-dependent defaults are set beforehand by ApplyDestinationDefaults.
 func GetWrappedCatalog(streams []*Stream) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
