@@ -194,7 +194,7 @@
                         "azure_endpoint": {
                           "type": "string",
                           "title": "Azure Endpoint",
-                          "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/. Use http://host:port/account for Azurite"
+                          "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/"
                         },
                         "azure_client_id": {
                           "type": "string",
