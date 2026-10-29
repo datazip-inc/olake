@@ -226,6 +226,26 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return err
 	}
 
+	primaryKeys := stream.GetStream().SourceDefinedPrimaryKey.Array()
+	if m.OldTuple != nil && len(primaryKeys) > 0 {
+		oldValues, oldRowBytes, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+		if err != nil {
+			return err
+		}
+		for _, key := range primaryKeys {
+			if oldValues[key] == nil {
+				return fmt.Errorf("%w: old tuple for %s is missing primary key column %q; use REPLICA IDENTITY FULL", constants.ErrNonRetryable, stream.ID(), key)
+			}
+		}
+		// A changed key identifies a new destination row; remove the previous identity first.
+		if utils.GetKeysHash(oldValues, primaryKeys...) != utils.GetKeysHash(values, primaryKeys...) {
+			if err := insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", oldValues,
+				map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, oldRowBytes)); err != nil {
+				return err
+			}
+		}
+	}
+
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
 		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
