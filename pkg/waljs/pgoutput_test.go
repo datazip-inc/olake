@@ -82,6 +82,7 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 				assert.Equal(t, string(tt.old.Columns[1].Data), changes[0].Data["id"])
 				if len(tt.keys) > 1 {
 					assert.Equal(t, string(tt.old.Columns[2].Data), changes[0].Data["tenant"])
+					assert.Equal(t, string(tt.new.Columns[2].Data), updated["tenant"])
 				}
 				assert.NotEqual(t, utils.GetKeysHash(changes[0].Data, tt.keys...), utils.GetKeysHash(updated, tt.keys...))
 			}
@@ -96,7 +97,7 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 			column.Flags = 0
 		}
 		relation.Columns[2].Flags = 1 // The replica identity index covers tenant, not id.
-		message := &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'K', OldTuple: tuple(null, null, text("10"), null), NewTuple: newRow}
+		message := &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'K', OldTuple: tuple(null, null, text("9"), null), NewTuple: newRow}
 		err := p.emitUpdate(context.Background(), message, func(context.Context, abstract.CDCChange) error {
 			t.Error("unidentifiable old row must fail before delivery")
 			return nil
@@ -130,7 +131,12 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 	t.Run("conversion failure precedes delivery", func(t *testing.T) {
 		p, _ := newUpdateReplicator("id")
 		failure := errors.New("invalid column value")
-		p.socket.changeFilter.converter = func(any, string) (any, error) { return nil, failure }
+		p.socket.changeFilter.converter = func(value any, _ string) (any, error) {
+			if value == "before" {
+				return nil, failure
+			}
+			return value, nil
+		}
 		err := p.emitUpdate(context.Background(), &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'O', OldTuple: oldRow, NewTuple: newRow},
 			func(context.Context, abstract.CDCChange) error {
 				t.Error("conversion failure must not emit either event")
