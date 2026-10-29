@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,10 +62,11 @@ func catalogOf(streams ...stream) *types.Catalog {
 // past the skip branches: a stream that is not synced must not appear in any of them.
 func TestClassifyStreamsMix(t *testing.T) {
 	testCases := []struct {
-		name         string
-		streams      []stream
-		expectedMix  types.StreamMix
-		expectedCode string // non-empty: the run fails with this code
+		name            string
+		streams         []stream
+		destinationType types.DestinationType // empty defaults to iceberg
+		expectedMix     types.StreamMix
+		expectedCode    string // non-empty: the run fails with this code
 	}{
 		// each mode lands in its own counter, and an unknown mode falls to full refresh
 		{
@@ -155,6 +157,17 @@ func TestClassifyStreamsMix(t *testing.T) {
 			},
 			expectedCode: codeUpdateTypeInvalid,
 		},
+		// parquet writes no deletes, so the same streams are all synced there
+		{
+			name: "parquet syncs streams with an unset or unreadable update type",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
+				{name: "c", mode: types.CDC, updateType: "eq", available: []types.UpdateType{types.UpdateTypePosition}},
+			},
+			destinationType: types.Parquet,
+			expectedMix:     types.StreamMix{CDC: 3, Selected: 3},
+		},
 		// with nothing left to sync there is no mix to report, and the run fails before the
 		// sync events are sent rather than reporting a run of zero streams
 		{
@@ -168,7 +181,8 @@ func TestClassifyStreamsMix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			discardStrayLogs(t)
 
-			got, err := classifyStreams(catalogOf(tc.streams...), nil, &types.State{})
+			destinationType := utils.Ternary(tc.destinationType == "", types.Iceberg, tc.destinationType).(types.DestinationType)
+			got, err := classifyStreams(catalogOf(tc.streams...), nil, &types.State{}, destinationType)
 			if tc.expectedCode != "" {
 				require.Error(t, err)
 				assert.Nil(t, got)

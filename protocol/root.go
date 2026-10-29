@@ -270,6 +270,21 @@ func validateDifferenceFlags() error {
 	return nil
 }
 
+// destinationPassed reports whether --destination was set; its default is "not-set".
+func destinationPassed() bool {
+	return destinationConfigPath != "" && destinationConfigPath != "not-set"
+}
+
+// loadDestinationConfig fills destinationConfig from --destination; left empty when the flag
+// was not passed. Only the config is read, the destination is never reached.
+func loadDestinationConfig() error {
+	destinationConfig = &types.WriterConfig{}
+	if !destinationPassed() {
+		return nil
+	}
+	return utils.UnmarshalFile(destinationConfigPath, destinationConfig, true)
+}
+
 // recoverToError turns a panic into a classified error written through err, then re-panics so
 // safego.Recovery still prints the stack and the process still exits non-zero. Deferred by a
 // command whose result telemetry reads: a panic would otherwise leave err nil and the run would

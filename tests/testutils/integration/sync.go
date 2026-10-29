@@ -39,6 +39,12 @@ func (th *TestHandler) TestSync(t *testing.T) {
 		})
 	}
 
+	t.Run("Azurite", func(t *testing.T) {
+		if err := th.testAzureBlob(ctx, t, testTable); err != nil {
+			t.Fatalf("Parquet Azurite test failed: %v", err)
+		}
+	})
+
 	// Asserts the writer splits bulk output into size-bounded files without losing rows. Runs
 	// last: it replaces the table contents and clears the catalog's regex/filter config.
 	if hasParquetRollingTest(th.Driver) {

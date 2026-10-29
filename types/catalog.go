@@ -443,18 +443,22 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 // 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names, dedup_keys, update_type (dv -> other, pos -> dv)
 // 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
 // 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
+// 4. Skips append_mode, dedup_keys and update_type for destinations that cannot upsert (parquet): they never change what is written there.
 //
 // Parameters:
 //   - oldStreams: The previous catalog to compare against
 //   - newStreams: The current catalog with potential changes
+//   - destinationType: The job's destination; empty when unknown, which compares every property
 //
 // Returns:
 //   - A catalog containing only the streams that have differences
-func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
+func GetStreamsDelta(oldStreams, newStreams *Catalog, destinationType DestinationType) *Catalog {
 	diffStreams := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
+
+	upsertSupported := UpsertSupported(destinationType)
 
 	oldStreamsMap := make(map[string]*ConfiguredStream)
 	for _, stream := range oldStreams.Streams {
@@ -531,8 +535,13 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				// check cursor field if SyncMode is incremental
 				cursorDelta := newSyncMode == INCREMENTAL && oldCursorField != newCursorField
 
+				// append_mode, dedup_keys and update_type only shape upsert writes
+				upsertDelta := upsertSupported &&
+					((oldConfigured.AppendModeEnabled() != newConfigured.AppendModeEnabled()) ||
+						!reflect.DeepEqual(oldMetadata.DedupKeys, newMetadata.DedupKeys) ||
+						dvDelta)
+
 				return (oldConfigured.NormalizationEnabled() != newConfigured.NormalizationEnabled()) ||
-					(oldConfigured.AppendModeEnabled() != newConfigured.AppendModeEnabled()) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
 					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||
@@ -540,9 +549,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldSyncMode != newSyncMode) ||
 					(oldDestinationDatabase != newDestinationDatabase) ||
 					(oldDestinationTable != newDestinationTable) ||
-					!reflect.DeepEqual(oldMetadata.DedupKeys, newMetadata.DedupKeys) ||
 					cursorDelta ||
-					dvDelta
+					upsertDelta
 			}()
 
 			// if any difference, add stream to diff streams
