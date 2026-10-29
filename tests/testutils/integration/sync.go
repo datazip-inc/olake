@@ -19,6 +19,21 @@ func (th *TestHandler) TestSync(t *testing.T) {
 
 	th.TestCommonSync(t)
 
+	if (th.Driver == string(constants.Postgres) || th.Driver == string(constants.MySQL)) && th.PrimaryKey == "" && len(th.DedupKeys) == 0 {
+		t.Run("Iceberg CDC Primary Key Update", func(t *testing.T) {
+			for _, writer := range []struct {
+				name     string
+				useArrow bool
+			}{{"Legacy", false}, {"Arrow", true}} {
+				t.Run(writer.name, func(t *testing.T) {
+					if err := th.IcebergWriter(ctx, t, testTable, writer.useArrow, th.testCDCPrimaryKeyUpdate); err != nil {
+						t.Fatalf("Iceberg CDC primary key update failed: %v", err)
+					}
+				})
+			}
+		})
+	}
+
 	// Iceberg row-index / delete-mode tests run on the base (legacy) writer config, the one
 	// the java writer's table indexer serves; IcebergWriter pins it back after the arrow runs.
 	if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(th.Driver)) && hasIcebergTableIndexTest(th.Driver) {

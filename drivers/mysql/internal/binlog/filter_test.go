@@ -2,9 +2,13 @@ package binlog
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/assert"
@@ -102,6 +106,158 @@ func filterWithCacheFor(key string, meta *tableMeta) ChangeFilter {
 
 func filterWithCache(meta *tableMeta) ChangeFilter {
 	return filterWithCacheFor("shop.orders", meta)
+}
+
+func TestChangeFilter_FilterRowsEvent(t *testing.T) {
+	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+	constants.LoadedStateVersion = 8
+	row := func(id int64, name any) []interface{} { return []interface{}{id, name, int64(1), int64(3)} }
+	newFilter := func(keys ...string) (ChangeFilter, *types.ConfiguredStream) {
+		stream := types.NewStream("orders", "shop", nil).WithPrimaryKey(keys...).Wrap(0)
+		filter := NewChangeFilter(nil, Binlog{}, false, identityConverter, stream)
+		filter.schema.tables["shop.orders"] = fixtureMeta()
+		return filter, stream
+	}
+	position := mysql.Position{Name: "mysql-bin.000001", Pos: 120}
+	event := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.UPDATE_ROWS_EVENTv2, Timestamp: 2}}
+	before, after := row(1, "before"), row(2, "after")
+	binaryTable := fullTableMap()
+	binaryTable.ColumnType[1] = mysql.MYSQL_TYPE_STRING
+	binaryTable.ColumnMeta[1] = uint16(mysql.MYSQL_TYPE_STRING)<<8 | 4
+	binaryTable.DefaultCharset = []uint64{63}
+	// Sizes include eight ID bytes, raw name bytes, and one byte per ENUM/SET index.
+	type expectedChange struct {
+		kind  string
+		id    int64
+		name  any
+		bytes int64
+	}
+	tests := []struct {
+		name  string
+		keys  []string
+		table *replication.TableMapEvent
+		rows  [][]interface{}
+		want  []expectedChange
+	}{
+		{
+			name: "single key with FULL metadata", keys: []string{"id"}, table: fullTableMap(), rows: [][]interface{}{before, after},
+			want: []expectedChange{{"delete", 1, "before", 16}, {"update", 2, "after", 15}},
+		},
+		{
+			name: "single key with MINIMAL metadata", keys: []string{"id"}, table: minimalTableMap(), rows: [][]interface{}{before, after},
+			want: []expectedChange{{"delete", 1, "before", 16}, {"update", 2, "after", 15}},
+		},
+		{
+			name: "composite key changes second component", keys: []string{"id", "name"}, table: fullTableMap(), rows: [][]interface{}{before, row(1, "after")},
+			want: []expectedChange{{"delete", 1, "before", 16}, {"update", 1, "after", 15}},
+		},
+		{
+			name: "binary key outside first column", keys: []string{"name"}, table: binaryTable, rows: [][]interface{}{row(1, "\x01"), row(1, "\x02")},
+			want: []expectedChange{{"delete", 1, []byte{1, 0, 0, 0}, 11}, {"update", 1, []byte{2, 0, 0, 0}, 11}},
+		},
+		{
+			name: "binary key unchanged by value", keys: []string{"name"}, table: binaryTable, rows: [][]interface{}{row(1, "\x01"), row(2, "\x01")},
+			want: []expectedChange{{"update", 2, []byte{1, 0, 0, 0}, 11}},
+		},
+		{
+			name: "ordinary update", keys: []string{"id"}, table: fullTableMap(), rows: [][]interface{}{before, row(1, "after")},
+			want: []expectedChange{{"update", 1, "after", 15}},
+		},
+		{
+			name: "no primary key", table: fullTableMap(), rows: [][]interface{}{before, after},
+			want: []expectedChange{{"update", 2, "after", 15}},
+		},
+		{
+			name: "multiple update pairs preserve order", keys: []string{"id"}, table: fullTableMap(), rows: [][]interface{}{before, after, row(3, "before"), row(3, "after")},
+			want: []expectedChange{{"delete", 1, "before", 16}, {"update", 2, "after", 15}, {"update", 3, "after", 15}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filter, stream := newFilter(tt.keys...)
+			filter.lastGTIDEvent = time.Unix(1, 123000).UTC()
+			rows := &replication.RowsEvent{Table: tt.table, ColumnCount: 4, ColumnBitmap1: []byte{15}, ColumnBitmap2: []byte{15}, Rows: tt.rows}
+			var changes []abstract.CDCChange
+			err := filter.FilterRowsEvent(context.Background(), rows, event, position, func(_ context.Context, change abstract.CDCChange) error {
+				changes = append(changes, change)
+				return nil
+			})
+			require.NoError(t, err)
+			require.Len(t, changes, len(tt.want))
+			for i, want := range tt.want {
+				assert.Equal(t, want.kind, changes[i].Kind)
+				assert.Equal(t, map[string]any{"id": want.id, "name": want.name, "status": "active", "tags": "a,b"}, changes[i].Data)
+				assert.Same(t, stream, changes[i].Stream)
+				assert.Equal(t, filter.lastGTIDEvent, changes[i].Timestamp)
+				assert.Equal(t, map[string]any{CDCBinlogFileName: position.Name, CDCBinlogFilePos: position.Pos}, changes[i].ExtraColumns)
+				assert.Equal(t, want.bytes, changes[i].Bytes)
+			}
+		})
+	}
+
+	for _, tt := range []struct {
+		kind      string
+		eventType replication.EventType
+	}{{"insert", replication.WRITE_ROWS_EVENTv2}, {"delete", replication.DELETE_ROWS_EVENTv2}} {
+		t.Run(tt.kind+" preserves rows", func(t *testing.T) {
+			filter, _ := newFilter("id")
+			rows := &replication.RowsEvent{Table: fullTableMap(), ColumnCount: 4, ColumnBitmap1: []byte{15}, Rows: [][]interface{}{before, after}}
+			event := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: tt.eventType, Timestamp: 2}}
+			var changes []abstract.CDCChange
+			err := filter.FilterRowsEvent(context.Background(), rows, event, position, func(_ context.Context, change abstract.CDCChange) error {
+				changes = append(changes, change)
+				return nil
+			})
+			require.NoError(t, err)
+			require.Len(t, changes, 2)
+			for i, change := range changes {
+				assert.Equal(t, tt.kind, change.Kind)
+				assert.Equal(t, int64(i+1), change.Data["id"])
+				assert.Equal(t, time.Unix(2, 0), change.Timestamp)
+			}
+		})
+	}
+
+	for _, failKind := range []string{"delete", "update"} {
+		t.Run(failKind+" callback failure", func(t *testing.T) {
+			filter, _ := newFilter("id")
+			rows := &replication.RowsEvent{Table: fullTableMap(), ColumnCount: 4, ColumnBitmap1: []byte{15}, ColumnBitmap2: []byte{15}, Rows: [][]interface{}{before, after, row(3, "before"), row(3, "after")}}
+			failure := errors.New("destination write failed")
+			var kinds []string
+			err := filter.FilterRowsEvent(context.Background(), rows, event, position, func(_ context.Context, change abstract.CDCChange) error {
+				kinds = append(kinds, change.Kind)
+				if change.Kind == failKind {
+					return failure
+				}
+				return nil
+			})
+			require.ErrorIs(t, err, failure)
+			want := []string{"delete"}
+			if failKind == "update" {
+				want = append(want, "update")
+			}
+			assert.Equal(t, want, kinds)
+		})
+	}
+
+	for _, failValue := range []string{"before", "after"} {
+		t.Run(failValue+" image conversion failure", func(t *testing.T) {
+			filter, _ := newFilter("id")
+			failure := errors.New("invalid column value")
+			filter.converter = func(value interface{}, _ string) (interface{}, error) {
+				if value == failValue {
+					return nil, failure
+				}
+				return value, nil
+			}
+			rows := &replication.RowsEvent{Table: fullTableMap(), ColumnCount: 4, ColumnBitmap1: []byte{15}, ColumnBitmap2: []byte{15}, Rows: [][]interface{}{before, after}}
+			err := filter.FilterRowsEvent(context.Background(), rows, event, position, func(context.Context, abstract.CDCChange) error {
+				t.Error("conversion failure must precede delivery")
+				return nil
+			})
+			require.ErrorIs(t, err, failure)
+		})
+	}
 }
 
 // TestResolveColumnsFallbackMatchesBinlogMetadata is the core guarantee: a row decodes

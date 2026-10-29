@@ -239,6 +239,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				includedColumn = 202
 			WHERE col_bigserial = 1`, integrationTestTable)
 
+	case "update_primary_key":
+		query = fmt.Sprintf("UPDATE %s SET col_bigserial = 101 WHERE col_bigserial = 1", integrationTestTable)
+
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
 

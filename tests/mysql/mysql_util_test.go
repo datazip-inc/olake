@@ -267,6 +267,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	case "update":
 		query = updateRowQuery(integrationTestTable, seedCols, primaryKey)
 
+	case "update_primary_key":
+		query = fmt.Sprintf("UPDATE %s SET id = 101 WHERE id = 1", integrationTestTable)
+
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 

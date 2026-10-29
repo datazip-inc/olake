@@ -91,13 +91,7 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 
 	t.Run("old tuple cannot identify the primary key", func(t *testing.T) {
 		p, _ := newUpdateReplicator("id")
-		relation := p.relationIDToMsgMap[1]
-		relation.ReplicaIdentity = 'i'
-		for _, column := range relation.Columns {
-			column.Flags = 0
-		}
-		relation.Columns[2].Flags = 1 // The replica identity index covers tenant, not id.
-		message := &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'K', OldTuple: tuple(null, null, text("9"), null), NewTuple: newRow}
+		message := &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'O', OldTuple: tuple(null, null, text("9"), null), NewTuple: newRow}
 		err := p.emitUpdate(context.Background(), message, func(context.Context, abstract.CDCChange) error {
 			t.Error("unidentifiable old row must fail before delivery")
 			return nil
@@ -105,6 +99,41 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 		require.ErrorIs(t, err, constants.ErrNonRetryable)
 		assert.ErrorContains(t, err, `old tuple for public.orders is missing primary key column "id"`)
 	})
+
+	for _, coversKey := range []bool{false, true} {
+		name := "INDEX omits primary key"
+		if coversKey {
+			name = "INDEX includes primary key"
+		}
+		t.Run(name, func(t *testing.T) {
+			p, _ := newUpdateReplicator("id")
+			relation := p.relationIDToMsgMap[1]
+			relation.ReplicaIdentity = 'i'
+			for _, column := range relation.Columns {
+				column.Flags = 0
+			}
+			relation.Columns[2].Flags = 1
+			if coversKey {
+				relation.Columns[1].Flags = 1
+			}
+			// An unchanged replica-identity key produces no old tuple, even if another key changed.
+			var changes []abstract.CDCChange
+			err := p.emitUpdate(context.Background(), &pglogrepl.UpdateMessage{RelationID: 1, NewTuple: newRow},
+				func(_ context.Context, change abstract.CDCChange) error {
+					changes = append(changes, change)
+					return nil
+				})
+			if !coversKey {
+				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				assert.ErrorContains(t, err, `replica identity for public.orders does not include primary key column "id"`)
+				assert.Empty(t, changes)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, changes, 1)
+			assert.Equal(t, "update", changes[0].Kind)
+		})
+	}
 
 	for _, failKind := range []string{"delete", "update"} {
 		t.Run(failKind+" callback failure", func(t *testing.T) {
