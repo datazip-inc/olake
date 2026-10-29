@@ -91,6 +91,64 @@ func TestSchemaCacheApplyDDL(t *testing.T) {
 	t.Run("create if not exists of an uncached table", testApplyDDLCreateIfNotExistsUncached)
 	t.Run("keeps the database default after the last drop", testApplyDDLKeepsSchemaDefault)
 	t.Run("reports its outcome", testDDLOutcome)
+	t.Run("GTID checkpoints apply DDL across physical positions", testApplyDDLAfterGTIDCheckpoint)
+	t.Run("GTID loads retain their anchor after DDL", testApplyDDLPreservesGTIDAnchor)
+}
+
+func testApplyDDLAfterGTIDCheckpoint(t *testing.T) {
+	saved := testSID + ":1-2"
+	transaction, err := parseGTIDSet(testSID + ":3")
+	require.NoError(t, err)
+	for _, tt := range []struct {
+		name string
+		pos  mysql.Position
+	}{
+		{"promoted server", mysql.Position{Name: "mysql-bin.000001", Pos: 200}},
+		{"reordered transaction", ddlPos(50)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			schemas := ddlCache().tables
+			c := newSchemaCache(nil, Binlog{Position: ddlPos(500), GTIDSet: &saved, Schemas: schemas}, false)
+			c.applyDDL("ALTER TABLE orders ADD c INT", "shop", tt.pos, transaction)
+			require.Contains(t, c.tables, "shop.orders")
+			assert.Equal(t, []string{"id", "status", "name", "c"}, columnNames(c.tables["shop.orders"]))
+			assert.Equal(t, []string{"id", "status", "name"}, columnNames(schemas["shop.orders"]))
+		})
+	}
+}
+
+func testApplyDDLPreservesGTIDAnchor(t *testing.T) {
+	anchor, err := parseGTIDSet(testSID + ":1-2:4")
+	require.NoError(t, err)
+	transaction, err := parseGTIDSet(testSID + ":3")
+	require.NoError(t, err)
+	processed, err := parseGTIDSet(testSID + ":1-3")
+	require.NoError(t, err)
+	for _, query := range []string{
+		"ALTER TABLE orders ADD c INT",
+		"CREATE TABLE copied LIKE orders",
+		"DROP TABLE orders; CREATE TABLE orders (id INT, note TEXT)",
+	} {
+		t.Run(query, func(t *testing.T) {
+			c := ddlCache()
+			c.gtidMode = true
+			c.streamed["shop.orders"] = true
+			c.tables = map[string]*tableMeta{"shop.orders": c.tables["shop.orders"]}
+			c.tables["shop.orders"].SchemaCollationID = latin1SwedishCI
+			c.tables["shop.orders"].gtidAnchor = anchor
+			c.applyDDL(query, "shop", ddlPos(900), transaction)
+			require.NotEmpty(t, c.tables)
+			// Applying an included DDL cannot prove the excluded transaction seen by the SQL load.
+			assert.Empty(t, c.snapshot(ddlPos(1000), processed))
+		})
+	}
+	t.Run("DDL already present in SQL metadata is not applied twice", func(t *testing.T) {
+		c := ddlCache()
+		c.gtidMode = true
+		c.tables["shop.orders"].gtidAnchor = transaction
+		c.applyDDL("ALTER TABLE orders ADD c INT", "shop", ddlPos(200), transaction)
+		assert.NotContains(t, c.tables, "shop.orders")
+	})
 }
 
 // Two ALTERs on one table in a backlog: each row must decode with the schema between them,
@@ -98,12 +156,12 @@ func TestSchemaCacheApplyDDL(t *testing.T) {
 func testApplyDDLFollowsEachAlterInOrder(t *testing.T) {
 	c := ddlCache()
 
-	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','pending','paid')", "shop", ddlPos(200))
+	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','pending','paid')", "shop", ddlPos(200), nil)
 	require.Contains(t, c.tables, "shop.orders")
 	assert.Equal(t, []string{"new", "pending", "paid"}, column(t, c.tables["shop.orders"], "status").EnumValues)
 	assert.Equal(t, ddlPos(200), c.tables["shop.orders"].AnchoredAt)
 
-	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','review','pending','paid')", "shop", ddlPos(300))
+	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','review','pending','paid')", "shop", ddlPos(300), nil)
 	assert.Equal(t, []string{"new", "review", "pending", "paid"}, column(t, c.tables["shop.orders"], "status").EnumValues)
 	assert.Equal(t, ddlPos(300), c.tables["shop.orders"].AnchoredAt)
 }
@@ -113,9 +171,9 @@ func testApplyDDLFollowsEachAlterInOrder(t *testing.T) {
 // staying put is copy-on-write, not a DDL silently ignored.
 func testApplyDDLCopiesOnWrite(t *testing.T) {
 	c := ddlCache()
-	saved := c.snapshot(ddlPos(200))
+	saved := c.snapshot(ddlPos(200), nil)
 
-	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','pending','paid'), DROP COLUMN name", "shop", ddlPos(200))
+	c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','pending','paid'), DROP COLUMN name", "shop", ddlPos(200), nil)
 
 	assert.Equal(t, []string{"new", "paid"}, column(t, saved["shop.orders"], "status").EnumValues)
 	assert.Equal(t, []string{"id", "status", "name"}, columnNames(saved["shop.orders"]))
@@ -156,7 +214,7 @@ func testApplyDDLColumnChanges(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := ddlCache()
-			c.applyDDL(tt.query, "shop", ddlPos(200))
+			c.applyDDL(tt.query, "shop", ddlPos(200), nil)
 			require.Contains(t, c.tables, "shop.orders")
 			assert.Equal(t, tt.want, columnNames(c.tables["shop.orders"]))
 			assert.Equal(t, ddlPos(200), c.tables["shop.orders"].AnchoredAt)
@@ -177,7 +235,7 @@ func testApplyDDLColumnDetails(t *testing.T) {
 		"ADD bin VARCHAR(5) CHARACTER SET utf8mb4 BINARY, "+
 		"ADD c VARCHAR(5) COLLATE utf8mb4_bin, "+
 		"ADD tags SET('a','b'), "+
-		"ADD data BLOB", "shop", ddlPos(200))
+		"ADD data BLOB", "shop", ddlPos(200), nil)
 
 	meta := c.tables["shop.orders"]
 	require.NotNil(t, meta)
@@ -196,7 +254,7 @@ func testApplyDDLConvertCharset(t *testing.T) {
 	c.tables["shop.orders"].Columns = append(c.tables["shop.orders"].Columns,
 		columnMeta{Name: "raw", CollationID: binaryCollationID})
 
-	c.applyDDL("ALTER TABLE orders CONVERT TO CHARACTER SET latin1", "shop", ddlPos(200))
+	c.applyDDL("ALTER TABLE orders CONVERT TO CHARACTER SET latin1", "shop", ddlPos(200), nil)
 
 	meta := c.tables["shop.orders"]
 	assert.Equal(t, uint64(0), column(t, meta, "id").CollationID, "non-character columns are untouched")
@@ -236,7 +294,7 @@ func testApplyDDLCharsetOptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := ddlCache()
-			c.applyDDL(tt.query, "shop", ddlPos(200))
+			c.applyDDL(tt.query, "shop", ddlPos(200), nil)
 
 			if tt.dropped {
 				assert.NotContains(t, c.tables, "shop.orders")
@@ -263,7 +321,7 @@ func testApplyDDLIfExists(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := ddlCache()
-			c.applyDDL(tt.query, "shop", ddlPos(200))
+			c.applyDDL(tt.query, "shop", ddlPos(200), nil)
 			require.Contains(t, c.tables, "shop.orders")
 			assert.Equal(t, []string{"id", "status", "name"}, columnNames(c.tables["shop.orders"]))
 		})
@@ -303,8 +361,8 @@ func testApplyDDLIgnores(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := ddlCache()
-			before := c.snapshot(ddlPos(200))
-			c.applyDDL(tt.query, "shop", ddlPos(200))
+			before := c.snapshot(ddlPos(200), nil)
+			c.applyDDL(tt.query, "shop", ddlPos(200), nil)
 			assert.Equal(t, before, c.tables)
 		})
 	}
@@ -316,7 +374,7 @@ func testApplyDDLTableNamedLikeKeyword(t *testing.T) {
 	c := ddlCache()
 	c.tables["shop.user"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
 
-	c.applyDDL("ALTER TABLE user ADD c INT", "shop", ddlPos(200))
+	c.applyDDL("ALTER TABLE user ADD c INT", "shop", ddlPos(200), nil)
 
 	require.Contains(t, c.tables, "shop.user")
 	assert.Equal(t, []string{"id", "c"}, columnNames(c.tables["shop.user"]))
@@ -343,7 +401,7 @@ func testApplyDDLDropsNamedTables(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := ddlCache()
-			c.applyDDL(tt.query, tt.schema, ddlPos(200))
+			c.applyDDL(tt.query, tt.schema, ddlPos(200), nil)
 			assert.ElementsMatch(t, tt.wantKeys, cacheKeys(c))
 		})
 	}
@@ -356,10 +414,10 @@ func testApplyDDLFoldCase(t *testing.T) {
 	c.tables["shop.orders"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
 	c.tables["shop.customers"] = &tableMeta{Columns: []columnMeta{{Name: "id"}}, AnchoredAt: ddlPos(100)}
 
-	c.applyDDL("ALTER TABLE Shop.ORDERS ADD COLUMN c INT", "", ddlPos(200))
+	c.applyDDL("ALTER TABLE Shop.ORDERS ADD COLUMN c INT", "", ddlPos(200), nil)
 	assert.Equal(t, []string{"id", "c"}, columnNames(c.tables["shop.orders"]))
 
-	c.applyDDL("DROP TABLE SHOP.Customers", "", ddlPos(300))
+	c.applyDDL("DROP TABLE SHOP.Customers", "", ddlPos(300), nil)
 	assert.Equal(t, []string{"shop.orders"}, cacheKeys(c))
 }
 
@@ -379,8 +437,8 @@ func testApplyDDLMariaDBSyntax(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := ddlCache()
-			c.applyDDL(tt.query, "shop", ddlPos(200))
-			c.applyDDL("ALTER TABLE orders ADD COLUMN later INT", "shop", ddlPos(300))
+			c.applyDDL(tt.query, "shop", ddlPos(200), nil)
+			c.applyDDL("ALTER TABLE orders ADD COLUMN later INT", "shop", ddlPos(300), nil)
 			assert.Equal(t, append(tt.want, "later"), columnNames(c.tables["shop.orders"]))
 		})
 	}
@@ -390,7 +448,7 @@ func testApplyDDLMariaDBSyntax(t *testing.T) {
 // it. With no charset on a text column and no table default it cannot be read, so the name drops.
 func testApplyDDLCreateTable(t *testing.T) {
 	c := ddlCache()
-	c.applyDDL("CREATE TABLE customers (id INT UNSIGNED, kind ENUM('a','b'), note TEXT) DEFAULT CHARSET=latin1", "shop", ddlPos(200))
+	c.applyDDL("CREATE TABLE customers (id INT UNSIGNED, kind ENUM('a','b'), note TEXT) DEFAULT CHARSET=latin1", "shop", ddlPos(200), nil)
 	got := c.tables["shop.customers"]
 	require.NotNil(t, got)
 	assert.Equal(t, []string{"id", "kind", "note"}, columnNames(got))
@@ -399,22 +457,22 @@ func testApplyDDLCreateTable(t *testing.T) {
 	assert.Equal(t, "latin1", charsetOf(t, got.Columns[2].CollationID))
 	assert.Equal(t, ddlPos(200), got.AnchoredAt)
 
-	c.applyDDL("CREATE TABLE customers (id INT, note TEXT)", "shop", ddlPos(300))
+	c.applyDDL("CREATE TABLE customers (id INT, note TEXT)", "shop", ddlPos(300), nil)
 	assert.NotContains(t, cacheKeys(c), "shop.customers")
 
 	c.streamed["shop.customers"] = true
-	c.applyDDL("CREATE TABLE customers (id INT, b INT)", "shop", ddlPos(400))
+	c.applyDDL("CREATE TABLE customers (id INT, b INT)", "shop", ddlPos(400), nil)
 	assert.Equal(t, []string{"id", "b"}, columnNames(c.tables["shop.customers"]), "a streamed table is read from its definition even when not cached")
 
 	c.tables["shop.orders"].SchemaCollationID = mustCollationID(t, "latin1_swedish_ci")
-	c.applyDDL("DROP TABLE customers", "shop", ddlPos(500))
-	c.applyDDL("CREATE TABLE customers (id INT, note VARCHAR(10))", "shop", ddlPos(501))
+	c.applyDDL("DROP TABLE customers", "shop", ddlPos(500), nil)
+	c.applyDDL("CREATE TABLE customers (id INT, note VARCHAR(10))", "shop", ddlPos(501), nil)
 	require.Contains(t, cacheKeys(c), "shop.customers")
 	assert.Equal(t, "latin1", charsetOf(t, c.tables["shop.customers"].Columns[1].CollationID), "a column with no charset takes the database default")
 
-	c.applyDDL("ALTER DATABASE shop CHARACTER SET utf8mb4", "", ddlPos(600))
-	c.applyDDL("DROP TABLE customers", "shop", ddlPos(601))
-	c.applyDDL("CREATE TABLE customers (id INT, note VARCHAR(10))", "shop", ddlPos(602))
+	c.applyDDL("ALTER DATABASE shop CHARACTER SET utf8mb4", "", ddlPos(600), nil)
+	c.applyDDL("DROP TABLE customers", "shop", ddlPos(601), nil)
+	c.applyDDL("CREATE TABLE customers (id INT, note VARCHAR(10))", "shop", ddlPos(602), nil)
 	assert.Equal(t, "utf8mb4", charsetOf(t, c.tables["shop.customers"].Columns[1].CollationID), "ALTER DATABASE changes the default later tables take")
 }
 
@@ -430,7 +488,7 @@ func testApplyDDLOnlineSchemaChange(t *testing.T) {
 		"DROP TABLE _orders_del",
 		"ALTER TABLE orders ADD COLUMN y INT",
 	} {
-		c.applyDDL(query, "shop", ddlPos(pos))
+		c.applyDDL(query, "shop", ddlPos(pos), nil)
 		pos++
 	}
 	assert.Equal(t, []string{"id", "status", "name", "x", "y"}, columnNames(c.tables["shop.orders"]))
@@ -456,7 +514,7 @@ func testApplyDDLDropsTableItCannotApply(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := ddlCache()
-			c.applyDDL(tt.query, "shop", ddlPos(200))
+			c.applyDDL(tt.query, "shop", ddlPos(200), nil)
 			assert.ElementsMatch(t, []string{"shop.customers", "sales.invoices"}, cacheKeys(c))
 		})
 	}
@@ -465,12 +523,12 @@ func testApplyDDLDropsTableItCannotApply(t *testing.T) {
 // A column added without a charset takes the table default, which DEFAULT CHARSET changes.
 func testApplyDDLTableDefaultCharset(t *testing.T) {
 	c := ddlCache()
-	c.applyDDL("ALTER TABLE orders ADD note VARCHAR(255)", "shop", ddlPos(200))
+	c.applyDDL("ALTER TABLE orders ADD note VARCHAR(255)", "shop", ddlPos(200), nil)
 	require.Contains(t, c.tables, "shop.orders")
 	assert.Equal(t, uint64(utf8mb4GeneralCI), column(t, c.tables["shop.orders"], "note").CollationID)
 
-	c.applyDDL("ALTER TABLE orders DEFAULT CHARSET=latin1", "shop", ddlPos(300))
-	c.applyDDL("ALTER TABLE orders ADD memo TEXT", "shop", ddlPos(400))
+	c.applyDDL("ALTER TABLE orders DEFAULT CHARSET=latin1", "shop", ddlPos(300), nil)
+	c.applyDDL("ALTER TABLE orders ADD memo TEXT", "shop", ddlPos(400), nil)
 	meta := c.tables["shop.orders"]
 	assert.Equal(t, "utf8mb4", charsetOf(t, column(t, meta, "name").CollationID), "existing columns keep their charset")
 	assert.Equal(t, "latin1", charsetOf(t, column(t, meta, "memo").CollationID))
@@ -522,7 +580,7 @@ func testApplyDDLDropsEntryNewerThanDDL(t *testing.T) {
 			c := ddlCache()
 			c.tables["shop.orders"].AnchoredAt = tt.anchor
 
-			c.applyDDL("ALTER TABLE orders ADD c INT", "shop", ddlPos(400))
+			c.applyDDL("ALTER TABLE orders ADD c INT", "shop", ddlPos(400), nil)
 
 			assert.NotContains(t, c.tables, "shop.orders")
 			assert.Contains(t, c.tables, "shop.customers")
@@ -557,7 +615,7 @@ func testApplyDDLWipesWhenUnsure(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := ddlCache()
-			c.applyDDL(tt.query, tt.schema, ddlPos(200))
+			c.applyDDL(tt.query, tt.schema, ddlPos(200), nil)
 			assert.Empty(t, c.tables)
 		})
 	}
@@ -566,7 +624,7 @@ func testApplyDDLWipesWhenUnsure(t *testing.T) {
 // A query that parses into several statements is applied statement by statement.
 func testApplyDDLSeveralStatements(t *testing.T) {
 	c := ddlCache()
-	c.applyDDL("ALTER TABLE orders ADD a INT; ALTER TABLE customers ADD b INT", "shop", ddlPos(200))
+	c.applyDDL("ALTER TABLE orders ADD a INT; ALTER TABLE customers ADD b INT", "shop", ddlPos(200), nil)
 	assert.Equal(t, []string{"id", "status", "name", "a"}, columnNames(c.tables["shop.orders"]))
 	assert.Equal(t, []string{"id", "b"}, columnNames(c.tables["shop.customers"]))
 }
@@ -582,13 +640,13 @@ func TestSchemaCacheConcurrentAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := uint32(0); i < 200; i++ {
-			c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','paid')", "shop", ddlPos(200+i))
+			c.applyDDL("ALTER TABLE orders MODIFY status ENUM('new','paid')", "shop", ddlPos(200+i), nil)
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
-			_ = c.snapshot(ddlPos(1000))
+			_ = c.snapshot(ddlPos(1000), nil)
 			_ = c.maxAnchor()
 		}
 	}()
@@ -611,11 +669,11 @@ func testApplyDDLRecreatesOnlyCachedTable(t *testing.T) {
 	c.streamed["shop.t"] = true
 	c.setTable("shop.t", &tableMeta{Columns: []columnMeta{{Name: "id"}, {Name: "a"}, {Name: "b"}}, AnchoredAt: ddlPos(100)})
 
-	c.applyDDL("DROP TABLE t", "shop", ddlPos(200))
-	c.applyDDL("CREATE TABLE t (id INT PRIMARY KEY, b INT, a INT)", "shop", ddlPos(201))
+	c.applyDDL("DROP TABLE t", "shop", ddlPos(200), nil)
+	c.applyDDL("CREATE TABLE t (id INT PRIMARY KEY, b INT, a INT)", "shop", ddlPos(201), nil)
 	assert.Equal(t, []string{"id", "b", "a"}, columnNames(c.tables["shop.t"]))
 
-	c.applyDDL("ALTER TABLE t ADD COLUMN c INT AFTER id", "shop", ddlPos(202))
+	c.applyDDL("ALTER TABLE t ADD COLUMN c INT AFTER id", "shop", ddlPos(202), nil)
 	assert.Equal(t, []string{"id", "c", "b", "a"}, columnNames(c.tables["shop.t"]))
 }
 
@@ -626,14 +684,14 @@ func testApplyDDLCreateIfNotExistsUncached(t *testing.T) {
 	c.streamed["shop.t"] = true
 	c.setTable("shop.t", &tableMeta{Columns: []columnMeta{{Name: "id"}, {Name: "b"}, {Name: "a"}}, AnchoredAt: ddlPos(100)})
 
-	c.applyDDL("ALTER TABLE t CONVERT TO CHARACTER SET DEFAULT", "shop", ddlPos(200))
+	c.applyDDL("ALTER TABLE t CONVERT TO CHARACTER SET DEFAULT", "shop", ddlPos(200), nil)
 	require.NotContains(t, cacheKeys(c), "shop.t")
-	c.applyDDL("CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY, a INT, b INT)", "shop", ddlPos(201))
+	c.applyDDL("CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY, a INT, b INT)", "shop", ddlPos(201), nil)
 	assert.NotContains(t, cacheKeys(c), "shop.t", "t still exists, so the CREATE changed nothing")
 
 	c.setTable("shop.t", &tableMeta{Columns: []columnMeta{{Name: "id"}, {Name: "b"}, {Name: "a"}}, AnchoredAt: ddlPos(300)})
-	c.applyDDL("DROP TABLE t", "shop", ddlPos(400))
-	c.applyDDL("CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY, a INT, b INT)", "shop", ddlPos(401))
+	c.applyDDL("DROP TABLE t", "shop", ddlPos(400), nil)
+	c.applyDDL("CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY, a INT, b INT)", "shop", ddlPos(401), nil)
 	assert.Equal(t, []string{"id", "a", "b"}, columnNames(c.tables["shop.t"]), "right after the DROP the CREATE made t")
 }
 
@@ -648,13 +706,13 @@ func testApplyDDLKeepsSchemaDefault(t *testing.T) {
 		SchemaCollationID: mustCollationID(t, "latin1_swedish_ci"),
 	})
 
-	c.applyDDL("DROP TABLE t", "shop", ddlPos(200))
-	c.applyDDL("CREATE TABLE t (id INT PRIMARY KEY, note VARCHAR(10))", "shop", ddlPos(201))
+	c.applyDDL("DROP TABLE t", "shop", ddlPos(200), nil)
+	c.applyDDL("CREATE TABLE t (id INT PRIMARY KEY, note VARCHAR(10))", "shop", ddlPos(201), nil)
 	require.Contains(t, cacheKeys(c), "shop.t")
 	assert.Equal(t, "latin1", charsetOf(t, column(t, c.tables["shop.t"], "note").CollationID))
 
-	c.applyDDL("DROP TABLE t", "shop", ddlPos(300))
-	c.applyDDL("DROP DATABASE shop", "", ddlPos(301))
-	c.applyDDL("CREATE TABLE shop.t (id INT PRIMARY KEY, note VARCHAR(10))", "", ddlPos(302))
+	c.applyDDL("DROP TABLE t", "shop", ddlPos(300), nil)
+	c.applyDDL("DROP DATABASE shop", "", ddlPos(301), nil)
+	c.applyDDL("CREATE TABLE shop.t (id INT PRIMARY KEY, note VARCHAR(10))", "", ddlPos(302), nil)
 	assert.NotContains(t, cacheKeys(c), "shop.t", "a recreated database may have another default")
 }

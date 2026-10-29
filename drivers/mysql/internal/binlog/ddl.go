@@ -71,6 +71,7 @@ type ddlEvent struct {
 	query         string
 	defaultSchema string
 	pos           mysql.Position
+	gtid          mysql.GTIDSet
 }
 
 // ddlOutcome is what a DDL did to the cache. The helpers return it and applyDDL logs it once.
