@@ -288,13 +288,22 @@ func (a *Store) IsRateLimitError(err error) bool {
 	return errors.As(err, &respErr) && (respErr.StatusCode == 429 || respErr.StatusCode == 503)
 }
 
-// azureTokenCredential: empty clientID uses DefaultAzureCredential (AKS WI, then system-assigned MI).
-// azure_client_id selects a user-assigned identity via ManagedIdentityCredential.
+// azureTokenCredential: empty clientID uses DefaultAzureCredential.
+// Set clientID: AKS Workload ID if AZURE_FEDERATED_TOKEN_FILE is set, else IMDS user-assigned MI.
 func azureTokenCredential(clientID string) (azcore.TokenCredential, error) {
 	if clientID == "" {
 		credential, err := azidentity.NewDefaultAzureCredential(nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create default Azure credential: %w", err)
+		}
+		return credential, nil
+	}
+	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+		credential, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{
+			ClientID: clientID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Azure workload identity credential: %w", err)
 		}
 		return credential, nil
 	}

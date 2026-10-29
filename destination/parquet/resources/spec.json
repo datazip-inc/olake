@@ -199,7 +199,7 @@
                         "azure_client_id": {
                           "type": "string",
                           "title": "Azure Client ID",
-                          "description": "Client ID of a user-assigned managed identity. Leave empty for system-assigned MI or AKS workload identity (AZURE_CLIENT_ID on the process)"
+                          "description": "Client ID of a user-assigned managed identity. Leave empty to use the VM's system-assigned identity, or on Kubernetes the job ServiceAccount's identity"
                         }
                       },
                       "required": [
