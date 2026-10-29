@@ -157,6 +157,96 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
 
+// A driver may limit a stream's delete formats; discover keeps only those the engines can also
+// read, and defaults to the cheapest of them.
+func TestGetWrappedCatalogKeepsDriverLimitedUpdateTypes(t *testing.T) {
+	indexed := []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}
+
+	testCases := []struct {
+		name            string
+		driverLimit     []UpdateType
+		preset          UpdateType
+		engines         []QueryEngine
+		expected        []UpdateType
+		expectedDefault UpdateType
+	}{
+		{
+			// Without engines the driver's list is all that constrains the stream.
+			name:            "no engines keeps the driver list",
+			driverLimit:     indexed,
+			expected:        indexed,
+			expectedDefault: UpdateTypePosition,
+		},
+		{
+			name:            "engine without deletion vector support leaves pos",
+			driverLimit:     indexed,
+			engines:         []QueryEngine{QueryEngineSpark, QueryEngineAthena},
+			expected:        []UpdateType{UpdateTypePosition},
+			expectedDefault: UpdateTypePosition,
+		},
+		{
+			// The default is picked from the narrowed list, not from what the engines alone read.
+			name:            "deletion vector only engine leaves dv as the default",
+			driverLimit:     indexed,
+			engines:         []QueryEngine{QueryEngineDatabricks},
+			expected:        []UpdateType{UpdateTypeDeletionVector},
+			expectedDefault: UpdateTypeDeletionVector,
+		},
+		{
+			// The result keeps OLake's cheapest-first order, whatever order the driver used.
+			name:            "driver order does not change the result order",
+			driverLimit:     []UpdateType{UpdateTypeDeletionVector, UpdateTypePosition},
+			expected:        indexed,
+			expectedDefault: UpdateTypePosition,
+		},
+		{
+			name:            "preset pos is kept while offered",
+			driverLimit:     indexed,
+			preset:          UpdateTypePosition,
+			engines:         []QueryEngine{QueryEngineSnowflake},
+			expected:        indexed,
+			expectedDefault: UpdateTypePosition,
+		},
+		{
+			name:            "preset pos falls back when the engines cannot read it",
+			driverLimit:     indexed,
+			preset:          UpdateTypePosition,
+			engines:         []QueryEngine{QueryEngineDatabricks},
+			expected:        []UpdateType{UpdateTypeDeletionVector},
+			expectedDefault: UpdateTypeDeletionVector,
+		},
+		{
+			// Nothing both sides allow: no format is offered and no default is set.
+			name:            "driver and engines with nothing in common",
+			driverLimit:     []UpdateType{UpdateTypePosition},
+			engines:         []QueryEngine{QueryEngineDatabricks},
+			expected:        []UpdateType{},
+			expectedDefault: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// The driver sets the same limit on every stream of the source.
+			var streams []*Stream
+			for _, name := range []string{"users", "orders"} {
+				streams = append(streams, &Stream{
+					Name: name, Namespace: "public", Schema: NewTypeSchema(),
+					AvailableUpdateTypes:    tc.driverLimit,
+					DefaultStreamProperties: &DefaultStreamProperties{UpdateType: tc.preset},
+				})
+			}
+
+			catalog := GetWrappedCatalog(streams, tc.engines)
+
+			for _, configured := range catalog.Streams {
+				assert.Equal(t, tc.expected, configured.Stream.AvailableUpdateTypes, configured.Name())
+				assert.Equal(t, tc.expectedDefault, configured.Stream.DefaultStreamProperties.UpdateType, configured.Name())
+			}
+		})
+	}
+}
+
 // The engines themselves are an input, never a field: only the list they produce is written.
 func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 	streams := []*Stream{{

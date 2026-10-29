@@ -33,6 +33,8 @@ type Iceberg struct {
 	server        *serverInstance          // shared Java server instance (per-process singleton)
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
+	// unavailableValues recovers values the source could not send; nil unless the stream keeps a row index (pos or dv)
+	unavailableValues *unavailableValuesResolver
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
 	// It defines when to complete the Java writer and when schema evolution is required.
@@ -143,20 +145,52 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		return schema, nil, err
 	}
 
+	// nil in equality mode; shared by the writer, which buffers this thread's row locations
+	// in it, and the unavailable values resolver, which looks rows up in it
+	indexThread := types.NewStreamIndexThread(options.TableIndex)
 	if i.config.UseArrowWrites {
-		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode)
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode, indexThread)
 		if err != nil {
 			return nil, nil, destination.WriteFailure(fmt.Errorf("failed to create arrow writer: %w", err))
 		}
 	} else {
-		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode)
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode, indexThread)
+	}
+
+	// Recovery needs the row's previous location, which only an upsert thread with a
+	// stream index has. Backfill and equality mode keep the placeholder.
+	if indexThread != nil && upsertMode {
+		i.unavailableValues = newUnavailableValuesResolver(options.ThreadID, i.stream, i.writer, indexThread, i.server.tableIndexClient)
 	}
 
 	return schema, &metadataState, nil
 }
 
+// Write sends records in order, split into chunks of at most MaxDestinationBatchBytes when values
+// recovered from the destination (unchanged TOAST) grew the batch past what the buffer measured,
+// so no single write exceeds the 2 GB message limit.
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
-	return i.writer.Write(ctx, records)
+	if i.unavailableValues == nil || i.unavailableValues.filledBytes == 0 {
+		return i.writer.Write(ctx, records)
+	}
+
+	start, size := 0, int64(0)
+	for idx := range records {
+		// a fixed overhead for the record, plus the size of every value it holds
+		recordSize := carryEntryOverhead
+		for _, value := range records[idx].Data {
+			recordSize += valueSize(value)
+		}
+		if idx > start && size+recordSize > constants.MaxDestinationBatchBytes {
+			if err := i.writer.Write(ctx, records[start:idx]); err != nil {
+				return err
+			}
+			start, size = idx, 0
+		}
+		size += recordSize
+	}
+
+	return i.writer.Write(ctx, records[start:])
 }
 
 func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error) {
@@ -179,6 +213,10 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error)
 			}
 		}
 	}()
+
+	if i.unavailableValues != nil {
+		i.unavailableValues.Close()
+	}
 
 	select {
 	case <-ctx.Done():
@@ -230,7 +268,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
 	protoSchema := types.GetIcebergRawSchema()
-	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime})
+	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime}, nil)
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return destination.WriteFailure(fmt.Errorf("failed to create raw data column buffer: %w", err))
@@ -261,6 +299,14 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+	// Resolve first, so schema detection, filters, partition values and the JSON row
+	// (normalization off) all see the recovered values.
+	if i.unavailableValues != nil {
+		if err := i.unavailableValues.Resolve(ctx, records); err != nil {
+			return false, nil, nil, fmt.Errorf("failed to recover unavailable column values: %w", err)
+		}
+	}
+
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
 	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {

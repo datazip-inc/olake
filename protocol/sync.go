@@ -217,6 +217,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
 	}
 
+	var failure error
 	matchedSelected := make(map[string]struct{}, len(selectedStreamsMap))
 	_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 		sMetadata, selected := selectedStreamsMap[elem.ID()]
@@ -245,8 +246,9 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		}
 
 		if err := elem.ValidateUpdateType(destinationType); err != nil {
-			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
-			return false
+			failure = errs.Precondition(errs.ConfigInvalid, codeUpdateTypeInvalid,
+				fmt.Errorf("stream %s has an invalid update type: %w", elem.ID(), err))
+			return true
 		}
 
 		filter, isLegacy, err := elem.GetFilter()
@@ -322,6 +324,9 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 
 		return false
 	})
+	if failure != nil {
+		return nil, failure
+	}
 
 	// available_streams.json and selected_streams.json are edited separately, so a selected
 	// stream can be missing from streams[].

@@ -66,7 +66,7 @@ func TestClassifyStreamsMix(t *testing.T) {
 		streams         []stream
 		destinationType types.DestinationType // empty defaults to iceberg
 		expectedMix     types.StreamMix
-		expectedCode    string // non-empty: no stream survives, so the run fails with this code
+		expectedCode    string // non-empty: the run fails with this code
 	}{
 		// each mode lands in its own counter, and an unknown mode falls to full refresh
 		{
@@ -139,17 +139,23 @@ func TestClassifyStreamsMix(t *testing.T) {
 			},
 			expectedMix: types.StreamMix{CDC: 1, Selected: 1},
 		},
-		// discover clears update_type the target engines cannot read; the stream must wait for
-		// an explicit choice, while a legacy catalog without the list still defaults to equality
+		// a legacy catalog without the list still defaults to equality
 		{
-			name: "streams skipped for an unset or unreadable update type are not counted",
+			name: "streams with an offered or legacy update type are counted",
 			streams: []stream{
 				{name: "a", mode: types.CDC},
-				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
-				{name: "c", mode: types.CDC, updateType: "eq", available: []types.UpdateType{types.UpdateTypePosition}},
 				{name: "d", mode: types.CDC, updateType: "pos", available: []types.UpdateType{types.UpdateTypePosition}},
 			},
 			expectedMix: types.StreamMix{CDC: 2, Selected: 2, StreamWithPosUpdateType: 1},
+		},
+		// discover clears update_type the target engines cannot read; the run fails until one is chosen
+		{
+			name: "an unset update type fails the run",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
+			},
+			expectedCode: codeUpdateTypeInvalid,
 		},
 		// parquet writes no deletes, so the same streams are all synced there
 		{

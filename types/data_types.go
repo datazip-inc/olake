@@ -168,12 +168,16 @@ type Record map[string]any
 type RawRecord struct {
 	Data         map[string]any `json:"data"`
 	OlakeColumns map[string]any `json:"olake_columns"`
+	// UnavailableColumns lists columns the source could not send; Data holds
+	// constants.UnavailableValue for them.
+	UnavailableColumns []string `json:"-"`
 }
 
-func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord {
+func CreateRawRecord(data map[string]any, olakeColumns map[string]any, unavailableColumns []string) RawRecord {
 	return RawRecord{
-		Data:         data,
-		OlakeColumns: olakeColumns,
+		Data:               data,
+		OlakeColumns:       olakeColumns,
+		UnavailableColumns: unavailableColumns,
 	}
 }
 

@@ -210,8 +210,14 @@ func GetWrappedCatalog(streams []*Stream, engines []QueryEngine) *Catalog {
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
-	// The default delete format is the cheapest one every target engine can read.
 	available := AvailableUpdateTypes(engines)
+	// A driver that supports only some delete formats sets them on its streams, the same for every
+	// stream of the source; offer those the engines can also read.
+	if len(streams) > 0 && streams[0].AvailableUpdateTypes != nil {
+		available = slices.DeleteFunc(available, func(updateType UpdateType) bool {
+			return !slices.Contains(streams[0].AvailableUpdateTypes, updateType)
+		})
+	}
 	updateType := PreferredUpdateType(available)
 
 	for _, stream := range streams {

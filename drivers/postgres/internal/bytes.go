@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/datazip-inc/olake/pkg/waljs"
+	"github.com/datazip-inc/olake/drivers/postgres/internal/waljs"
 )
 
 // pgColumnSizer returns a function that sizes a single non-NULL value of the given

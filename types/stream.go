@@ -34,8 +34,9 @@ type Stream struct {
 	// Supported sync modes from driver for the respective Stream
 	SupportedSyncModes *Set[SyncMode] `json:"supported_sync_modes,omitempty"`
 	// Delete formats every target query engine can read, cheapest first. Discover without
-	// target engines is unconstrained and lists every format OLake can write. Absent only
-	// on catalogs written before target query engines existed.
+	// target engines is unconstrained and lists every format OLake can write. A driver that
+	// supports only some formats for the stream sets them before discover narrows the list.
+	// Absent only on catalogs written before target query engines existed.
 	AvailableUpdateTypes []UpdateType `json:"available_update_types,omitempty"`
 	// Primary key if available
 	SourceDefinedPrimaryKey *Set[string] `json:"source_defined_primary_key,omitempty"`

@@ -10,8 +10,8 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/drivers/postgres/internal/waljs"
 	"github.com/datazip-inc/olake/pkg/jdbc"
-	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -243,6 +243,10 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 	populateStream := func(streamID types.StreamID) (*types.Stream, error) {
 		schemaName, streamName := streamID.Namespace, streamID.Name
 		stream := types.NewStream(streamName, schemaName, &p.config.Database)
+		// preserve_toast_values reads a row's previous version back through the destination's table index, which only pos and dv keep.
+		if p.cdcConfig.PreserveToastValues {
+			stream.AvailableUpdateTypes = []types.UpdateType{types.UpdateTypePosition, types.UpdateTypeDeletionVector}
+		}
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.SelectContext(ctx, &columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
 		if err != nil {
