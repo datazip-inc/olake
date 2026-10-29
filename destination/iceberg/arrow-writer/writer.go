@@ -196,28 +196,19 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 			if err := w.indexRecord(writer, recordOlakeID, recordOpType, rec.OlakeColumns, filePosition); err != nil {
 				return err
 			}
-		} else if w.upsertMode {
-			if recordOpType == "d" || recordOpType == "u" || recordOpType == "i" || recordOpType == "c" {
-				if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
-					// first time, add to equality deletes and track position
-					writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
-					writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
-						FilePath: writer.dataWriter.filePath,
-						Position: filePosition,
-					}
-				} else {
-					// duplicates, add prev position to positional deletes (n-1 logic)
-					// the latest (nth) occurrence is kept in the map but not added to deletes
-					prev := writer.olakeIDPosition[recordOlakeID]
-					writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
-						FilePath: prev.FilePath,
-						Position: prev.Position,
-					})
-					writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
-						FilePath: writer.dataWriter.filePath,
-						Position: filePosition,
-					}
-				}
+		} else if w.upsertMode && recordOpType != "r" {
+			if prev, seen := writer.olakeIDPosition[recordOlakeID]; seen {
+				// duplicate in this thread, equality deletes never apply within the same commit,
+				// so delete the previous occurrence by position (n-1 logic)
+				writer.positionalDeletes = append(writer.positionalDeletes, prev)
+			} else if recordOpType != "c" {
+				// first time, equality delete the committed prior version ("c" has none)
+				writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
+			}
+			// track the latest position of olake_id for a later duplicate
+			writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
+				FilePath: writer.dataWriter.filePath,
+				Position: filePosition,
 			}
 		}
 
