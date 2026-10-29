@@ -68,12 +68,12 @@
 
 | Source → Destination | Full Load       | Relative Performance (Full Load)    | Full Report                                                  |
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
-| Postgres → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th Jan 2026)</span>   | 5,80,113 RPS    | 12.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
-| MySQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th May 2026)</span>     | 1,39,773 RPS    | 1.91× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
+| Postgres → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th Jan 2026)</span>   | 580,113 RPS    | 12.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| MySQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th May 2026)</span>     | 139,773 RPS    | 1.91× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
 | MongoDB → Iceberg <br/><span className='text-xs text-slate-500'>(as of 5th Feb 2026)</span>   | 37,879 RPS              | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
-| Oracle → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th Jan 2026)</span>     | 5,26,337 RPS  | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
-| Kafka → Iceberg <br/><span className='text-xs text-slate-500'>(as of 27th Feb 2026)</span>     | 2,09,065 MPS (Bounded Incremental) | 1.23x slower than Flink                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
-| MSSQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 09th June 2026)</span>     | 3,45,866 RPS | 4.32x faster than Fivetran                                    | [Full Report](https://olake.io/docs/benchmarks/ingestion/?tab=mssql)   |
+| Oracle → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th Jan 2026)</span>     | 526,337 RPS  | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| Kafka → Iceberg <br/><span className='text-xs text-slate-500'>(as of 27th Feb 2026)</span>     | 209,065 MPS (Bounded Incremental) | 1.23x slower than Flink                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
+| MSSQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 09th June 2026)</span>     | 345,866 RPS | 4.32x faster than Fivetran                                    | [Full Report](https://olake.io/docs/benchmarks/ingestion/?tab=mssql)   |
 
 #### CDC
 
