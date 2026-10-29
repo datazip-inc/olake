@@ -45,6 +45,9 @@
     <!-- keeps the grpc artifacts we declare on one version; gcsio brings its
              own 1.67.x grpc modules that this does not reach -->
     <version.grpc>1.83.1</version.grpc>
+    <!-- declared because the writer imports Guava; grpc up to 1.85.1 still brings
+             33.6.0-android, which has CVE-2026-102554 -->
+    <version.guava>33.7.2-android</version.guava>
     <!-- AWS SDK v2, managed by its BOM (AWS's documented pattern). -->
     <version.awssdk>2.54.2</version.awssdk>
     <!-- iceberg-core 1.10.2 ships httpclient5 5.5, whose httpcore5 5.3.4 has
@@ -198,6 +201,11 @@
       <groupId>io.grpc</groupId>
       <artifactId>grpc-stub</artifactId>
       <version>${version.grpc}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>${version.guava}</version>
     </dependency>
     <dependency>
       <groupId>javax.annotation</groupId>
