@@ -96,8 +96,7 @@ func (c *Config) validateAzureAuthenticationType() error {
 		if c.AzureStorageAccountName == "" {
 			return fmt.Errorf("azure_storage_account_name is required")
 		}
-		// Token client in azure.New. Optional azure_client_id: AKS WI if
-		// AZURE_FEDERATED_TOKEN_FILE is set, else VM IMDS user-assigned MI.
+		// Token client in azure.New. Dest azure_client_id overrides SA/VM identity; no fallback.
 	default:
 		return fmt.Errorf("azure_auth_type must be %q, %q, %q, or %q",
 			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString, azure.AuthManagedIdentity)

@@ -199,7 +199,7 @@
                         "azure_client_id": {
                           "type": "string",
                           "title": "Azure Client ID",
-                          "description": "Client ID of a user-assigned managed identity. Leave empty to use the VM's system-assigned identity, or on Kubernetes the job ServiceAccount's identity"
+                          "description": "User-assigned identity client ID. Overrides the AKS ServiceAccount annotation and the VM identity; there is no fallback. Leave empty to use Helm azure.workload.identity/client-id (AKS) or the VM system-assigned identity"
                         }
                       },
                       "required": [

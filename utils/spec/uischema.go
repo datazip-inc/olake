@@ -561,6 +561,9 @@ const ParquetUISchema = `{
       "ui:widget": "password",
       "ui:help": "This string needs AccountName or BlobEndpoint, and AccountKey or SharedAccessSignature. UseDevelopmentStorage=true is not supported."
     },
+    "azure_client_id": {
+      "ui:help": "Overrides the AKS ServiceAccount annotation and the VM identity. It does not fall back."
+    },
     "ui:options": {
       "label": false
     }

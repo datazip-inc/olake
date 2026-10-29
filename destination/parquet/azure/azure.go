@@ -18,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 const (
@@ -292,6 +293,7 @@ func (a *Store) IsRateLimitError(err error) bool {
 // Set clientID: AKS Workload ID if AZURE_FEDERATED_TOKEN_FILE is set, else IMDS user-assigned MI.
 func azureTokenCredential(clientID string) (azcore.TokenCredential, error) {
 	if clientID == "" {
+		logger.Info("Using default Azure credential chain")
 		credential, err := azidentity.NewDefaultAzureCredential(nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create default Azure credential: %w", err)
@@ -299,6 +301,7 @@ func azureTokenCredential(clientID string) (azcore.TokenCredential, error) {
 		return credential, nil
 	}
 	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+		logger.Infof("Using Azure client ID %s from destination config (workload identity)", clientID)
 		credential, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{
 			ClientID: clientID,
 		})
@@ -307,6 +310,7 @@ func azureTokenCredential(clientID string) (azcore.TokenCredential, error) {
 		}
 		return credential, nil
 	}
+	logger.Infof("Using Azure client ID %s from destination config (managed identity)", clientID)
 	credential, err := azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
 		ID: azidentity.ClientID(clientID),
 	})
