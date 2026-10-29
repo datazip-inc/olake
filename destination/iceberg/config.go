@@ -87,8 +87,7 @@ type Config struct {
 	GCPProjectID string `json:"gcp_project_id,omitempty"`
 
 	// Horizon
-	RESTAccessDelegation              string `json:"rest_access_delegation,omitempty"`
-	SnowflakeWorkloadIdentityProvider string `json:"snowflake_workload_identity_provider,omitempty"`
+	RESTAccessDelegation string `json:"rest_access_delegation,omitempty"`
 
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
 }
@@ -216,8 +215,7 @@ func olakeAuthTypeToIcebergAuthType(authType string) string {
 	switch strings.ToLower(strings.TrimSpace(authType)) {
 	case "oauth2", "oauth2 u2m", "oauth2 m2m", "token", "token federation",
 		"personal access token (pat)", "pat", "external oauth",
-		"key-pair authentication", "programmatic access token (pat)",
-		"workload identity federation(wif)/oidc":
+		"key-pair authentication", "programmatic access token (pat)":
 		return "oauth2"
 	case "none":
 		return "none"
