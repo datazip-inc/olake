@@ -1934,8 +1934,7 @@
                   "enum": [
                     "External OAuth",
                     "Key-Pair Authentication",
-                    "Programmatic Access Token (PAT)",
-                    "Workload Identity Federation(WIF)/OIDC"
+                    "Programmatic Access Token (PAT)"
                   ],
                   "description": "Methods to obtain access token for Horizon Iceberg REST Catalog API"
                 },
@@ -2020,28 +2019,6 @@
                       },
                       "required": [
                         "credential"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "rest_auth_type": {
-                          "const": "Workload Identity Federation(WIF)/OIDC"
-                        },
-                        "credential": {
-                          "type": "string",
-                          "title": "OIDC Token",
-                          "description": "Short lived OIDC token used as iceberg credential"
-                        },
-                        "snowflake_workload_identity_provider": {
-                          "type": "string",
-                          "title": "Workload Identity Provider",
-                          "default": "OIDC",
-                          "description": "Snowflake header X-Snowflake-Workload-Identity-Provider. (e.g. 'OIDC')"
-                        }
-                      },
-                      "required": [
-                        "credential",
-                        "snowflake_workload_identity_provider"
                       ]
                     }
                   ]
