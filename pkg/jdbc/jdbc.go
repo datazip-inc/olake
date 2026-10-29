@@ -537,6 +537,12 @@ func PostgresWalLevelQuery() string {
 	return "SHOW wal_level"
 }
 
+// PostgresEffectiveWalLevelQuery returns the query to fetch effective_wal_level (PostgreSQL 19+), the level
+// the server actually runs at: logical while a logical slot exists, even when wal_level is replica.
+func PostgresEffectiveWalLevelQuery() string {
+	return "SHOW effective_wal_level"
+}
+
 // PostgresWalSenderTimeoutQuery returns wal_sender_timeout in milliseconds; pg_settings gives the
 // raw value, so there is no unit string ("1min") to parse.
 func PostgresWalSenderTimeoutQuery() string {
