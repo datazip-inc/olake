@@ -95,6 +95,7 @@ func newServiceClient(cfg Config, serviceURL string) (*azblob.Client, error) {
 	case AuthManagedIdentity:
 		// DefaultAzureCredential: service principal, workload identity, then managed identity.
 		return getServiceClientTokenCredential(serviceURL, cfg.ClientID)
+	// TODO: service-principal dest auth — client id, tenant, secret via ClientSecretCredential.
 	default:
 		return nil, fmt.Errorf("unsupported azure auth type %q", cfg.AuthType)
 	}
@@ -354,6 +355,7 @@ func getServiceClientSharedKey(accountName string, accountKey string, accountURL
 }
 
 // blobClientOptions sets the per-try deadline and the User-Agent application id.
+// TODO: Azure TLS CA. optional azure_ca_cert PEM on dest; set Transport here for all Azure auth types.
 func blobClientOptions() *azblob.ClientOptions {
 	options := &azblob.ClientOptions{}
 	options.Retry.TryTimeout = azureTryTimeout
