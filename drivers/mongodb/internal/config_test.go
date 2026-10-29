@@ -105,6 +105,66 @@ func TestConfig_URI(t *testing.T) {
 			},
 			wantURI: "mongodb://olake-oidc-client@mongo.internal:27017/?authMechanism=MONGODB-OIDC&authSource=%24external",
 		},
+		{
+			name: "srv defaults read preference without replica set",
+			config: &Config{
+				Hosts:    []string{"cluster.example.mongodb.net"},
+				AuthDB:   "admin",
+				Username: "user",
+				Password: "pass",
+				Srv:      true,
+			},
+			wantURI: "mongodb+srv://user:pass@cluster.example.mongodb.net/?authSource=admin&readPreference=secondaryPreferred",
+		},
+		{
+			name: "srv honors explicit read preference without replica set",
+			config: &Config{
+				Hosts:          []string{"cluster.example.mongodb.net"},
+				AuthDB:         "admin",
+				Username:       "user",
+				Password:       "pass",
+				Srv:            true,
+				ReadPreference: "secondary",
+			},
+			wantURI: "mongodb+srv://user:pass@cluster.example.mongodb.net/?authSource=admin&readPreference=secondary",
+		},
+		{
+			name: "replica set defaults read preference",
+			config: &Config{
+				Hosts:      []string{"mongo.example.com:27017"},
+				AuthDB:     "admin",
+				Username:   "user",
+				Password:   "pass",
+				ReplicaSet: "rs0",
+			},
+			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&readPreference=secondaryPreferred&replicaSet=rs0",
+		},
+		{
+			name: "explicit read preference without replica set or srv",
+			config: &Config{
+				Hosts:          []string{"mongo.example.com:27017"},
+				AuthDB:         "admin",
+				Username:       "user",
+				Password:       "pass",
+				ReadPreference: "nearest",
+			},
+			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&readPreference=nearest",
+		},
+		{
+			name: "additional params override read preference",
+			config: &Config{
+				Hosts:          []string{"mongo.example.com:27017"},
+				AuthDB:         "admin",
+				Username:       "user",
+				Password:       "pass",
+				ReplicaSet:     "rs0",
+				ReadPreference: "secondary",
+				AdditionalParams: map[string]string{
+					"readPreference": "primary",
+				},
+			},
+			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&readPreference=primary&replicaSet=rs0",
+		},
 	}
 
 	for _, tt := range tests {
