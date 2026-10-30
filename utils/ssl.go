@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -88,9 +89,12 @@ func (sc *SSLConfig) LoadCertFiles() error {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable,
 				fmt.Errorf("'%s': failed to read file: %w", cert.configKey, err))
 		}
+		// MySQL 8 auto-generated certs end with a NUL byte; strip it.
+		data = bytes.TrimRight(data, "\x00")
 
 		if inline := strings.TrimSpace(*cert.pemField); inline != "" && inline != strings.TrimSpace(string(data)) {
-			logger.Warnf("'%s' is ignored: ssl.cert_source is 'path', so the file at '%s' (%q) is used instead", cert.inlineKey, cert.configKey, strings.TrimSpace(cert.filePath))
+			return errs.Precondition(errs.ConfigInvalid, codeSSLCertSourceConflict,
+				fmt.Errorf("'ssl.%s' and '%s' are both set while ssl.cert_source is 'path'; remove 'ssl.%s'", cert.inlineKey, cert.configKey, cert.inlineKey))
 		}
 		*cert.pemField = string(data)
 	}
@@ -99,10 +103,11 @@ func (sc *SSLConfig) LoadCertFiles() error {
 
 const (
 	// The ssl block itself is missing a field.
-	codeSSLMissing           = "config.ssl_missing"
-	codeSSLModeMissing       = "config.ssl_mode_missing"
-	codeSSLServerCAMissing   = "config.ssl_server_ca_missing"
-	codeSSLCertSourceInvalid = "config.ssl_cert_source_invalid"
+	codeSSLMissing            = "config.ssl_missing"
+	codeSSLModeMissing        = "config.ssl_mode_missing"
+	codeSSLServerCAMissing    = "config.ssl_server_ca_missing"
+	codeSSLCertSourceInvalid  = "config.ssl_cert_source_invalid"
+	codeSSLCertSourceConflict = "config.ssl_cert_source_conflict"
 
 	// Certificate file could not be read from disk.
 	codeSSLFileUnreadable = "config.ssl_file_unreadable"
@@ -147,7 +152,7 @@ func (sc *SSLConfig) Validate() error {
 		}
 		if sc.ServerCA == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLServerCAMissing,
-				errors.New("server CA certificate is required: provide 'ssl.server_ca', or a non-empty file at 'ssl.server_ca_path'"))
+				errors.New("server CA certificate is required: provide 'ssl.server_ca', or set 'ssl.cert_source' to 'path' with a non-empty file at 'ssl.server_ca_path'"))
 		}
 	}
 

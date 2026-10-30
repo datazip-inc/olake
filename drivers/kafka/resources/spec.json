@@ -129,7 +129,10 @@
                                                     "description": "Client private key content for mTLS authentication in PEM format",
                                                     "multiline": true
                                                 }
-                                            }
+                                            },
+                                            "required": [
+                                                "server_ca"
+                                            ]
                                         },
                                         {
                                             "properties": {
@@ -151,7 +154,10 @@
                                                     "title": "Client Key Path",
                                                     "description": "File path of the client private key (PEM format) for mutual TLS authentication"
                                                 }
-                                            }
+                                            },
+                                            "required": [
+                                                "server_ca_path"
+                                            ]
                                         }
                                     ]
                                 }
@@ -225,7 +231,10 @@
                                                     "description": "Client private key content for mTLS authentication in PEM format",
                                                     "multiline": true
                                                 }
-                                            }
+                                            },
+                                            "required": [
+                                                "server_ca"
+                                            ]
                                         },
                                         {
                                             "properties": {
@@ -247,7 +256,10 @@
                                                     "title": "Client Key Path",
                                                     "description": "File path of the client private key (PEM format) for mutual TLS authentication"
                                                 }
-                                            }
+                                            },
+                                            "required": [
+                                                "server_ca_path"
+                                            ]
                                         }
                                     ]
                                 }

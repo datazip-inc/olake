@@ -60,7 +60,7 @@ func (c *Config) Validate() error {
 			// Server CA is always required
 			if c.Protocol.SSL.ServerCA == "" {
 				return errs.Precondition(errs.ConfigInvalid, codeServerCAMissing,
-					fmt.Errorf("server CA certificate is required: provide 'ssl.server_ca', or a non-empty file at 'ssl.server_ca_path'"))
+					fmt.Errorf("server CA certificate is required: provide 'ssl.server_ca', or set 'ssl.cert_source' to 'path' with a non-empty file at 'ssl.server_ca_path'"))
 			}
 
 			// Client Cert and Key are required together for mTLS
