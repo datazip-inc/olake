@@ -368,7 +368,7 @@ func getServiceClientSharedKey(accountName string, accountKey string, accountURL
 }
 
 // blobClientOptions sets the per-try deadline and the User-Agent application id.
-// TODO: Azure TLS CA. optional azure_ca_cert PEM on dest; set Transport here for all Azure auth types.
+// TODO: Add support for custom Azure TLS certificates.
 func blobClientOptions() *azblob.ClientOptions {
 	options := &azblob.ClientOptions{}
 	options.Retry.TryTimeout = azureTryTimeout
