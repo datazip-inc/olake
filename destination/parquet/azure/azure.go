@@ -36,7 +36,7 @@ const (
 	AuthSharedKey        = "shared-key"
 	AuthSASToken         = "sas-token"
 	AuthConnectionString = "connection-string"
-	AuthIdentity         = "identity"
+	AuthIdentity         = "managed-or-workload-identity"
 )
 
 type Config struct {
