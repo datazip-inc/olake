@@ -84,12 +84,12 @@
                 "azure_auth_type": {
                   "type": "string",
                   "title": "Azure Auth Type",
-                  "description": "How OLake authenticates to Azure Blob. managed-identity uses DefaultAzureCredential on the process (Entra VM IMDS and AKS workload identity). Optional azure_client_id pins a user-assigned identity",
+                  "description": "How OLake authenticates to Azure Blob. identity uses DefaultAzureCredential (Entra VM managed identity / IMDS and AKS workload identity). Optional azure_client_id pins a user-assigned identity",
                   "enum": [
                     "shared-key",
                     "sas-token",
                     "connection-string",
-                    "managed-identity"
+                    "identity"
                   ],
                   "default": "shared-key"
                 },
@@ -184,7 +184,7 @@
                     {
                       "properties": {
                         "azure_auth_type": {
-                          "const": "managed-identity"
+                          "const": "identity"
                         },
                         "azure_storage_account_name": {
                           "type": "string",

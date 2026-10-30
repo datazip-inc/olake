@@ -36,7 +36,7 @@ const (
 	AuthSharedKey        = "shared-key"
 	AuthSASToken         = "sas-token"
 	AuthConnectionString = "connection-string"
-	AuthManagedIdentity  = "managed-identity"
+	AuthIdentity         = "identity"
 )
 
 type Config struct {
@@ -93,7 +93,7 @@ func newServiceClient(cfg Config, serviceURL string) (*azblob.Client, error) {
 		return getServiceClientSAS(serviceURL, cfg.SASToken)
 	case AuthSharedKey:
 		return getServiceClientSharedKey(cfg.AccountName, cfg.AccountKey, serviceURL)
-	case AuthManagedIdentity:
+	case AuthIdentity:
 		// DefaultAzureCredential: service principal, workload identity, then managed identity.
 		return getServiceClientTokenCredential(serviceURL, cfg.ClientID)
 	// TODO: service-principal dest auth — client id, tenant, secret via ClientSecretCredential.

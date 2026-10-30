@@ -548,7 +548,7 @@ const ParquetUISchema = `{
         "Shared Key",
         "SAS Token",
         "Connection String",
-        "Managed Identity"
+        "Managed Identity/Workload Identity"
       ]
     },
     "azure_storage_account_key": {

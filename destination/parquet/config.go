@@ -92,14 +92,14 @@ func (c *Config) validateAzureAuthenticationType() error {
 		}
 	case azure.AuthConnectionString:
 		return c.validateConnectionString()
-	case azure.AuthManagedIdentity:
+	case azure.AuthIdentity:
 		if c.AzureStorageAccountName == "" {
 			return fmt.Errorf("azure_storage_account_name is required")
 		}
 		// Token client in azure.New. Dest azure_client_id overrides SA/VM identity; no fallback.
 	default:
 		return fmt.Errorf("azure_auth_type must be %q, %q, %q, or %q",
-			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString, azure.AuthManagedIdentity)
+			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString, azure.AuthIdentity)
 	}
 	return nil
 }
