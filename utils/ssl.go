@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -89,8 +88,6 @@ func (sc *SSLConfig) LoadCertFiles() error {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable,
 				fmt.Errorf("'%s': failed to read file: %w", cert.configKey, err))
 		}
-		// MySQL 8 auto-generated certs end with a NUL byte; strip it.
-		data = bytes.TrimRight(data, "\x00")
 
 		if inline := strings.TrimSpace(*cert.pemField); inline != "" && inline != strings.TrimSpace(string(data)) {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLCertSourceConflict,
