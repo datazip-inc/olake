@@ -141,7 +141,7 @@ func TestConfigValidateStore(t *testing.T) {
 			name: "azure managed identity does not require dest JSON ids",
 			cfg: func() *Config {
 				c := azureCfg
-				c.AzureAuthType = azure.AuthManagedIdentity
+				c.AzureAuthType = azure.AuthIdentity
 				return &c
 			}(),
 		},
@@ -175,7 +175,7 @@ func TestConfigValidateStore(t *testing.T) {
 			name: "azure token auth requires account name",
 			cfg: &Config{
 				StorageType:        storageTypeAzure,
-				AzureAuthType:      azure.AuthManagedIdentity,
+				AzureAuthType:      azure.AuthIdentity,
 				AzureContainerName: "mycontainer",
 			},
 			wantErr: "azure_storage_account_name is required",

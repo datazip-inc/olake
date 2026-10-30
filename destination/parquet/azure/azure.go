@@ -18,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 const (
@@ -35,7 +36,7 @@ const (
 	AuthSharedKey        = "shared-key"
 	AuthSASToken         = "sas-token"
 	AuthConnectionString = "connection-string"
-	AuthManagedIdentity  = "managed-identity"
+	AuthIdentity         = "managed-or-workload-identity"
 )
 
 type Config struct {
@@ -47,6 +48,7 @@ type Config struct {
 	Endpoint         string
 	SASToken         string // user client SAS with own expiration time
 	ConnectionString string
+	ClientID         string // user-assigned MI; empty uses AZURE_CLIENT_ID / system-assigned
 }
 
 // Store is the implementation of the ObjectStore interface for Azure Blob Storage.
@@ -91,9 +93,10 @@ func newServiceClient(cfg Config, serviceURL string) (*azblob.Client, error) {
 		return getServiceClientSAS(serviceURL, cfg.SASToken)
 	case AuthSharedKey:
 		return getServiceClientSharedKey(cfg.AccountName, cfg.AccountKey, serviceURL)
-	case AuthManagedIdentity:
+	case AuthIdentity:
 		// DefaultAzureCredential: service principal, workload identity, then managed identity.
-		return getServiceClientTokenCredential(serviceURL)
+		return getServiceClientTokenCredential(serviceURL, cfg.ClientID)
+	// TODO: service-principal dest auth — client id, tenant, secret via ClientSecretCredential.
 	default:
 		return nil, fmt.Errorf("unsupported azure auth type %q", cfg.AuthType)
 	}
@@ -286,13 +289,42 @@ func (a *Store) IsRateLimitError(err error) bool {
 	return errors.As(err, &respErr) && (respErr.StatusCode == 429 || respErr.StatusCode == 503)
 }
 
-// Service principal, then workload identity, then managed identity.
-// Token refresh is the SDK. Needs a valid serviceURL.
-func getServiceClientTokenCredential(accountURL string) (*azblob.Client, error) {
-	// Create a new service client with token credential
-	credential, err := azidentity.NewDefaultAzureCredential(nil)
+// azureTokenCredential: empty clientID uses DefaultAzureCredential.
+// Set clientID: AKS Workload ID if AZURE_FEDERATED_TOKEN_FILE is set, else IMDS user-assigned MI.
+func azureTokenCredential(clientID string) (azcore.TokenCredential, error) {
+	if clientID == "" {
+		logger.Info("Using default Azure credential chain")
+		credential, err := azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create default Azure credential: %w", err)
+		}
+		return credential, nil
+	}
+	if os.Getenv("AZURE_FEDERATED_TOKEN_FILE") != "" {
+		logger.Infof("Using Azure client ID %s from destination config (workload identity)", clientID)
+		credential, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{
+			ClientID: clientID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Azure workload identity credential: %w", err)
+		}
+		return credential, nil
+	}
+	logger.Infof("Using Azure client ID %s from destination config (managed identity)", clientID)
+	credential, err := azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
+		ID: azidentity.ClientID(clientID),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create default Azure credential: %w", err)
+		return nil, fmt.Errorf("failed to create Azure managed identity credential: %w", err)
+	}
+	return credential, nil
+}
+
+// Token refresh is the SDK. Needs a valid serviceURL.
+func getServiceClientTokenCredential(accountURL, clientID string) (*azblob.Client, error) {
+	credential, err := azureTokenCredential(clientID)
+	if err != nil {
+		return nil, err
 	}
 
 	client, err := azblob.NewClient(accountURL, credential, blobClientOptions())
@@ -336,6 +368,7 @@ func getServiceClientSharedKey(accountName string, accountKey string, accountURL
 }
 
 // blobClientOptions sets the per-try deadline and the User-Agent application id.
+// TODO: Add support for custom Azure TLS certificates.
 func blobClientOptions() *azblob.ClientOptions {
 	options := &azblob.ClientOptions{}
 	options.Retry.TryTimeout = azureTryTimeout
