@@ -78,6 +78,15 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
+// SupportedUpdateTypes returns the delete formats the source can feed, nil when it has no restriction.
+func (a *AbstractDriver) SupportedUpdateTypes() []types.UpdateType {
+	if restricter, ok := a.driver.(UpdateTypeRestricter); ok {
+		return restricter.SupportedUpdateTypes()
+	}
+
+	return nil
+}
+
 func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, skipSchema bool) ([]*types.Stream, error) {
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
@@ -150,15 +159,11 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 			convStream.SyncMode = types.FULLREFRESH
 		}
 
-		// add default stream properties
+		// add default stream properties; the update type is chosen by types.ApplyDestinationDefaults
 		convStream.DefaultStreamProperties = &types.DefaultStreamProperties{
 			Normalization: types.IsDriverRelational(a.driver.Type()),
 			AppendMode:    types.IsDriverAppendOnly(a.driver.Type()),
 			UpdateType:    types.UpdateTypeEquality,
-		}
-		// Kafka upsert always writes positional deletes; append-mode streams never consult this.
-		if a.driver.Type() == string(constants.Kafka) {
-			convStream.DefaultStreamProperties.UpdateType = types.UpdateTypePosition
 		}
 
 		finalStreams = append(finalStreams, convStream)

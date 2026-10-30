@@ -722,6 +722,30 @@ func TestConfiguredStream_AppendModeEnabled(t *testing.T) {
 // An omitted update_type follows the stream's default_stream_properties; an explicit one wins, and
 // catalogs that predate both fall back to equality. A blank one means discover cleared it, so the
 // user must choose before sync is valid.
+// Upsert ops (Kafka dedup_keys) need the table index, so equality becomes positional while
+// the index-backed formats are kept.
+func TestConfiguredStreamUpsertOpUpdateType(t *testing.T) {
+	testCases := []struct {
+		name     string
+		selected *string
+		expected UpdateType
+	}{
+		{"omitted defaults to positional", nil, UpdateTypePosition},
+		{"equality becomes positional", new("eq"), UpdateTypePosition},
+		{"positional is kept", new("pos"), UpdateTypePosition},
+		{"deletion vector is kept", new("dv"), UpdateTypeDeletionVector},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			configured := &ConfiguredStream{
+				Stream:         &Stream{Name: "events"},
+				StreamMetadata: StreamMetadata{AppendMode: new(false), DedupKeys: []string{"_kafka_key"}, UpdateType: tc.selected},
+			}
+			assert.Equal(t, tc.expected, configured.GetUpdateType())
+		})
+	}
+}
+
 func TestConfiguredStreamUpdateTypeResolution(t *testing.T) {
 	stream := func(defaultType UpdateType) *Stream {
 		return &Stream{

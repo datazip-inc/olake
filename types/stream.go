@@ -33,10 +33,11 @@ type Stream struct {
 	Schema *TypeSchema `json:"type_schema,omitempty"`
 	// Supported sync modes from driver for the respective Stream
 	SupportedSyncModes *Set[SyncMode] `json:"supported_sync_modes,omitempty"`
-	// Delete formats every target query engine can read, cheapest first. Discover without
-	// target engines is unconstrained and lists every format OLake can write. Absent only
-	// on catalogs written before target query engines existed.
-	AvailableUpdateTypes []UpdateType `json:"available_update_types,omitempty"`
+	// Delete formats every target query engine can read and the destination can apply,
+	// cheapest first. Discover without either is unconstrained and lists every format OLake
+	// can write. Empty means none qualifies, so the stream can only append; nil means the
+	// catalog predates target query engines. Not omitempty: empty must not read back as nil.
+	AvailableUpdateTypes []UpdateType `json:"available_update_types"`
 	// Primary key if available
 	SourceDefinedPrimaryKey *Set[string] `json:"source_defined_primary_key,omitempty"`
 	// Available cursor fields supported by driver
@@ -190,14 +191,16 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 // LogCatalog merges the fresh discover result with the prior catalog, then writes
 // available_streams.json, selected_streams.json, and streams.json from that one merge.
 // oldCatalog is the prior catalog (legacy streams.json already converted); nil means first-ever discover.
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, engines []QueryEngine) {
+// available is the delete formats from AvailableUpdateTypes; a previously chosen update_type
+// outside it is cleared.
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, available []UpdateType) {
 	message := Message{
 		Type:    CatalogMessage,
-		Catalog: GetWrappedCatalog(streams, engines),
+		Catalog: GetWrappedCatalog(streams),
 	}
 	logger.Info(message)
 
-	merged := mergeCatalogs(oldCatalog, message.Catalog, engines)
+	merged := mergeCatalogs(oldCatalog, message.Catalog, available)
 
 	if err := merged.writeSplitFiles(); err != nil {
 		logger.Fatal(err)

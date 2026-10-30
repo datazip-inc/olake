@@ -205,27 +205,16 @@ func (c *Catalog) WriteToFile(path string) error {
 	return logger.FileLoggerWithPath(c, path)
 }
 
-func GetWrappedCatalog(streams []*Stream, engines []QueryEngine) *Catalog {
+// GetWrappedCatalog wraps discovered streams into a catalog with every stream listed in
+// selected_streams. Destination-dependent defaults are set beforehand by ApplyDestinationDefaults.
+func GetWrappedCatalog(streams []*Stream) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
-	// The default delete format is the cheapest one every target engine can read.
-	available := AvailableUpdateTypes(engines)
-	updateType := PreferredUpdateType(available)
 
 	for _, stream := range streams {
 		stream.RefreshSelectableColumns()
-		stream.AvailableUpdateTypes = available
-		if stream.DefaultStreamProperties != nil {
-			// A driver may preset positional deletes (Kafka upsert always writes them); keep it when offered.
-			if stream.DefaultStreamProperties.UpdateType == UpdateTypePosition && slices.Contains(available, UpdateTypePosition) {
-				stream.DefaultStreamProperties.UpdateType = UpdateTypePosition
-			} else {
-				stream.DefaultStreamProperties.UpdateType = updateType
-			}
-		}
-
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
 		})
@@ -254,9 +243,9 @@ func streamMapByID(streams []*ConfiguredStream) map[string]*ConfiguredStream {
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
 // 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
-// 4. UpdateType: Keep the previous delete format while the target query engines can read it
+// 4. UpdateType: Keep the previous delete format while the target query engines and destination allow it
 // 5. Everything else: Keep as new catalog
-func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Catalog {
+func mergeCatalogs(oldCatalog, newCatalog *Catalog, available []UpdateType) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -280,7 +269,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 						MergeSelectedColumns(&metadata, oldConfigured.Stream, newStream)
 						pinImplicitUpdateType(&metadata, oldConfigured.Stream, newStream)
 					}
-					mergeUpdateType(&metadata, streamID, engines)
+					mergeUpdateType(&metadata, streamID, available)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -341,11 +330,12 @@ func pinImplicitUpdateType(metadata *StreamMetadata, oldStream, newStream *Strea
 	metadata.UpdateType = &pinned
 }
 
-// mergeUpdateType keeps a previously configured delete format only while every current
-// target query engine can still read it. An unreadable choice is cleared rather than
-// replaced: switching delete formats can force a table recreate, so the user must pick the
-// new one explicitly, and a blank update_type fails validation until they do.
-func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine) {
+// mergeUpdateType keeps a previously configured delete format only while it is still in
+// available, the list this discover computed. Anything
+// else is cleared rather than replaced: switching delete formats can force a table
+// recreate, so the user must pick the new one explicitly, and a blank update_type fails
+// validation until they do.
+func mergeUpdateType(metadata *StreamMetadata, streamID string, available []UpdateType) {
 	if metadata.UpdateType == nil {
 		return
 	}
@@ -357,17 +347,11 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryE
 		metadata.UpdateType = &equality
 	}
 
-	// Without target engines nothing constrains the choice.
-	if len(engines) == 0 {
-		return
-	}
-
-	available := AvailableUpdateTypes(engines)
 	if slices.Contains(available, UpdateType(*metadata.UpdateType)) {
 		return
 	}
 
-	logger.Warnf("Stream %s update mode %s is not readable by the selected query engines; cleared, choose one of %v",
+	logger.Warnf("Stream %s update mode %s is not supported by the selected query engines or the destination; cleared, choose one of %v or append mode",
 		streamID, *metadata.UpdateType, available)
 	metadata.UpdateType = new(string)
 }

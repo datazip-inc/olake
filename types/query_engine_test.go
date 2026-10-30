@@ -104,7 +104,7 @@ func TestAvailableUpdateTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, AvailableUpdateTypes(tc.engines))
+			assert.Equal(t, tc.expected, availableUpdateTypes(tc.engines, ""))
 		})
 	}
 }
@@ -152,7 +152,9 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema(), DefaultStreamProperties: &DefaultStreamProperties{}}}
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
-	catalog := GetWrappedCatalog(streams, []QueryEngine{QueryEngineSpark, QueryEngineSnowflake})
+	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, "")
+	ApplyDestinationDefaults(streams, available, false)
+	catalog := GetWrappedCatalog(streams)
 
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
@@ -164,7 +166,9 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	catalog := GetWrappedCatalog(streams, []QueryEngine{QueryEngineSpark, QueryEngineDuckDB})
+	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, "")
+	ApplyDestinationDefaults(streams, available, false)
+	catalog := GetWrappedCatalog(streams)
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	assert.NotContains(t, string(serialized), "target_query_engines")
@@ -212,7 +216,7 @@ func TestMergeCatalogsKeepsImplicitUpdateType(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
 			}
 
-			merged := mergeCatalogs(oldCatalog, newCatalog, tc.engines)
+			merged := mergeCatalogs(oldCatalog, newCatalog, availableUpdateTypes(tc.engines, ""))
 			assert.Equal(t, tc.expected, merged.SelectedStreams["public"][0].UpdateType)
 		})
 	}
@@ -269,7 +273,7 @@ func TestMergeUpdateType(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			metadata := &StreamMetadata{StreamName: "users", UpdateType: tc.existing}
-			mergeUpdateType(metadata, "public.users", tc.engines)
+			mergeUpdateType(metadata, "public.users", availableUpdateTypes(tc.engines, ""))
 			assert.Equal(t, tc.expected, metadata.UpdateType)
 		})
 	}
