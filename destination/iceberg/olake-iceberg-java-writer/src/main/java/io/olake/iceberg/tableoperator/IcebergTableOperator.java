@@ -9,6 +9,7 @@
 package io.olake.iceberg.tableoperator;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -645,6 +646,7 @@ public class IcebergTableOperator {
                     case STRING_VALUE -> protoValue.getStringValue();
                     case BOOL_VALUE -> protoValue.getBoolValue();
                     case BYTES_VALUE -> protoValue.getBytesValue().asReadOnlyByteBuffer();
+                    case DECIMAL_VALUE -> new BigDecimal(protoValue.getDecimalValue());
                     case VALUE_NOT_SET -> null;
                };
                partitionData.set(i, value);

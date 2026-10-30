@@ -524,10 +524,10 @@ func IsType[T ~string](dataType, pattern T, numParams int) (bool, []int) {
 //	ScanType("fixed_binary(16)", "fixed_binary(%d)", width[:]) // true, width == [16]
 //	ScanType("fixed[16]", "fixed_binary(%d)", width[:])        // false, another family
 //
-//	var precisionScale [2]int
+//	var precisionScale [2]int32
 //	ScanType("decimal(9,2)", "decimal(%d,%d)", precisionScale[:])  // true, precisionScale == [9 2]
 //	ScanType("decimal(9, 2)", "decimal(%d,%d)", precisionScale[:]) // false, the pattern has no space
-func ScanType[T ~string](dataType, pattern T, params []int) bool {
+func ScanType[T ~string, N int | int32](dataType, pattern T, params []N) bool {
 	s, p := string(dataType), string(pattern)
 	found := 0
 	for {
@@ -542,9 +542,10 @@ func ScanType[T ~string](dataType, pattern T, params []int) bool {
 		if found == len(params) {
 			return false
 		}
-		param, digits := 0, 0
+		var param N
+		digits := 0
 		for digits < len(s) && s[digits] >= '0' && s[digits] <= '9' {
-			param = param*10 + int(s[digits]-'0')
+			param = param*10 + N(s[digits]-'0')
 			digits++
 		}
 		if digits == 0 || digits > maxTypeParamDigits {

@@ -8,7 +8,7 @@ import (
 
 func TestFixedBinaryOf(t *testing.T) {
 	require.Equal(t, DataType("fixed_binary(16)"), FixedBinaryOf(16))
-	require.Equal(t, FixedBinary, BaseOf(FixedBinaryOf(16)))
+	require.Equal(t, FixedBinary, baseOf(FixedBinaryOf(16)))
 }
 
 func TestFixedBinaryGrammar(t *testing.T) {
@@ -89,10 +89,10 @@ func TestFixedBinaryGrammar(t *testing.T) {
 }
 
 func TestBaseOf(t *testing.T) {
-	require.Equal(t, FixedBinary, BaseOf(FixedBinaryOf(16)))
-	require.Equal(t, FixedBinary, BaseOf(FixedBinary))
+	require.Equal(t, FixedBinary, baseOf(FixedBinaryOf(16)))
+	require.Equal(t, FixedBinary, baseOf(FixedBinary))
 	for _, dataType := range append(declaredDataTypes(t), Null, Unknown, DataType("undeclared_type")) {
-		require.Equal(t, dataType, BaseOf(dataType), "%s must be its own base", dataType)
+		require.Equal(t, dataType, baseOf(dataType), "%s must be its own base", dataType)
 	}
 }
 
@@ -145,6 +145,14 @@ func TestValueType(t *testing.T) {
 		{
 			dataType:  DataType("fixed_binary(0)"),
 			valueType: Binary,
+		},
+		{
+			dataType:  DecimalOf(10, 2),
+			valueType: BigDecimal,
+		},
+		{
+			dataType:  Decimal,
+			valueType: BigDecimal,
 		},
 		{
 			dataType:  DataType("undeclared(1)"),
@@ -279,6 +287,234 @@ func TestTypeFamilyTwoParameters(t *testing.T) {
 			params, ok := decimal.parse(tc.input)
 			require.Equal(t, tc.ok, ok)
 			require.Equal(t, tc.params, params)
+		})
+	}
+}
+
+func TestDecimalOf(t *testing.T) {
+	testCases := []struct {
+		name             string
+		precision, scale int
+		want             DataType
+	}{
+		{
+			name:      "a decimal",
+			precision: 9,
+			scale:     2,
+			want:      DataType("decimal(9,2)"),
+		},
+		{
+			name:      "the narrowest decimal",
+			precision: 1,
+			scale:     0,
+			want:      DataType("decimal(1,0)"),
+		},
+		{
+			name:      "every digit after the point",
+			precision: 38,
+			scale:     38,
+			want:      DataType("decimal(38,38)"),
+		},
+		{
+			name:      "past 38 digits is a string",
+			precision: 39,
+			scale:     2,
+			want:      String,
+		},
+		{
+			name:      "no digits is a string",
+			precision: 0,
+			scale:     0,
+			want:      String,
+		},
+		{
+			name:      "a scale past the precision is a string",
+			precision: 5,
+			scale:     6,
+			want:      String,
+		},
+		{
+			name:      "a negative scale is a string",
+			precision: 5,
+			scale:     -1,
+			want:      String,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, DecimalOf(tc.precision, tc.scale))
+		})
+	}
+}
+
+func TestDecimalParams(t *testing.T) {
+	testCases := []struct {
+		name             string
+		dataType         DataType
+		precision, scale int32
+		ok               bool
+	}{
+		{
+			name:      "a decimal",
+			dataType:  DecimalOf(9, 2),
+			precision: 9,
+			scale:     2,
+			ok:        true,
+		},
+		{
+			name:      "every digit after the point",
+			dataType:  DecimalOf(38, 38),
+			precision: 38,
+			scale:     38,
+			ok:        true,
+		},
+		{
+			name:     "the family pattern holds no parameters",
+			dataType: Decimal,
+			ok:       false,
+		},
+		{
+			name:     "past 38 digits",
+			dataType: DataType("decimal(39,2)"),
+			ok:       false,
+		},
+		{
+			name:     "the iceberg spelling",
+			dataType: DataType("decimal(9, 2)"),
+			ok:       false,
+		},
+		{
+			name:     "another type",
+			dataType: Float64,
+			ok:       false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			precision, scale, ok := DecimalParams(tc.dataType)
+			require.Equal(t, tc.ok, ok)
+			require.Equal(t, tc.precision, precision)
+			require.Equal(t, tc.scale, scale)
+		})
+	}
+}
+
+func TestIcebergDecimalParams(t *testing.T) {
+	testCases := []struct {
+		name             string
+		icebergType      string
+		precision, scale int32
+		ok               bool
+	}{
+		{
+			name:        "a decimal",
+			icebergType: "decimal(9, 2)",
+			precision:   9,
+			scale:       2,
+			ok:          true,
+		},
+		{
+			name:        "the widest decimal",
+			icebergType: "decimal(38, 10)",
+			precision:   38,
+			scale:       10,
+			ok:          true,
+		},
+		{
+			name:        "past 38 digits",
+			icebergType: "decimal(39, 2)",
+			ok:          false,
+		},
+		{
+			name:        "the olake spelling",
+			icebergType: "decimal(9,2)",
+			ok:          false,
+		},
+		{
+			name:        "another type",
+			icebergType: "double",
+			ok:          false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			precision, scale, ok := IcebergDecimalParams(tc.icebergType)
+			require.Equal(t, tc.ok, ok)
+			require.Equal(t, tc.precision, precision)
+			require.Equal(t, tc.scale, scale)
+		})
+	}
+}
+
+func TestDecimalBytes(t *testing.T) {
+	testCases := []struct {
+		name      string
+		precision int32
+		bytes     int32
+	}{
+		{
+			name:      "one digit fits a byte",
+			precision: 1,
+			bytes:     1,
+		},
+		{
+			name:      "two digits fit a byte",
+			precision: 2,
+			bytes:     1,
+		},
+		{
+			name:      "three digits need two bytes",
+			precision: 3,
+			bytes:     2,
+		},
+		{
+			name:      "nine digits fit four bytes",
+			precision: 9,
+			bytes:     4,
+		},
+		{
+			name:      "ten digits need five bytes",
+			precision: 10,
+			bytes:     5,
+		},
+		{
+			name:      "eighteen digits fit eight bytes",
+			precision: 18,
+			bytes:     8,
+		},
+		{
+			name:      "nineteen digits need nine bytes",
+			precision: 19,
+			bytes:     9,
+		},
+		{
+			name:      "twenty digits fit nine bytes",
+			precision: 20,
+			bytes:     9,
+		},
+		{
+			name:      "28 digits fit twelve bytes",
+			precision: 28,
+			bytes:     12,
+		},
+		{
+			name:      "29 digits need thirteen bytes",
+			precision: 29,
+			bytes:     13,
+		},
+		{
+			name:      "38 digits fit sixteen bytes",
+			precision: 38,
+			bytes:     16,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.bytes, DecimalBytes(tc.precision))
 		})
 	}
 }

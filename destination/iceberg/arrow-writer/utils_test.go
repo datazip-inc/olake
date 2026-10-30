@@ -7,9 +7,12 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/decimal128"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/schema"
+	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,6 +68,10 @@ func TestToArrowType(t *testing.T) {
 		},
 		{
 			icebergType: "decimal(9, 2)",
+			want:        &arrow.Decimal128Type{Precision: 9, Scale: 2},
+		},
+		{
+			icebergType: "decimal(39, 2)",
 			want:        arrow.BinaryTypes.String,
 		},
 	}
@@ -163,6 +170,30 @@ func TestAppendValueToBuilder(t *testing.T) {
 				return array.NewFixedSizeBinaryBuilder(mem, &arrow.FixedSizeBinaryType{ByteWidth: 4})
 			},
 			value:   []byte{1, 2, 3, 4, 5},
+			wantErr: true,
+		},
+		{
+			name: "decimal text into a decimal column",
+			builder: func(mem memory.Allocator) array.Builder {
+				return array.NewDecimal128Builder(mem, &arrow.Decimal128Type{Precision: 10, Scale: 2})
+			},
+			value: "-123.4",
+			want:  decimal128.FromI64(-12340),
+		},
+		{
+			name: "a decimal of a smaller scale is padded to the column's",
+			builder: func(mem memory.Allocator) array.Builder {
+				return array.NewDecimal128Builder(mem, &arrow.Decimal128Type{Precision: 11, Scale: 3})
+			},
+			value: decimalValue(t, types.DecimalOf(10, 2), "1.25"),
+			want:  decimal128.FromI64(1250),
+		},
+		{
+			name: "a decimal that would lose a digit is rejected",
+			builder: func(mem memory.Allocator) array.Builder {
+				return array.NewDecimal128Builder(mem, &arrow.Decimal128Type{Precision: 10, Scale: 2})
+			},
+			value:   "1.234",
 			wantErr: true,
 		},
 		{
@@ -374,6 +405,33 @@ func TestArrowFieldsToParquet(t *testing.T) {
 			fieldID:    7,
 		},
 		{
+			name:       "decimal up to 9 digits is an int32",
+			field:      arrow.Field{Name: "d", Type: &arrow.Decimal128Type{Precision: 9, Scale: 2}, Nullable: true},
+			physical:   parquet.Types.Int32,
+			typeLength: -1,
+			logical:    schema.NewDecimalLogicalType(9, 2),
+			repetition: parquet.Repetitions.Optional,
+			fieldID:    -1,
+		},
+		{
+			name:       "decimal up to 18 digits is an int64",
+			field:      arrow.Field{Name: "d", Type: &arrow.Decimal128Type{Precision: 18, Scale: 2}, Nullable: true},
+			physical:   parquet.Types.Int64,
+			typeLength: -1,
+			logical:    schema.NewDecimalLogicalType(18, 2),
+			repetition: parquet.Repetitions.Optional,
+			fieldID:    -1,
+		},
+		{
+			name:       "wider decimal takes the fewest fixed bytes",
+			field:      arrow.Field{Name: "d", Type: &arrow.Decimal128Type{Precision: 20, Scale: 2}, Nullable: true},
+			physical:   parquet.Types.FixedLenByteArray,
+			typeLength: 9,
+			logical:    schema.NewDecimalLogicalType(20, 2),
+			repetition: parquet.Repetitions.Optional,
+			fieldID:    -1,
+		},
+		{
 			name:    "a width parquet cannot store is rejected",
 			field:   arrow.Field{Name: "f", Type: &arrow.FixedSizeBinaryType{ByteWidth: math.MaxInt32 + 1}, Nullable: true},
 			wantErr: true,
@@ -420,7 +478,16 @@ func firstValue(t *testing.T, arr arrow.Array) any {
 		return typed.Value(0)
 	case *array.String:
 		return typed.Value(0)
+	case *array.Decimal128:
+		return typed.Value(0)
 	}
 	t.Fatalf("no reader for array type %T", arr)
 	return nil
+}
+
+func decimalValue(t *testing.T, dataType types.DataType, text string) typeutils.Decimal {
+	t.Helper()
+	value, err := typeutils.ReformatDecimal(dataType, text)
+	require.NoError(t, err)
+	return value
 }

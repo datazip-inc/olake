@@ -90,6 +90,11 @@ func Compare(a, b any) int {
 			}
 		}
 		return strings.Compare(aVal.String(), fmt.Sprintf("%v", b))
+	case Decimal:
+		if bVal, err := exactDecimal(b); err == nil {
+			return aVal.Cmp(bVal)
+		}
+		return strings.Compare(aVal.String(), fmt.Sprintf("%v", b))
 	default:
 		// check for custom timestamp
 		aTime, aOk := a.(Time)

@@ -102,6 +102,8 @@ func TestTypeFromValue(t *testing.T) {
 		{name: "channel", input: make(chan int), expected: types.Unknown},
 		{name: "function", input: func() {}, expected: types.Unknown},
 
+		{name: "decimal_carries_its_type", input: newDecimal(types.DecimalOf(10, 2), "12345"), expected: types.DecimalOf(10, 2)},
+
 		{name: "json_number_integer", input: json.Number("42"), expected: types.Int64},
 		{name: "json_number_float", input: json.Number("42.5"), expected: types.Float64},
 		{name: "json_number_invalid", input: json.Number("invalid"), expected: types.Float64},

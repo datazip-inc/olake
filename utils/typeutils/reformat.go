@@ -87,6 +87,8 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		return []any{v}, nil
 	case types.Binary:
 		return ReformatBytes(v)
+	case types.BigDecimal:
+		return ReformatDecimal(dataType, v)
 	default:
 		return v, nil
 	}
@@ -95,11 +97,13 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 // ParseFilterValue parses v into dataType strictly and returns the typed value.
 // For timestamp types, an unparseable string always returns an error
 // ReformatValue which silently falls back to epoch when isTimestampInDB=true).
-// A binary value is hex from state version 8, as JSON cannot carry bytes.
+// A binary value is hex from state version 8, as JSON cannot carry bytes; a decimal keeps its scale.
 func ParseFilterValue(dataType types.DataType, v any) (any, error) {
-	switch dataType {
+	switch dataType.ValueType() {
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		return ReformatDate(v, false)
+	case types.BigDecimal:
+		return ReformatValue(types.BigDecimal, v)
 	default:
 		value, err := ReformatValue(dataType, v)
 		hexValue, isString := v.(string)
@@ -482,6 +486,8 @@ func ReformatFloat64(v interface{}) (float64, error) {
 			return float64(0), fmt.Errorf("failed to change string %v to float64: %v", v, err)
 		}
 		return f, nil
+	case Decimal:
+		return v.Float64(), nil
 	}
 
 	return float64(0), fmt.Errorf("failed to change %v (type:%T) to float64", v, v)

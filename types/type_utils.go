@@ -40,6 +40,7 @@ type typeFamily struct {
 // families is the roster of parameterised DataTypes. Each family describes itself in its own file.
 var families = []*typeFamily{
 	fixedBinaryFamily,
+	decimalFamily,
 }
 
 func newTypeFamily(pattern DataType, valid func([]int) bool) *typeFamily {
@@ -81,7 +82,7 @@ func asAny(params []int) []any {
 // instanceOf resolves d to its family and parameters: an instance yields both, a family's bare
 // pattern yields the family and no parameters, and a plain type yields neither.
 func instanceOf(d DataType) (*typeFamily, []int) {
-	base := BaseOf(d)
+	base := baseOf(d)
 	for _, f := range families {
 		if f.pattern != base {
 			continue
@@ -105,9 +106,9 @@ func (d DataType) Of(params ...any) DataType {
 	return DataType(fmt.Sprintf(string(d), params...))
 }
 
-// BaseOf returns the family pattern a parameterised instance belongs to, and every other DataType
+// baseOf returns the family pattern a parameterised instance belongs to, and every other DataType
 // unchanged. The typecast tree and the destination mappings are keyed by the base.
-func BaseOf(d DataType) DataType {
+func baseOf(d DataType) DataType {
 	open := strings.IndexByte(string(d), '(')
 	if open < 0 {
 		return d
@@ -115,6 +116,8 @@ func BaseOf(d DataType) DataType {
 	switch d[:open] {
 	case "fixed_binary":
 		return FixedBinary
+	case "decimal":
+		return Decimal
 	default:
 		return d
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	pqgo "github.com/parquet-go/parquet-go"
 )
 
@@ -229,6 +230,150 @@ func TestRollsPerPartition(t *testing.T) {
 	}
 	if got, want := totalRows(t, files), int64(batches*perBatch); got != want {
 		t.Fatalf("row count mismatch: got %d want %d", got, want)
+	}
+}
+
+// decimalRecords is one record whose price column holds text read as a decimal of dataType.
+func decimalRecords(t *testing.T, dataType types.DataType, text string) []types.RawRecord {
+	t.Helper()
+	value, err := typeutils.ReformatDecimal(dataType, text)
+	if err != nil {
+		t.Fatalf("ReformatDecimal(%s): %v", text, err)
+	}
+	return []types.RawRecord{rec(1, map[string]any{"price": value})}
+}
+
+// TestWrite reads back the parquet column type and the value a reader such as spark decodes.
+func TestWrite(t *testing.T) {
+	testCases := []struct {
+		name     string
+		dataType types.DataType
+		text     string
+		node     pqgo.Node
+		want     string
+	}{
+		{
+			name:     "decimal up to 9 digits is an int32",
+			dataType: types.DecimalOf(9, 2),
+			text:     "-1234567.89",
+			node:     pqgo.Decimal(2, 9, pqgo.Int32Type),
+			want:     "-123456789",
+		},
+		{
+			name:     "decimal up to 18 digits is an int64",
+			dataType: types.DecimalOf(18, 4),
+			text:     "12345678901234.5678",
+			node:     pqgo.Decimal(4, 18, pqgo.Int64Type),
+			want:     "123456789012345678",
+		},
+		{
+			name:     "decimal past 18 digits is exact text",
+			dataType: types.DecimalOf(20, 2),
+			text:     "-123456789012345678.90",
+			node:     pqgo.String(),
+			want:     "-123456789012345678.90",
+		},
+		{
+			name:     "the widest decimal is exact text",
+			dataType: types.DecimalOf(38, 10),
+			text:     "-1234567890123456789012345678.0123456789",
+			node:     pqgo.String(),
+			want:     "-1234567890123456789012345678.0123456789",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := newParquet(t, dir, newStream(true, "", map[string]types.DataType{"id": types.Int64, "name": types.String, "price": tc.dataType}), 0, 0)
+			writeBatch(t, p, decimalRecords(t, tc.dataType, tc.text))
+			if err := p.Close(context.Background(), nil); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+
+			files := parquetFiles(t, dir)
+			if len(files) != 1 {
+				t.Fatalf("got %d files, want 1", len(files))
+			}
+			f, err := os.Open(files[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			info, err := f.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			pf, err := pqgo.OpenFile(f, info.Size())
+			if err != nil {
+				t.Fatal(err)
+			}
+			leaf, found := pf.Schema().Lookup("price")
+			if !found {
+				t.Fatal("price column missing from the file")
+			}
+			if !pqgo.EqualNodes(pqgo.Optional(tc.node), leaf.Node) {
+				t.Errorf("node %v, want %v", leaf.Node, tc.node)
+			}
+			rows := make([]pqgo.Row, 1)
+			if n, _ := pf.RowGroups()[0].Rows().ReadRows(rows); n != 1 {
+				t.Fatalf("read %d rows, want 1", n)
+			}
+			if got := rows[0][leaf.ColumnIndex].String(); got != tc.want {
+				t.Errorf("value %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFlattenAndCleanData checks when a decimal value evolves its column, after a first batch that
+// adds the olake columns.
+func TestFlattenAndCleanData(t *testing.T) {
+	column := types.DecimalOf(10, 2)
+	testCases := []struct {
+		name      string
+		valueType types.DataType
+		text      string
+		evolution bool
+		want      types.DataType
+	}{
+		{
+			name:      "a decimal of the column's type changes no schema",
+			valueType: column,
+			text:      "2.50",
+			evolution: false,
+			want:      column,
+		},
+		{
+			name:      "a wider decimal widens the column",
+			valueType: types.DecimalOf(12, 2),
+			text:      "1234567890.12",
+			evolution: true,
+			want:      types.DecimalOf(12, 2),
+		},
+		{
+			name:      "decimals of two scales meet at the decimal holding both",
+			valueType: types.DecimalOf(10, 4),
+			text:      "1.2345",
+			evolution: true,
+			want:      types.DecimalOf(12, 4),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newParquet(t, t.TempDir(), newStream(true, "", map[string]types.DataType{"id": types.Int64, "name": types.String, "price": column}), 0, 0)
+			if _, _, _, err := p.FlattenAndCleanData(context.Background(), decimalRecords(t, column, "1.50")); err != nil {
+				t.Fatalf("first batch: %v", err)
+			}
+			evolution, _, _, err := p.FlattenAndCleanData(context.Background(), decimalRecords(t, tc.valueType, tc.text))
+			if err != nil {
+				t.Fatalf("FlattenAndCleanData: %v", err)
+			}
+			if evolution != tc.evolution || p.schema["price"].Type() != tc.want {
+				t.Fatalf("evolution=%v type=%s, want evolution=%v type=%s", evolution, p.schema["price"].Type(), tc.evolution, tc.want)
+			}
+		})
 	}
 }
 
