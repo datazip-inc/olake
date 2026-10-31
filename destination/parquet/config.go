@@ -38,6 +38,7 @@ type Config struct {
 	AzureAuthType           string `json:"azure_auth_type,omitempty"`
 	AzureSASToken           string `json:"azure_sas_token,omitempty"`
 	AzureConnectionString   string `json:"azure_connection_string,omitempty"`
+	AzureClientID           string `json:"azure_client_id,omitempty"`
 
 	MaxFileSizeMB float64 `json:"max_file_size_mb,omitempty" validate:"gte=0"`
 }
@@ -91,15 +92,14 @@ func (c *Config) validateAzureAuthenticationType() error {
 		}
 	case azure.AuthConnectionString:
 		return c.validateConnectionString()
-	case azure.AuthManagedIdentity:
+	case azure.AuthIdentity:
 		if c.AzureStorageAccountName == "" {
 			return fmt.Errorf("azure_storage_account_name is required")
 		}
-		// Token client in azure.New. VM IMDS / AKS workload identity.
-		// Optional AZURE_CLIENT_ID for user-assigned MI.
+		// Token client in azure.New. Dest azure_client_id overrides SA/VM identity; no fallback.
 	default:
 		return fmt.Errorf("azure_auth_type must be %q, %q, %q, or %q",
-			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString, azure.AuthManagedIdentity)
+			azure.AuthSharedKey, azure.AuthSASToken, azure.AuthConnectionString, azure.AuthIdentity)
 	}
 	return nil
 }
