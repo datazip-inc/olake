@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -224,6 +225,36 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 	values, rowBytes, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
 	if err != nil {
 		return err
+	}
+
+	primaryKeys := stream.GetStream().SourceDefinedPrimaryKey.Array()
+	if rel.ReplicaIdentity == 'i' {
+		// PostgreSQL can omit the old tuple when only a key outside this index changes.
+		for _, key := range primaryKeys {
+			if !slices.ContainsFunc(rel.Columns, func(column *pglogrepl.RelationMessageColumn) bool {
+				return column.Name == key && column.Flags&1 != 0
+			}) {
+				return fmt.Errorf("%w: replica identity for %s does not include primary key column %q", constants.ErrNonRetryable, stream.ID(), key)
+			}
+		}
+	}
+	if m.OldTuple != nil && len(primaryKeys) > 0 {
+		oldValues, oldRowBytes, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+		if err != nil {
+			return err
+		}
+		for _, key := range primaryKeys {
+			if oldValues[key] == nil {
+				return fmt.Errorf("%w: old tuple for %s is missing primary key column %q", constants.ErrNonRetryable, stream.ID(), key)
+			}
+		}
+		// A changed key identifies a new destination row; remove the previous identity first.
+		if utils.GetKeysHash(oldValues, primaryKeys...) != utils.GetKeysHash(values, primaryKeys...) {
+			if err := insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", oldValues,
+				map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, oldRowBytes)); err != nil {
+				return err
+			}
+		}
 	}
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
