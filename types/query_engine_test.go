@@ -159,6 +159,33 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
 
+func TestGetWrappedCatalogKafkaPositionalYieldsWhenUnreadable(t *testing.T) {
+	kafkaSupported := []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}
+	kafkaStream := func(engines []QueryEngine) *Stream {
+		streams := []*Stream{{
+			Name: "users", Namespace: "public", Schema: NewTypeSchema(),
+			DefaultStreamProperties: &DefaultStreamProperties{},
+		}}
+		available, err := AvailableUpdateTypes(engines, &WriterConfig{Type: Iceberg, WriterConfig: map[string]any{}}, kafkaSupported)
+		require.NoError(t, err)
+		ApplyDestinationDefaults(streams, available, false)
+		return GetWrappedCatalog(streams).Streams[0].Stream
+	}
+
+	// Spark reads pos, the first format Kafka allows.
+	spark := kafkaStream([]QueryEngine{QueryEngineSpark})
+	assert.Equal(t, UpdateTypePosition, spark.DefaultStreamProperties.UpdateType)
+
+	// Databricks reads only deletion vectors, so the default cannot be positional.
+	databricks := kafkaStream([]QueryEngine{QueryEngineDatabricks})
+	assert.Equal(t, UpdateTypeDeletionVector, databricks.DefaultStreamProperties.UpdateType)
+	upsert := &ConfiguredStream{
+		Stream:         databricks,
+		StreamMetadata: StreamMetadata{AppendMode: new(false), DedupKeys: []string{"_kafka_key"}},
+	}
+	assert.Equal(t, UpdateTypeDeletionVector, upsert.GetUpdateType())
+}
+
 // The engines themselves are an input, never a field: only the list they produce is written.
 func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 	streams := []*Stream{{

@@ -1827,6 +1827,22 @@ func TestGetStreamsDelta(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypeDeletionVector))}}},
 			},
 		},
+		{
+			name:            "iceberg: kafka upsert pos -> dv is a delta",
+			destinationType: Iceberg,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false), DedupKeys: []string{"_kafka_key"}, UpdateType: new(string(UpdateTypePosition))}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false), DedupKeys: []string{"_kafka_key"}, UpdateType: new(string(UpdateTypeDeletionVector))}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false), DedupKeys: []string{"_kafka_key"}, UpdateType: new(string(UpdateTypeDeletionVector))}}},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
