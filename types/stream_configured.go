@@ -318,12 +318,10 @@ func (s *ConfiguredStream) AppendModeEnabled() bool {
 	return s.defaultStreamProperties().AppendMode
 }
 
-// GetUpdateType returns the stream's delete format. Upsert streams always use positional deletes;
-// otherwise an omitted (nil) update_type follows the stream's default_stream_properties
+// GetUpdateType returns the stream's delete format. An omitted (nil) update_type follows
+// the stream's default_stream_properties. Kafka discover defaults that to positional so
+// upsert (no create vs update) does not fall through to equality; an explicit dv is kept.
 func (s *ConfiguredStream) GetUpdateType() UpdateType {
-	if s.ResolveUpsertOp() {
-		return UpdateTypePosition
-	}
 	if s.StreamMetadata.UpdateType == nil {
 		return resolveConfigurableField(s.defaultStreamProperties().UpdateType, UpdateTypeEquality)
 	}
