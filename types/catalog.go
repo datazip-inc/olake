@@ -218,7 +218,8 @@ func GetWrappedCatalog(streams []*Stream, engines []QueryEngine) *Catalog {
 		stream.RefreshSelectableColumns()
 		stream.AvailableUpdateTypes = available
 		if stream.DefaultStreamProperties != nil {
-			// A driver may preset positional deletes (Kafka upsert always writes them); keep it when offered.
+			// A driver may preset positional deletes (Kafka upsert). Keep it when the
+			// target engines can read it; otherwise use the engine-derived default (dv on Databricks).
 			if stream.DefaultStreamProperties.UpdateType == UpdateTypePosition && slices.Contains(available, UpdateTypePosition) {
 				stream.DefaultStreamProperties.UpdateType = UpdateTypePosition
 			} else {
