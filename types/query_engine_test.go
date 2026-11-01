@@ -157,6 +157,28 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
 
+func TestGetWrappedCatalogKafkaPositionalYieldsWhenUnreadable(t *testing.T) {
+	kafkaStream := func() []*Stream {
+		return []*Stream{{
+			Name: "users", Namespace: "public", Schema: NewTypeSchema(),
+			DefaultStreamProperties: &DefaultStreamProperties{UpdateType: UpdateTypePosition},
+		}}
+	}
+
+	// Spark can still read pos, so the Kafka preset is kept.
+	spark := GetWrappedCatalog(kafkaStream(), []QueryEngine{QueryEngineSpark})
+	assert.Equal(t, UpdateTypePosition, spark.Streams[0].Stream.DefaultStreamProperties.UpdateType)
+
+	// Databricks reads only deletion vectors, so the preset cannot stay positional.
+	databricks := GetWrappedCatalog(kafkaStream(), []QueryEngine{QueryEngineDatabricks})
+	assert.Equal(t, UpdateTypeDeletionVector, databricks.Streams[0].Stream.DefaultStreamProperties.UpdateType)
+	upsert := &ConfiguredStream{
+		Stream:         databricks.Streams[0].Stream,
+		StreamMetadata: StreamMetadata{AppendMode: new(false), DedupKeys: []string{"_kafka_key"}},
+	}
+	assert.Equal(t, UpdateTypeDeletionVector, upsert.GetUpdateType())
+}
+
 // The engines themselves are an input, never a field: only the list they produce is written.
 func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 	streams := []*Stream{{
