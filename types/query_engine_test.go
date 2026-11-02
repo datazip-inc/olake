@@ -226,8 +226,13 @@ func TestMergeCatalogsKeepsImplicitUpdateType(t *testing.T) {
 			engines: []QueryEngine{QueryEngineSpark}, expected: new("pos"),
 		},
 		{
-			// Databricks reads deletion vectors only: the switch to dv must be the user's choice.
-			name: "changed default with an unreadable previous format is cleared", previousDefault: UpdateTypeEquality, currentDefault: UpdateTypeDeletionVector,
+			// Databricks reads deletion vectors only, so the pinned equality moves to them.
+			name: "changed default with an unreadable previous equality moves to the default", previousDefault: UpdateTypeEquality, currentDefault: UpdateTypeDeletionVector,
+			engines: []QueryEngine{QueryEngineDatabricks}, expected: new("dv"),
+		},
+		{
+			// Only equality moves on its own; any other switch must be the user's choice.
+			name: "changed default with an unreadable previous format is cleared", previousDefault: UpdateTypePosition, currentDefault: UpdateTypeDeletionVector,
 			engines: []QueryEngine{QueryEngineDatabricks}, expected: new(""),
 		},
 	}
@@ -289,8 +294,8 @@ func TestMergeUpdateType(t *testing.T) {
 		},
 		{
 			// Databricks reads neither equality nor positional deletes.
-			name: "unreadable equality without positional is cleared", existing: new("eq"),
-			engines: []QueryEngine{QueryEngineDatabricks}, expected: new(""),
+			name: "unreadable equality without positional moves to deletion vectors", existing: new("eq"),
+			engines: []QueryEngine{QueryEngineDatabricks}, expected: new("dv"),
 		},
 		{
 			name: "readable deletion vector is kept", existing: new("dv"),

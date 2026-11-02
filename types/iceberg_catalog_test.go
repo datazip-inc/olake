@@ -144,11 +144,29 @@ func TestGetWrappedCatalogUsesCatalogDerivedUpdateType(t *testing.T) {
 	assert.Equal(t, []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}, streams[0].AvailableUpdateTypes)
 }
 
-func TestMergeUpdateTypeClearsCatalogUnsupportedValue(t *testing.T) {
+func TestMergeUpdateTypeMovesCatalogUnsupportedEquality(t *testing.T) {
 	// Configured as equality before the job pointed at a Unity destination.
 	metadata := &StreamMetadata{StreamName: "users", UpdateType: new(string(UpdateTypeEquality))}
 
 	mergeUpdateType(metadata, "public.users", availableUpdateTypes(nil, "unity"))
+
+	assert.Equal(t, new(string(UpdateTypeDeletionVector)), metadata.UpdateType)
+}
+
+func TestMergeUpdateTypeClearsCatalogUnsupportedValue(t *testing.T) {
+	// Configured as positional before the job pointed at a Unity destination.
+	metadata := &StreamMetadata{StreamName: "users", UpdateType: new(string(UpdateTypePosition))}
+
+	mergeUpdateType(metadata, "public.users", availableUpdateTypes(nil, "unity"))
+
+	assert.Equal(t, new(""), metadata.UpdateType)
+}
+
+// Athena cannot read deletion vectors, the only format Unity offers: equality has nowhere to go.
+func TestMergeUpdateTypeClearsEqualityWhenNothingQualifies(t *testing.T) {
+	metadata := &StreamMetadata{StreamName: "users", UpdateType: new(string(UpdateTypeEquality))}
+
+	mergeUpdateType(metadata, "public.users", availableUpdateTypes([]QueryEngine{QueryEngineAthena}, "unity"))
 
 	assert.Equal(t, new(""), metadata.UpdateType)
 }

@@ -322,10 +322,12 @@ func (s *ConfiguredStream) AppendModeEnabled() bool {
 // stream's default_stream_properties. Upsert ops resolve insert vs update through the table index,
 // so a format without one (equality) becomes positional.
 func (s *ConfiguredStream) GetUpdateType() UpdateType {
-	updateType := resolveConfigurableField(s.defaultStreamProperties().UpdateType, UpdateTypeEquality)
+	updateType := s.defaultStreamProperties().UpdateType
 	if s.StreamMetadata.UpdateType != nil {
-		updateType = resolveConfigurableField(UpdateType(*s.StreamMetadata.UpdateType), UpdateTypeEquality)
+		updateType = UpdateType(*s.StreamMetadata.UpdateType)
 	}
+	updateType = resolveConfigurableField(updateType, UpdateTypeEquality)
+	// Upsert resolves insert vs update through the table index; equality has none.
 	if s.ResolveUpsertOp() && !updateType.NeedsTableIndex(Iceberg) {
 		return UpdateTypePosition
 	}
