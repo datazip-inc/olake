@@ -234,9 +234,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			map[string]string{"col_cursor": "6", "col_cursor_decimal": "6", "excludedColumn": "101"}))
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// insert a filtered row — timestamp is before the filter threshold, so it won't be synced; its
-		// col_cursor_decimal tops every other row's, so a decimal cursor incremental sync reads it
+		// col_cursor_decimal tops every other row's yet still fits DECIMAL(20,4) once rounded through a double
 		err = exec(ctx, db, insertRowQuery(integrationTestTable, seedCols, true,
-			map[string]string{"col_cursor_decimal": "9999999999999999.9999", "excludedColumn": "200"}))
+			map[string]string{"col_cursor_decimal": "999999999999999.9999", "excludedColumn": "200"}))
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
@@ -311,7 +311,7 @@ var ExpectedDB2Data = map[string]interface{}{
 	"col_character":  "char_val",
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_decimal":    float64(123.45),
+	"col_decimal":    testutils.Decimal("123.4500"),
 	"col_decfloat":   "123.45",
 	"col_double":     123.456789,
 	"col_real":       float32(123.5),
@@ -346,7 +346,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_bool":       true,
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_decimal":    float64(12345678901234.5678),
+	"col_decimal":    testutils.Decimal("12345678901234.5678"),
 	"col_decfloat":   "123.45",
 	"col_double":     123.456789,
 	"col_real":       float32(123.5),
@@ -370,8 +370,8 @@ var DB2ToDestinationSchema = map[string]string{
 	"col_bool":           "boolean",
 	"col_varchar":        "string",
 	"col_date":           "timestamp",
-	"col_cursor_decimal": "double",
-	"col_decimal":        "double",
+	"col_cursor_decimal": "decimal(20,4)",
+	"col_decimal":        "decimal(18,4)",
 	"col_decfloat":       "string",
 	"col_double":         "double",
 	"col_real":           "float",
@@ -394,8 +394,8 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_bool":           "boolean",
 	"col_varchar":        "string",
 	"col_date":           "timestamp",
-	"col_cursor_decimal": "double",
-	"col_decimal":        "double",
+	"col_cursor_decimal": "decimal(20,4)",
+	"col_decimal":        "decimal(18,4)",
 	"col_decfloat":       "string",
 	"col_double":         "double",
 	"col_real":           "float",
@@ -413,11 +413,13 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 // DB2TypeMapping maps the source types DB2ToDestinationSchema declare to the type they land as in
 // the destination. A declared type missing here fails the suite with "No mapping defined".
 var DB2TypeMapping = map[string]string{
-	"bigint":    "bigint",
-	"boolean":   "boolean",
-	"double":    "double",
-	"float":     "float",
-	"integer":   "int",
-	"string":    "string",
-	"timestamp": "timestamp",
+	"bigint":        "bigint",
+	"boolean":       "boolean",
+	"decimal(18,4)": "decimal(18,4)",
+	"decimal(20,4)": "decimal(20,4)",
+	"double":        "double",
+	"float":         "float",
+	"integer":       "int",
+	"string":        "string",
+	"timestamp":     "timestamp",
 }

@@ -617,7 +617,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 // fails the base filter.
 func ExpectedFilteredMSSQLData() map[string]interface{} {
 	data := maps.Clone(ExpectedMSSQLData)
-	data["col_decimal"] = float64(239835.89)
+	data["col_decimal"] = testutils.Decimal("239835.89")
 	return data
 }
 
@@ -629,7 +629,7 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"col_bigint":   int64(19),
 
 	// numerics
-	"col_decimal": float64(123.5),
+	"col_decimal": testutils.Decimal("123.50"),
 	"col_numeric": float64(10.125),
 	"col_float":   float64(123.5),
 	"col_real":    float32(12.5),
@@ -638,7 +638,7 @@ var ExpectedMSSQLData = map[string]interface{}{
 
 	// money
 	"col_smallmoney": float64(1.25),
-	"col_money":      float64(2.5),
+	"col_money":      testutils.Decimal("2.5000"),
 
 	// strings
 	"col_char":     "char_val__",
@@ -674,7 +674,7 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_bigint":   int64(20),
 
 	// numerics
-	"col_decimal": float64(543.25),
+	"col_decimal": testutils.Decimal("543.25"),
 	"col_numeric": float64(10.125),
 	"col_float":   float64(123.5),
 	"col_real":    float32(321.0),
@@ -684,7 +684,7 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 
 	// money
 	"col_smallmoney": float64(1.25),
-	"col_money":      float64(922337203685477.5807),
+	"col_money":      testutils.Decimal("922337203685477.5807"),
 
 	// strings
 	"col_char":     "char_val__",
@@ -730,11 +730,11 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_smallint":           "smallint",
 	"col_int":                "int",
 	"col_bigint":             "bigint",
-	"col_cursor_decimal":     "double",
-	"col_decimal":            "double",
+	"col_cursor_decimal":     "decimal(20,4)",
+	"col_decimal":            "decimal(18,2)",
 	"col_numeric":            "double",
 	"col_smallmoney":         "double",
-	"col_money":              "double",
+	"col_money":              "decimal(19,4)",
 	"col_float":              "double",
 	"col_real":               "real",
 	"col_bit":                "boolean",
@@ -765,13 +765,16 @@ var MSSQLToDestinationSchema = map[string]string{
 // MSSQLTypeMapping maps the source types MSSQLToDestinationSchema declare to the type they land as in
 // the destination. A declared type missing here fails the suite with "No mapping defined".
 var MSSQLTypeMapping = map[string]string{
-	"bigint":    "bigint",
-	"boolean":   "boolean",
-	"double":    "double",
-	"int":       "int",
-	"real":      "float",
-	"smallint":  "int",
-	"string":    "string",
-	"timestamp": "timestamp",
-	"tinyint":   "int",
+	"bigint":        "bigint",
+	"boolean":       "boolean",
+	"decimal(18,2)": "decimal(18,2)",
+	"decimal(19,4)": "decimal(19,4)",
+	"decimal(20,4)": "decimal(20,4)",
+	"double":        "double",
+	"int":           "int",
+	"real":          "float",
+	"smallint":      "int",
+	"string":        "string",
+	"timestamp":     "timestamp",
+	"tinyint":       "int",
 }

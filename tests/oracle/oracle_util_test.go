@@ -243,7 +243,7 @@ var ExpectedOracleData = map[string]interface{}{
 	"col_character":        "char_val  ", // Oracle CHAR is fixed width, padded with spaces
 	"col_varchar2":         "varchar_val",
 	"col_date":             arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_decimal":          float64(123.45),
+	"col_decimal":          testutils.Decimal("123.4500"),
 	"col_double_precision": 123.456789,
 	"col_float":            float32(123.5),
 	"col_int":              int32(123),
@@ -278,7 +278,7 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_character":        "char_val  ", // Oracle CHAR is fixed width, padded with spaces
 	"col_varchar2":         "varchar_val",
 	"col_date":             arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_decimal":          float64(12345678901234.5678),
+	"col_decimal":          testutils.Decimal("12345678901234.5678"),
 	"col_double_precision": 123.456789,
 	"col_float":            float32(123.5),
 	"col_int":              int64(123),
@@ -300,8 +300,8 @@ var OracleToDestinationSchema = map[string]string{
 	"col_character":        "string",
 	"col_varchar2":         "string",
 	"col_date":             "timestamp",
-	"col_cursor_decimal":   "double",
-	"col_decimal":          "double",
+	"col_cursor_decimal":   "decimal(20,4)",
+	"col_decimal":          "decimal(18,4)",
 	"col_double_precision": "double",
 	"col_float":            "float",
 	"col_int":              "int",
@@ -322,8 +322,8 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_character":        "string",
 	"col_varchar2":         "string",
 	"col_date":             "timestamp",
-	"col_cursor_decimal":   "double",
-	"col_decimal":          "double",
+	"col_cursor_decimal":   "decimal(20,4)",
+	"col_decimal":          "decimal(18,4)",
 	"col_double_precision": "double",
 	"col_float":            "float",
 	"col_int":              "bigint",
@@ -341,10 +341,12 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 // OracleTypeMapping maps the source types OracleToDestinationSchema declare to the type they land as in
 // the destination. A declared type missing here fails the suite with "No mapping defined".
 var OracleTypeMapping = map[string]string{
-	"bigint":    "bigint",
-	"double":    "double",
-	"float":     "float",
-	"int":       "int",
-	"string":    "string",
-	"timestamp": "timestamp",
+	"bigint":        "bigint",
+	"decimal(18,4)": "decimal(18,4)",
+	"decimal(20,4)": "decimal(20,4)",
+	"double":        "double",
+	"float":         "float",
+	"int":           "int",
+	"string":        "string",
+	"timestamp":     "timestamp",
 }
