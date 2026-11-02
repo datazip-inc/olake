@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// This package's init runs RootCmd.Execute, so the file logger is already pointed at ./logs
-// before a test can redirect it. classifyStreams logs its skips, which creates that directory;
-// drop it afterwards rather than leaving it in the tree.
+// classifyStreams logs its skips, which can create ./logs; drop it afterwards
+// rather than leaving it in the tree.
 func discardStrayLogs(t *testing.T) {
 	t.Helper()
 	if _, err := os.Stat("logs"); err == nil {
@@ -24,12 +24,15 @@ func discardStrayLogs(t *testing.T) {
 // stream is one configured stream in a test catalog. The metadata lives on the catalog's
 // selected_streams block, not here: classifyStreams overwrites StreamMetadata from that map.
 type stream struct {
-	name        string
-	mode        types.SyncMode
-	normalized  bool
-	partitioned bool
-	unselected  bool                // present in streams but absent from selected_streams
-	filter      *types.FilterConfig // only read when normalized, so it can be made invalid
+	name          string
+	mode          types.SyncMode
+	normalized    bool
+	partitioned   bool
+	unselected    bool                // present in streams but absent from selected_streams
+	schemaMissing bool                // in selected_streams but absent from streams[]
+	filter        *types.FilterConfig // only read when normalized, so it can be made invalid
+	updateType    string              // selected_streams update_type; blank as legacy catalogs leave it
+	available     []types.UpdateType  // stream's available_update_types; empty on legacy catalogs
 }
 
 // catalogOf builds the two halves classifyStreams reads: the configured streams and the
@@ -37,13 +40,15 @@ type stream struct {
 func catalogOf(streams ...stream) *types.Catalog {
 	catalog := &types.Catalog{SelectedStreams: map[string][]types.StreamMetadata{}}
 	for _, s := range streams {
-		catalog.Streams = append(catalog.Streams, &types.ConfiguredStream{
-			Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode},
-		})
+		if !s.schemaMissing {
+			catalog.Streams = append(catalog.Streams, &types.ConfiguredStream{
+				Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode, AvailableUpdateTypes: s.available},
+			})
+		}
 		if s.unselected {
 			continue
 		}
-		metadata := types.StreamMetadata{StreamName: s.name, Normalization: s.normalized, FilterConfig: s.filter}
+		metadata := types.StreamMetadata{StreamName: s.name, Normalization: new(s.normalized), FilterConfig: s.filter, UpdateType: &s.updateType}
 		if s.partitioned {
 			metadata.PartitionRegex = "/{now,year}"
 		}
@@ -57,10 +62,11 @@ func catalogOf(streams ...stream) *types.Catalog {
 // past the skip branches: a stream that is not synced must not appear in any of them.
 func TestClassifyStreamsMix(t *testing.T) {
 	testCases := []struct {
-		name         string
-		streams      []stream
-		expectedMix  types.StreamMix
-		expectedCode string // non-empty: no stream survives, so the run fails with this code
+		name            string
+		streams         []stream
+		destinationType types.DestinationType // empty defaults to iceberg
+		expectedMix     types.StreamMix
+		expectedCode    string // non-empty: no stream survives, so the run fails with this code
 	}{
 		// each mode lands in its own counter, and an unknown mode falls to full refresh
 		{
@@ -96,6 +102,15 @@ func TestClassifyStreamsMix(t *testing.T) {
 				Selected: 3, Normalized: 2, Partitioned: 2,
 			},
 		},
+		// selected but missing from streams[] is never visited, so it reaches no counter
+		{
+			name: "selected streams missing from streams[] are not counted",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.FULLREFRESH, schemaMissing: true},
+			},
+			expectedMix: types.StreamMix{CDC: 1, Selected: 1},
+		},
 		// a stream missing from selected_streams is never synced, so it reaches no counter
 		{
 			name: "unselected streams are not counted",
@@ -124,6 +139,29 @@ func TestClassifyStreamsMix(t *testing.T) {
 			},
 			expectedMix: types.StreamMix{CDC: 1, Selected: 1},
 		},
+		// discover clears update_type the target engines cannot read; the stream must wait for
+		// an explicit choice, while a legacy catalog without the list still defaults to equality
+		{
+			name: "streams skipped for an unset or unreadable update type are not counted",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
+				{name: "c", mode: types.CDC, updateType: "eq", available: []types.UpdateType{types.UpdateTypePosition}},
+				{name: "d", mode: types.CDC, updateType: "pos", available: []types.UpdateType{types.UpdateTypePosition}},
+			},
+			expectedMix: types.StreamMix{CDC: 2, Selected: 2, StreamWithPosUpdateType: 1},
+		},
+		// parquet writes no deletes, so the same streams are all synced there
+		{
+			name: "parquet syncs streams with an unset or unreadable update type",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
+				{name: "c", mode: types.CDC, updateType: "eq", available: []types.UpdateType{types.UpdateTypePosition}},
+			},
+			destinationType: types.Parquet,
+			expectedMix:     types.StreamMix{CDC: 3, Selected: 3},
+		},
 		// with nothing left to sync there is no mix to report, and the run fails before the
 		// sync events are sent rather than reporting a run of zero streams
 		{
@@ -137,7 +175,8 @@ func TestClassifyStreamsMix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			discardStrayLogs(t)
 
-			got, err := classifyStreams(catalogOf(tc.streams...), nil, &types.State{})
+			destinationType := utils.Ternary(tc.destinationType == "", types.Iceberg, tc.destinationType).(types.DestinationType)
+			got, err := classifyStreams(catalogOf(tc.streams...), nil, &types.State{}, destinationType)
 			if tc.expectedCode != "" {
 				require.Error(t, err)
 				assert.Nil(t, got)

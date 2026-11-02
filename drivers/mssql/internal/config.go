@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 )
@@ -24,6 +23,9 @@ type Config struct {
 	ManageCaptureInstances bool              `json:"manage_capture_instances"`
 	SSHConfig              *utils.SSHConfig  `json:"ssh_config"`
 	PrimaryConfig          *PrimaryConfig    `json:"primary_config,omitempty"`
+	// UpdateMethod selects CDC or standard replication. Configs saved before this field existed
+	// leave it empty, which keeps CDC available.
+	UpdateMethod interface{} `json:"update_method"`
 }
 
 // PrimaryConfig holds connection details for the primary replica when the main
@@ -53,12 +55,12 @@ func (c *Config) Validate() error {
 			fmt.Errorf("database is required"))
 	}
 
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	if c.SSLConfiguration == nil {

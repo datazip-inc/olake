@@ -85,7 +85,6 @@ func (o *Oracle) Setup(ctx context.Context) error {
 	}
 
 	o.client = client
-	o.config.RetryCount = utils.Ternary(o.config.RetryCount <= 0, 1, o.config.RetryCount+1).(int)
 	return nil
 }
 

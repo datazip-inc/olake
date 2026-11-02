@@ -1,0 +1,13 @@
+{
+  "bucket_name": "olake-s3-test",
+  "region": "us-east-1",
+  "path_prefix": "${suite}",
+  "access_key_id": "admin",
+  "secret_access_key": "password",
+  "endpoint": "http://host.docker.internal:9000",
+  "file_format": "xml",
+  "xml": {
+    "row_identifier": "order"
+  },
+  "compression": "gzip"
+}

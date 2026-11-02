@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -35,7 +36,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 	backfillCompletionChannel := make(chan string, len(streams))
 	defer close(backfillCompletionChannel)
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		isStrictCDC := stream.GetStream().SyncMode == types.STRICTCDC
+		isStrictCDC := stream.GetSyncMode() == types.STRICTCDC
 		if a.state.HasCompletedBackfill(stream.Self()) || isStrictCDC {
 			logger.Infof("backfill %s for stream[%s], skipping", utils.Ternary(isStrictCDC, "not enabled", "completed").(string), stream.ID())
 			backfillCompletionChannel <- stream.ID()
@@ -57,7 +58,9 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		if isConcurrentMode {
 			a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
 				streamIndex, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				return a.streamChanges(connGroupCtx, pool, streamIndex, streams)
+				// a concurrent change stream reads only its own stream, so it gets only that stream's writer;
+				// writers for the other streams would commit this stream's position into their tables
+				return a.streamChanges(connGroupCtx, pool, streamIndex, streams[streamIndex:streamIndex+1])
 			})
 		} else {
 			// In sequential/parallel modes, track completion but don't start CDC yet
@@ -120,7 +123,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 	for _, stream := range streams {
 		threadID := generateThreadID(stream.ID(), "")
-		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
+		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true), destination.WithKeepDeletesThroughFilter(slices.Contains(constants.CDCKeepDeletesThroughFilterDrivers, constants.DriverType(a.driver.Type()))))
 		if createErr != nil {
 			return fmt.Errorf("failed to create CDC writer for stream %s: %w", stream.ID(), createErr)
 		}
@@ -143,7 +146,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		writer := writers[change.Stream.ID()]
 		olakeColumns := map[string]any{
 			constants.OlakeID:        utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
-			constants.OpType:         mapChangeKindToOperationType(change.Kind, dedupInserts[change.Stream.ID()]),
+			constants.OpType:         mapChangeKindToOperationType(change.Kind, dedupInserts[change.Stream.ID()], change.Stream),
 			constants.CdcTimestamp:   change.Timestamp,
 			constants.OlakeTimestamp: time.Now().UTC(),
 		}
@@ -164,10 +167,14 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 // mapInsertOpType returns the _op_type string for a CDC change.
 // Inserts emit "i" during the backfill overlap window (dedupInserts=true) and "c" otherwise.
-func mapChangeKindToOperationType(kind string, dedupInserts bool) string {
-	switch kind {
-	case "delete":
+func mapChangeKindToOperationType(kind string, dedupInserts bool, stream types.StreamInterface) string {
+	if kind == "delete" {
 		return "d"
+	}
+	if stream.ResolveUpsertOp() {
+		return "u"
+	}
+	switch kind {
 	case "update":
 		return "u"
 	default:

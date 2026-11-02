@@ -36,7 +36,12 @@ func TypeFromValue(v interface{}) types.DataType {
 		}
 		return types.String
 	case []byte:
-		return types.String
+		switch {
+		case !utils.IsBinarySupported():
+			return types.String
+		default:
+			return types.Binary
+		}
 	case time.Time:
 		return detectTimestampPrecision(val)
 	case []any:

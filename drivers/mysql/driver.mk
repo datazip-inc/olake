@@ -6,7 +6,7 @@ MYSQL_QUERY = docker exec olake_mysql-test mysql -h localhost -u root -proot1234
 
 # EXPECT_VERSION must come from outside the compose files -- deriving it from them would compare
 # the stack against itself and pass whatever booted. Empty means the default stack, nothing to
-# assert. 5.7 predates binlog_row_metadata, and that absence is what pkg/binlog falls back for.
+# assert. 5.7 predates binlog_row_metadata, and that absence is what internal/binlog falls back for.
 VERIFY_STACK.mysql = \
 	version=$$($(MYSQL_QUERY) "SELECT VERSION()"); \
 	echo "mysql server reports $$version (expected: $(or $(EXPECT_VERSION),any))"; \

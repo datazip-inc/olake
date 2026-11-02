@@ -1,0 +1,593 @@
+package binlog
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"strings"
+	"time"
+
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/jmoiron/sqlx"
+	"github.com/pingcap/tidb/pkg/parser/charset"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/unicode"
+)
+
+const (
+	CDCBinlogFileName = "_cdc_binlog_file_name" // MySQL binlog file name
+	CDCBinlogFilePos  = "_cdc_binlog_file_pos"  // MySQL binlog file position
+
+)
+
+// TableMapEvent wraps replication.TableMapEvent so we can define receiver methods on it.
+type TableMapEvent struct {
+	*replication.TableMapEvent
+}
+
+// ChangeFilter filters binlog events based on the specified streams.
+type ChangeFilter struct {
+	streams       map[string]types.StreamInterface // Keyed by "schema.table"
+	converter     func(value interface{}, columnType string) (interface{}, error)
+	lastGTIDEvent time.Time
+	schema        *schemaCache // information_schema fallback for omitted binlog metadata
+}
+
+// NewChangeFilter creates a filter for the given streams. schemaClient backs the
+// information_schema fallback for servers that omit binlog row metadata.
+func NewChangeFilter(schemaClient *sqlx.DB, state Binlog, foldCase bool, typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
+	filter := ChangeFilter{
+		streams:   make(map[string]types.StreamInterface),
+		converter: typeConverter,
+		schema:    newSchemaCache(schemaClient, state, foldCase),
+	}
+	for _, stream := range streams {
+		filter.streams[fmt.Sprintf("%s.%s", stream.Namespace(), stream.Name())] = stream
+		filter.schema.streamed[filter.schema.tableKey(stream.Namespace(), stream.Name())] = true
+	}
+	return filter
+}
+
+// FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
+func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, pos mysql.Position, callback abstract.CDCMsgFn) error {
+	schemaName := string(e.Table.Schema)
+	tableName := string(e.Table.Table)
+	stream, exists := f.streams[schemaName+"."+tableName]
+	if !exists {
+		return nil
+	}
+
+	var operationType string
+	switch ev.Header.EventType {
+	case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
+		operationType = "insert"
+	case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
+		operationType = "update"
+	case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
+		operationType = "delete"
+	default:
+		return nil
+	}
+
+	view, err := f.resolveColumns(ctx, e)
+	if err != nil {
+		return err
+	}
+
+	var rowsToProcess [][]interface{}
+	if operationType == "update" {
+		// For an "update" operation, the rows contain pairs of (before, after) images: [before, after, before, after, ...]
+		// We start from the second element (i=1) and step by 2 to get the "after" row (the updated state).
+		for i := 1; i < len(e.Rows); i += 2 {
+			rowsToProcess = append(rowsToProcess, e.Rows[i]) // Take after-images for updates
+		}
+	} else {
+		rowsToProcess = e.Rows
+	}
+
+	for _, row := range rowsToProcess {
+		record, err := convertRowToMap(row, view, f.converter)
+		if err != nil {
+			return err
+		}
+		if record == nil {
+			continue
+		}
+
+		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
+		// otherwise fall back to second-precision header timestamp
+		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
+
+		// Bytes: InnoDB on-disk byte sum for this row, carried on the change and added per record by the writer.
+		change := abstract.NewCDCChange(stream, timestamp, operationType, record,
+			map[string]any{
+				CDCBinlogFileName: pos.Name,
+				CDCBinlogFilePos:  pos.Pos, // Use the event position
+			},
+			mysqlCDCRowBytes(row, view.types))
+		if err := callback(ctx, change); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// columnView is everything needed to decode one RowsEvent. Indexed by ordinal position.
+type columnView struct {
+	names      []string
+	types      []string   // mysqlTypeName output, e.g. "UNSIGNED BIGINT"
+	widths     []int      // nil for non-fixed-length types
+	enumValues [][]string // nil for non-ENUM columns
+	setMembers [][]string // nil for non-SET columns
+	collations []uint64   // 0 = no charset decoding
+}
+
+// resolveColumns takes each field from the binlog when the server logged it and from
+// information_schema otherwise. Field by field, not all-or-nothing: MINIMAL logs signedness
+// and charsets while omitting names and ENUM/SET members. Type bytes and ENUM/SET detection
+// are mandatory TableMapEvent fields, so they always come from the binlog.
+func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEvent) (*columnView, error) {
+	tableMap := e.Table
+	n := len(tableMap.ColumnType)
+
+	view := &columnView{
+		names:      tableMap.ColumnNameString(),
+		types:      make([]string, n),
+		widths:     make([]int, n),
+		enumValues: make([][]string, n),
+		setMembers: make([][]string, n),
+		collations: make([]uint64, n),
+	}
+
+	tm := &TableMapEvent{tableMap}
+	unsignedMap := tm.unsignedMap()
+	namesMissing := len(view.names) != n
+	// MySQL omits the SignednessBitmap for tables with no numeric column, so a nil map only
+	// means missing metadata when there is a numeric column. Without the second test, a plain
+	// (varchar, text, datetime) table would query information_schema on a path that otherwise
+	// needs no database access, inheriting that query's failure modes.
+	signednessMissing := unsignedMap == nil && tm.hasNumericColumn()
+
+	// Remaining fields fall back per column in fillEnumSetAndCollations.
+	var meta *tableMeta
+	if namesMissing || signednessMissing {
+		var err error
+		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table), tableMap.TableID, tableMap.ColumnType)
+		if err != nil {
+			return nil, err
+		}
+		if len(meta.Columns) != n {
+			// Altered between this event and the read; refuse rather than write mismatched rows.
+			return nil, fmt.Errorf("schema drift for %s.%s: binlog has %d columns, information_schema has %d",
+				tableMap.Schema, tableMap.Table, n, len(meta.Columns))
+		}
+	}
+
+	if namesMissing {
+		view.names = make([]string, n)
+		for i, col := range meta.Columns {
+			view.names[i] = col.Name
+		}
+	}
+
+	for i := 0; i < n; i++ {
+		// A nil unsignedMap reads false, which is correct here: that only pairs with
+		// !signednessMissing when no column is numeric, and mysqlTypeName ignores the flag
+		// for every non-numeric type.
+		isUnsigned := unsignedMap[i]
+		if signednessMissing {
+			isUnsigned = meta.Columns[i].Unsigned
+		}
+		view.types[i] = mysqlTypeName(tableMap.ColumnType[i], isUnsigned)
+		if tableMap.ColumnType[i] == mysql.MYSQL_TYPE_STRING && !tableMap.IsEnumColumn(i) && !tableMap.IsSetColumn(i) {
+			view.widths[i] = fixedWidth(tableMap.ColumnMeta[i])
+		}
+	}
+
+	fillEnumSetAndCollations(view, tableMap, meta)
+	return view, nil
+}
+
+// fillEnumSetAndCollations populates ENUM/SET members and collation IDs, preferring the
+// binlog per field. It matters at MINIMAL, which logs charsets but not members: binlog
+// collations describe the table as of the event, information_schema only as it is now.
+//
+// meta may be non-nil while the binlog still wins. Binlog members are raw bytes in the
+// column's charset and are decoded here; information_schema members already came back as
+// UTF-8 through the connection charset and must not be decoded twice.
+func fillEnumSetAndCollations(view *columnView, tableMap *replication.TableMapEvent, meta *tableMeta) {
+	enumSetCollations := tableMap.EnumSetCollationMap()
+	collations := tableMap.CollationMap()
+	// Empty means no charset metadata was logged at all (MySQL < 8.0.1, MariaDB). A table
+	// with no character columns still gets a populated map with no entry for them, read as 0.
+	haveBinlogCollations := len(collations) != 0
+
+	enumP, setP := 0, 0
+	for i := range view.types {
+		switch {
+		case tableMap.IsEnumColumn(i):
+			if enumP < len(tableMap.EnumStrValue) {
+				view.enumValues[i] = decodeMembers(tableMap.EnumStrValue[enumP], enumSetCollations[i])
+			} else if meta != nil {
+				view.enumValues[i] = meta.Columns[i].EnumValues
+			}
+			enumP++ // advance even when empty, to stay in step with EnumStrValue
+		case tableMap.IsSetColumn(i):
+			if setP < len(tableMap.SetStrValue) {
+				view.setMembers[i] = decodeMembers(tableMap.SetStrValue[setP], enumSetCollations[i])
+			} else if meta != nil {
+				view.setMembers[i] = meta.Columns[i].SetMembers
+			}
+			setP++
+		case haveBinlogCollations:
+			view.collations[i] = collations[i]
+		case meta != nil:
+			view.collations[i] = meta.Columns[i].CollationID
+		}
+	}
+}
+
+func decodeMembers(raw [][]byte, collationID uint64) []string {
+	out := make([]string, len(raw))
+	for i, b := range raw {
+		if s, err := decodeBytesToString(b, collationID); err == nil {
+			out[i] = s
+		} else {
+			out[i] = string(b) // fallback
+		}
+	}
+	return out
+}
+
+// convertRowToMap converts a binlog row to a map. A row image drops the trailing 0x00 bytes MySQL
+// pads a BINARY(n) value with, so the value is padded back to its declared width: it then matches
+// what a SELECT returns, and a BINARY(n) key hashes to the same olake id on backfill and CDC.
+func convertRowToMap(row []interface{}, view *columnView, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
+	if len(view.names) != len(row) {
+		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(view.names), len(row))
+	}
+
+	// NOTE: For MySQL CDC (binlog-based), FLOAT values are read directly from the binlog and may
+	// differ from SELECT output due to SQL-layer formatting/rounding.
+	record := make(map[string]interface{}, len(row))
+	for i, val := range row {
+		// The converter is told the SQL type, which the binary and text branches below
+		// refine from the wire type; view.types is left untouched for the byte accounting.
+		columnType := view.types[i]
+		switch {
+		case view.enumValues[i] != nil:
+			// ENUM arrives as the 1-based member index (int64). Index 0 is MySQL's marker
+			// for an invalid insert and maps to the empty string.
+			if idx, isInt64 := val.(int64); isInt64 {
+				val = ""
+				if idx > 0 && int(idx) <= len(view.enumValues[i]) {
+					val = view.enumValues[i][idx-1]
+				}
+			}
+
+		case view.setMembers[i] != nil:
+			// MySQL SET columns are stored in the binlog as an int64 bitmask:
+			// bit 0 = first member, bit 1 = second member, etc.
+			// e.g. SET('sports','music','gaming','reading') with value 'sports,reading' -> bitmask = 0b1001 = 9
+			if bitmask, isInt64 := val.(int64); isInt64 {
+				members := view.setMembers[i]
+				selected := make([]string, 0, len(members))
+				for bit := 0; bit < len(members); bit++ {
+					if bitmask&(1<<bit) != 0 {
+						selected = append(selected, members[bit])
+					}
+				}
+				val = strings.Join(selected, ",")
+			}
+
+		case view.collations[i] != 0:
+			val, columnType = decodeCollatedValue(val, view.collations[i], view.widths[i], columnType)
+		}
+
+		convertedVal, err := converter(val, columnType)
+		if err != nil && err != typeutils.ErrNullValue {
+			return nil, err
+		}
+		record[view.names[i]] = convertedVal
+	}
+	return record, nil
+}
+
+// decodeCollatedValue returns a collated binlog value with its column type. Below state version 8
+// it decodes to text. From 8 only binary collations keep their bytes, padded to width.
+func decodeCollatedValue(val any, collationID uint64, width int, columnType string) (any, string) {
+	var raw []byte
+	switch v := val.(type) {
+	case string:
+		raw = []byte(v)
+	case []byte:
+		raw = v
+	}
+	if raw == nil {
+		return val, columnType
+	}
+	switch {
+	case !utils.IsBinarySupported():
+		if decoded, err := decodeBytesToString(raw, collationID); err == nil {
+			return decoded, columnType
+		}
+	case isBinaryCollation(collationID):
+		return padToWidth(raw, width), binaryTypeName(columnType)
+	default:
+		if decoded, err := decodeBytesToString(raw, collationID); err == nil {
+			return decoded, textTypeName(columnType)
+		}
+	}
+	return val, columnType
+}
+
+// mysqlTypeName maps MySQL binlog protocol type bytes to SQL type names.
+func mysqlTypeName(t byte, unsigned bool) string {
+	switch t {
+	case mysql.MYSQL_TYPE_DECIMAL:
+		return "DECIMAL"
+	case mysql.MYSQL_TYPE_TINY:
+		if unsigned {
+			return "UNSIGNED TINYINT"
+		}
+		return "TINYINT"
+	case mysql.MYSQL_TYPE_SHORT:
+		if unsigned {
+			return "UNSIGNED SMALLINT"
+		}
+		return "SMALLINT"
+	case mysql.MYSQL_TYPE_LONG:
+		if unsigned {
+			return "UNSIGNED INT"
+		}
+		return "INT"
+	case mysql.MYSQL_TYPE_FLOAT:
+		return "FLOAT"
+	case mysql.MYSQL_TYPE_DOUBLE:
+		return "DOUBLE"
+	case mysql.MYSQL_TYPE_NULL:
+		return "NULL"
+	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIMESTAMP2:
+		return "TIMESTAMP"
+	case mysql.MYSQL_TYPE_LONGLONG:
+		if unsigned {
+			return "UNSIGNED BIGINT"
+		}
+		return "BIGINT"
+	case mysql.MYSQL_TYPE_INT24:
+		if unsigned {
+			return "UNSIGNED MEDIUMINT"
+		}
+		return "MEDIUMINT"
+	case mysql.MYSQL_TYPE_DATE:
+		return "DATE"
+	case mysql.MYSQL_TYPE_TIME, mysql.MYSQL_TYPE_TIME2:
+		return "TIME"
+	case mysql.MYSQL_TYPE_DATETIME, mysql.MYSQL_TYPE_DATETIME2:
+		return "DATETIME"
+	case mysql.MYSQL_TYPE_YEAR:
+		return "YEAR"
+	case mysql.MYSQL_TYPE_VARCHAR:
+		return "VARCHAR"
+	case mysql.MYSQL_TYPE_BIT:
+		return "BIT"
+	case mysql.MYSQL_TYPE_JSON:
+		return "JSON"
+	case mysql.MYSQL_TYPE_NEWDECIMAL:
+		return "DECIMAL"
+	case mysql.MYSQL_TYPE_ENUM:
+		return "ENUM"
+	case mysql.MYSQL_TYPE_SET:
+		return "SET"
+	case mysql.MYSQL_TYPE_TINY_BLOB:
+		return "TINYBLOB"
+	case mysql.MYSQL_TYPE_BLOB:
+		return "BLOB"
+	case mysql.MYSQL_TYPE_MEDIUM_BLOB:
+		return "MEDIUMBLOB"
+	case mysql.MYSQL_TYPE_LONG_BLOB:
+		return "LONGBLOB"
+	case mysql.MYSQL_TYPE_STRING:
+		return "CHAR" // for mysql, string type is char type
+	case mysql.MYSQL_TYPE_GEOMETRY:
+		return "GEOMETRY"
+	default:
+		return fmt.Sprintf("UNKNOWN_TYPE: %d", t)
+	}
+}
+
+// unsignedMap returns a map: column index -> unsigned.
+// Note that only columns with signedness information will be returned.
+// nil is returned if not available or no signedness columns at all.
+func (e *TableMapEvent) unsignedMap() map[int]bool {
+	if len(e.SignednessBitmap) == 0 {
+		return nil
+	}
+	ret := make(map[int]bool)
+	i := 0
+	for _, field := range e.SignednessBitmap {
+		for c := 0x80; c != 0; {
+			if e.isNumericColumn(i) {
+				ret[i] = field&byte(c) != 0
+				c >>= 1
+			}
+			i++
+			if i >= len(e.ColumnType) {
+				return ret
+			}
+		}
+	}
+	return ret
+}
+
+// hasNumericColumn reports whether any column would carry a signedness bit. MySQL writes
+// the SignednessBitmap only for such tables, so its absence is otherwise ambiguous.
+func (e *TableMapEvent) hasNumericColumn() bool {
+	for i := range e.ColumnType {
+		if e.isNumericColumn(i) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *TableMapEvent) isNumericColumn(i int) bool {
+	switch e.ColumnType[i] {
+	case mysql.MYSQL_TYPE_TINY,
+		mysql.MYSQL_TYPE_SHORT,
+		mysql.MYSQL_TYPE_INT24,
+		mysql.MYSQL_TYPE_LONG,
+		mysql.MYSQL_TYPE_LONGLONG,
+		mysql.MYSQL_TYPE_YEAR,
+		mysql.MYSQL_TYPE_FLOAT,
+		mysql.MYSQL_TYPE_DOUBLE,
+		mysql.MYSQL_TYPE_DECIMAL,
+		mysql.MYSQL_TYPE_NEWDECIMAL:
+		return true
+	default:
+		return false
+	}
+}
+
+// mysqlStringDecoders maps MySQL charset names to their byte-to-UTF-8 decoder functions.
+// Charsets not listed here fall back to a raw string cast (passthrough), which is correct
+// for utf8/utf8mb4/ascii since their bytes are already valid UTF-8.
+var mysqlStringDecoders = map[string]func([]byte) (string, error){
+	"utf8":    decodeRawString,
+	"utf8mb3": decodeRawString,
+	"utf8mb4": decodeRawString,
+	"ascii":   decodeRawString,
+	"latin1":  decodeLatin1,
+	"ucs2":    decodeUTF16BE, // UCS-2 is Big Endian, BMP-only subset of UTF-16
+	"utf16":   decodeUTF16BE,
+	"utf16le": decodeUTF16LE,
+}
+
+func decodeRawString(b []byte) (string, error) {
+	return string(b), nil
+}
+
+// mysqlLatin1Decode holds the full byte→rune table for MySQL's latin1: cp1252
+// with the five bytes cp1252 leaves undefined mapped to their C1 control
+// characters, as MySQL does. x/text's Windows1252 decoder would replace those
+// five with U+FFFD, which is not reversible.
+var mysqlLatin1Decode = func() (t [256]rune) {
+	for i := range t {
+		t[i] = charmap.Windows1252.DecodeByte(byte(i)) //nolint:gosec // i < 256
+	}
+	t[0x81], t[0x8D], t[0x8F], t[0x90], t[0x9D] = 0x81, 0x8D, 0x8F, 0x90, 0x9D
+	return t
+}()
+
+// decodeLatin1 decodes MySQL's latin1, which is cp1252 rather than ISO-8859-1:
+// bytes 0x80-0x9F carry typographic characters (curly quotes, dashes, ellipsis,
+// euro sign) instead of C1 controls.
+func decodeLatin1(b []byte) (string, error) {
+	var sb strings.Builder
+	sb.Grow(len(b))
+	for _, c := range b {
+		sb.WriteRune(mysqlLatin1Decode[c])
+	}
+	return sb.String(), nil
+}
+
+func decodeUTF16BE(b []byte) (string, error) {
+	out, err := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM).NewDecoder().Bytes(b)
+	return string(out), err
+}
+
+func decodeUTF16LE(b []byte) (string, error) {
+	out, err := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder().Bytes(b)
+	return string(out), err
+}
+
+// isBinaryCollation reports whether a binlog collation ID is the binary charset, which is how
+// BINARY, VARBINARY and BLOB columns are told apart from CHAR, VARCHAR and TEXT on the wire.
+func isBinaryCollation(collationID uint64) bool {
+	if collationID > math.MaxInt32 {
+		return false
+	}
+	coll, _ := charset.GetCollationByID(int(collationID)) //nolint:gosec // bounds checked above
+	return coll != nil && coll.CharsetName == charset.CharsetBin
+}
+
+// binaryTypeName maps the wire type name of a binary-charset column to the MySQL binary type
+// with the same storage: CHAR -> BINARY, VARCHAR -> VARBINARY; the BLOB family is already binary.
+func binaryTypeName(wireType string) string {
+	switch wireType {
+	case "CHAR":
+		return "BINARY"
+	case "VARCHAR":
+		return "VARBINARY"
+	default:
+		return wireType
+	}
+}
+
+// fixedWidth returns the declared byte width of a CHAR or BINARY column from its TableMapEvent
+// meta, unpacked the way go-mysql's decodeValue does: the high byte carries the real type and, for a
+// width past 255 bytes, its two spare bits carry the width's high bits.
+func fixedWidth(meta uint16) int {
+	if meta < 256 {
+		return int(meta)
+	}
+	realType, low := byte(meta>>8), meta&0xFF
+	if realType&0x30 != 0x30 {
+		return int(low | uint16((realType&0x30)^0x30)<<4)
+	}
+	return int(low)
+}
+
+// padToWidth zero-pads b to width, restoring the trailing 0x00 bytes a row image drops from a
+// BINARY(n) value. A column without a width, or a value already that long, is returned as is.
+func padToWidth(b []byte, width int) []byte {
+	if len(b) >= width {
+		return b
+	}
+	padded := make([]byte, width)
+	copy(padded, b)
+	return padded
+}
+
+// textTypeName maps the BLOB wire type of a text-charset column to its TEXT counterpart; the
+// CHAR and VARCHAR wire types are text already.
+func textTypeName(wireType string) string {
+	switch wireType {
+	case "TINYBLOB":
+		return "TINYTEXT"
+	case "BLOB":
+		return "TEXT"
+	case "MEDIUMBLOB":
+		return "MEDIUMTEXT"
+	case "LONGBLOB":
+		return "LONGTEXT"
+	default:
+		return wireType
+	}
+}
+
+// decodeBytesToString converts raw binlog bytes to a UTF-8 string using the MySQL collation ID.
+// Falls back to a raw string cast for unknown collations or charsets.
+func decodeBytesToString(b []byte, collationID uint64) (string, error) {
+	if len(b) == 0 {
+		return "", nil
+	}
+	// MySQL collation IDs are small integers; guard against overflow before casting.
+	if collationID > math.MaxInt32 {
+		return string(b), nil
+	}
+	coll, _ := charset.GetCollationByID(int(collationID)) //nolint:gosec // bounds checked above
+	if coll == nil {
+		return string(b), nil
+	}
+	decoder, ok := mysqlStringDecoders[coll.CharsetName]
+	if !ok {
+		return string(b), nil
+	}
+	return decoder(b)
+}

@@ -9,9 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +74,26 @@ func Ternary(cond bool, a, b any) any {
 		return a
 	}
 	return b
+}
+
+// HumanDuration renders a duration for display in the largest unit it reaches, rounded to one
+// decimal: "45 seconds", "12.5 minutes", "1 hour", "7.5 days". Days is the largest unit.
+func HumanDuration(d time.Duration) string {
+	unit, n := "second", d.Seconds()
+	switch {
+	case d >= 24*time.Hour:
+		unit, n = "day", d.Hours()/24
+	case d >= time.Hour:
+		unit, n = "hour", d.Hours()
+	case d >= time.Minute:
+		unit, n = "minute", d.Minutes()
+	}
+	n = math.Round(n*10) / 10
+	s := strconv.FormatFloat(n, 'f', -1, 64) + " " + unit
+	if n != 1 {
+		s += "s"
+	}
+	return s
 }
 
 // return the average of the given values.
@@ -197,6 +219,22 @@ func UnmarshalFile(file string, dest any, credsFile bool) error {
 	return nil
 }
 
+// UpdateMethodType returns the "type" of an update_method config object, so a driver can tell
+// CDC from standard replication. It returns "" when the field is absent, which is how configs
+// saved before the driver had an update_method read: the driver decides what to do with that.
+func UpdateMethodType(updateMethod any) string {
+	if updateMethod == nil {
+		return ""
+	}
+	var method struct {
+		Type string `json:"type"`
+	}
+	if err := Unmarshal(updateMethod, &method); err != nil {
+		return ""
+	}
+	return method.Type
+}
+
 func IsOfType(object any, decidingKey string) (bool, error) {
 	objectMap := make(map[string]any)
 	if err := Unmarshal(object, &objectMap); err != nil {
@@ -266,12 +304,25 @@ func IsJSON(str string) bool {
 	return json.Unmarshal([]byte(str), &js) == nil
 }
 
+// keyString renders one primary key value for the olake id. Byte values (binary keys) are hex encoded
+func keyString(v any) string {
+	switch {
+	case !IsBinarySupported():
+		return fmt.Sprint(v)
+	default:
+		if b, ok := v.([]byte); ok {
+			return hex.EncodeToString(b)
+		}
+		return fmt.Sprint(v)
+	}
+}
+
 // GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
 func GetKeysHash(m map[string]interface{}, keys ...string) string {
 	// if single primary key is present use as it is
 	if len(keys) == 1 {
 		if _, ok := m[keys[0]]; ok {
-			return fmt.Sprint(m[keys[0]])
+			return keyString(m[keys[0]])
 		}
 	}
 
@@ -283,7 +334,7 @@ func GetKeysHash(m map[string]interface{}, keys ...string) string {
 
 	var str strings.Builder
 	for _, k := range keys {
-		str.WriteString(fmt.Sprint(m[k]))
+		str.WriteString(keyString(m[k]))
 		str.WriteRune('|')
 	}
 	//nolint:gosec // G115: overflow not applicable for md5.Sum input size
@@ -446,6 +497,65 @@ func SplitAndTrim(s string) []string {
 	return result
 }
 
+// maxTypeParamDigits bounds a type parameter to 9 digits, which always fits an int, even a 32-bit one.
+const maxTypeParamDigits = 9
+
+// IsType reports whether dataType is an instance of pattern, a type whose non-negative integer
+// parameters are written %d (fixed_binary(%d), fixed[%d]), with exactly numParams of them, and
+// returns the parameters in order. dataType must be spelled exactly as the pattern renders.
+func IsType[T ~string](dataType, pattern T, numParams int) (bool, []int) {
+	var scratch [4]int
+	params := scratch[:0]
+	if numParams > len(scratch) {
+		params = make([]int, 0, numParams)
+	}
+	params = params[:numParams]
+	if !ScanType(dataType, pattern, params) {
+		return false, nil
+	}
+	return true, append([]int(nil), params...)
+}
+
+// ScanType is IsType writing the parameters into params, whose length is the number expected, so
+// a per-value caller can scan into an array on its stack without allocating.
+// For example:
+//
+//	var width [1]int
+//	ScanType("fixed_binary(16)", "fixed_binary(%d)", width[:]) // true, width == [16]
+//	ScanType("fixed[16]", "fixed_binary(%d)", width[:])        // false, another family
+//
+//	var precisionScale [2]int
+//	ScanType("decimal(9,2)", "decimal(%d,%d)", precisionScale[:])  // true, precisionScale == [9 2]
+//	ScanType("decimal(9, 2)", "decimal(%d,%d)", precisionScale[:]) // false, the pattern has no space
+func ScanType[T ~string](dataType, pattern T, params []int) bool {
+	s, p := string(dataType), string(pattern)
+	found := 0
+	for {
+		literal, rest, hasParam := strings.Cut(p, "%d")
+		var matched bool
+		if s, matched = strings.CutPrefix(s, literal); !matched {
+			return false
+		}
+		if !hasParam {
+			return s == "" && found == len(params)
+		}
+		if found == len(params) {
+			return false
+		}
+		param, digits := 0, 0
+		for digits < len(s) && s[digits] >= '0' && s[digits] <= '9' {
+			param = param*10 + int(s[digits]-'0')
+			digits++
+		}
+		if digits == 0 || digits > maxTypeParamDigits {
+			return false
+		}
+		params[found] = param
+		found++
+		s, p = s[digits:], rest
+	}
+}
+
 // RetryWithSkip calls f once and retries up to maxRetries more times on error,
 // using linear backoff ((retry+1)*sleep) between each attempt.
 // shouldRetry is called on each non-nil error: return true to keep retrying, false to surface the
@@ -478,8 +588,10 @@ func RetryWithSkip(ctx context.Context, maxRetries int, sleep time.Duration, sho
 	return err
 }
 
-// RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
+// RetryOnBackoff invokes f once and retries it up to attempts times with a backoff
+// sleep between attempts (i.e. at most attempts+1 total invocations).
 func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
+	attempts = attempts + 1
 	for cur := range attempts {
 		select {
 		case <-ctx.Done():

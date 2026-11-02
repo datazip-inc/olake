@@ -46,12 +46,11 @@ function fail() {
 
 # Function to check and enable buildx support
 function setup_buildx() {
-    echo "Setting up Docker buildx and QEMU..."
+    echo "Setting up Docker buildx..."
     docker buildx version >/dev/null 2>&1 || fail "Docker buildx is not installed. Please install it."
-    docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || fail "Failed to set up QEMU"
     docker buildx create --use --name multiarch-builder || echo "Buildx builder already exists, using it."
     docker buildx inspect --bootstrap || fail "Failed to bootstrap buildx builder"
-    echo "✅ Buildx and QEMU setup complete"
+    echo "✅ Buildx setup complete"
 }
 
 # Function to perform the release
@@ -85,7 +84,7 @@ function release() {
         -t "${image_name}:${tag_version}" \
         -t "${image_name}:${latest_tag}" \
         --build-arg DRIVER_NAME="$connector" \
-        --build-arg DRIVER_VERSION="$VERSION" . || fail "Multi-platform build failed. Exiting..."
+        --build-arg DRIVER_VERSION="$VERSION" $build_args . || fail "Multi-platform build failed. Exiting..."
     
     echo "$(chalk green "Release successful for $image_name version $tag_version")"
 }
@@ -124,12 +123,14 @@ else
     echo "✅ Flexible versioning allowed for development branch: $VERSION"
 fi
 
-# Setup buildx and QEMU
+# Setup buildx
 setup_buildx
 
 # Release the driver. Platforms come from drivers/platforms.conf ('*' default, per-driver
 # overrides); set PLATFORMS=... in the environment to force a specific list.
 platform=$(make -s "print.platforms.$DRIVER") && [[ -n "$platform" ]] || fail "Could not resolve platforms for driver '$DRIVER'"
+# Per-driver build flags from its driver.mk (DOCKER_BUILD_ARGS.<d>), e.g. db2's GO_BUILD=target.
+build_args=$(make -s "print.docker-build-args.$DRIVER") || fail "Could not resolve build args for driver '$DRIVER'"
 
 echo "✅ Releasing driver $DRIVER for version $VERSION on branch $CURRENT_BRANCH to platforms: $platform"
 

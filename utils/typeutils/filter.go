@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -20,7 +21,7 @@ type parsedCondition struct {
 
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
-func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any, resolve func(string) string) ([]types.RawRecord, error) {
+func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any, resolve func(string) string, keepDeletesThroughFilter bool) ([]types.RawRecord, error) {
 	if len(filter.Conditions) == 0 {
 		return records, nil
 	}
@@ -29,43 +30,53 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 		logger.Warnf("legacy filter detected, skipping filtering records")
 		return records, nil
 	}
-	logger.Infof("filtering records with filter: %+v", filter)
-	conditions := make([]parsedCondition, len(filter.Conditions))
-	for i, cond := range filter.Conditions {
-		cond.Column = resolve(cond.Column)
-		dataType, err := getFilterColumnDataType(cond.Column, schema)
+
+	// Deletes kept through the filter pass straight through; only the other records are filtered.
+	keep := make([]bool, len(records))
+	toFilter := make([]int, 0, len(records))
+	for i, record := range records {
+		if op, _ := record.OlakeColumns[constants.OpType].(string); keepDeletesThroughFilter && op == "d" {
+			keep[i] = true
+		} else {
+			toFilter = append(toFilter, i)
+		}
+	}
+
+	if len(toFilter) > 0 {
+		logger.Infof("filtering records with filter: %+v", filter)
+		conditions := make([]parsedCondition, len(filter.Conditions))
+		for i, cond := range filter.Conditions {
+			cond.Column = resolve(cond.Column)
+			dataType, err := getFilterColumnDataType(cond.Column, schema)
+			if err != nil {
+				return nil, err
+			}
+			parsedVal, err := ParseFilterValue(dataType, cond.Value)
+			if err != nil && err != ErrNullValue {
+				return nil, fmt.Errorf("failed to parse filter value for column [%s]: %s", cond.Column, err)
+			}
+			conditions[i] = parsedCondition{
+				column:   cond.Column,
+				operator: cond.Operator,
+				value:    parsedVal,
+			}
+		}
+		err := utils.Concurrent(ctx, toFilter, runtime.GOMAXPROCS(0)*16, func(_ context.Context, idx int, _ int) error {
+			keep[idx] = matches(records[idx], conditions, filter.LogicalOperator)
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
-		parsedVal, err := ParseFilterValue(dataType, cond.Value)
-		if err != nil && err != ErrNullValue {
-			return nil, fmt.Errorf("failed to parse filter value for column [%s]: %s", cond.Column, err)
-		}
-		conditions[i] = parsedCondition{
-			column:   cond.Column,
-			operator: cond.Operator,
-			value:    parsedVal,
+	}
+
+	filtered := make([]types.RawRecord, 0, len(records))
+	for i, record := range records {
+		if keep[i] {
+			filtered = append(filtered, record)
 		}
 	}
-	return func() ([]types.RawRecord, error) {
-		concurrency := runtime.GOMAXPROCS(0) * 16
-		filtered := make([]types.RawRecord, 0, len(records))
-		keep := make([]bool, len(records))
-
-		err := utils.Concurrent(ctx, records, concurrency, func(_ context.Context, record types.RawRecord, i int) error {
-			match := matches(record, conditions, filter.LogicalOperator)
-			if match {
-				keep[i] = true
-			}
-			return nil
-		})
-		for i, record := range records {
-			if keep[i] {
-				filtered = append(filtered, record)
-			}
-		}
-		return filtered, err
-	}()
+	return filtered, nil
 }
 
 func getFilterColumnDataType(column string, schema any) (types.DataType, error) {

@@ -9,7 +9,6 @@ import (
 
 // Codes for conditions this driver detects itself, where the server never named the failure.
 const (
-	codeReplicationSlotMissing  = "postgres.replication_slot_missing"
 	codeSlotTypeUnsupported     = "postgres.slot_type_unsupported"
 	codePublicationMissing      = "postgres.publication_missing"
 	codeGlobalStateUnreadable   = "postgres.global_state_unreadable"
@@ -23,6 +22,7 @@ const (
 	codeHostMissing             = "postgres.host_missing"
 	codeHostSchemeIncluded      = "postgres.host_scheme_included"
 	codePortInvalid             = "postgres.port_invalid"
+	codeDatabaseMissing         = "postgres.database_missing"
 	codeSchemaBlank             = "postgres.schema_blank"
 )
 

@@ -18,9 +18,10 @@ type (
 	initWriter func(config any) (Writer, func(ctx context.Context), error)
 
 	Options struct {
-		Backfill    bool
-		ThreadID    string
-		ApplyFilter bool
+		Backfill                 bool
+		ThreadID                 string
+		ApplyFilter              bool
+		KeepDeletesThroughFilter bool
 		// TableIndex maps _olake_id to the row's location in the destination table.
 		TableIndex types.StreamIndex
 	}
@@ -88,6 +89,12 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 	}
 }
 
+func WithKeepDeletesThroughFilter(keep bool) ThreadOptions {
+	return func(opt *Options) {
+		opt.KeepDeletesThroughFilter = keep
+	}
+}
+
 // NewWriterPool manages a destination's shared resources (e.g., Iceberg JVM) and connection health.
 // It initializes global state, runs checks, and provides thread-level writers. Call Close() to clean up.
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []types.StreamInterface, batchSize int64) (*WriterPool, error) {
@@ -126,7 +133,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			schema: nil,
 		}
 
-		if !stream.Self().StreamMetadata.AppendMode && stream.GetUpdateType().NeedsTableIndex(config.Type) {
+		if !stream.AppendModeEnabled() && stream.GetUpdateType().NeedsTableIndex(config.Type) {
 			streamIndex, err := indexdb.Open(stream)
 			if err != nil {
 				pool.Shutdown(ctx)
@@ -382,11 +389,12 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []
 		return nil
 	}
 
+	// Always drop the stream index: dropStreams carry the new update type, not the one the
+	// index was built under, so a dv/pos -> eq clear would otherwise leave a stale index
+	// that outlives the recreated table. Dropping a missing index is a no-op.
 	for _, stream := range dropStreams {
-		if stream.GetUpdateType().NeedsTableIndex(config.Type) {
-			if err := indexdb.Drop(stream); err != nil {
-				return err
-			}
+		if err := indexdb.Drop(stream); err != nil {
+			return err
 		}
 	}
 

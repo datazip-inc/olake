@@ -4,35 +4,36 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/compatibility"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
 type kafkaFormat struct {
 	name string
-	cfg  *testutils.IntegrationTest
+	// newTestHandler runs inside the subtest, not beside it: every name a suite owns is derived from
+	// t.Name(), so both formats built against the parent would answer to the same one.
+	newTestHandler func(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler
+	// destinationSchema is the format's destination column types, which the compatibility suite
+	// resolves its type-keyed rules against.
+	destinationSchema map[string]string
 }
 
-func kafkaFormats(t *testing.T) []kafkaFormat {
-	return []kafkaFormat{
-		{name: "JSON-Format", cfg: kafkaJSONBaseConfig(t)},
-		{name: "AVRO-Format", cfg: kafkaAvroBaseConfig(t)},
-	}
+var kafkaFormats = []kafkaFormat{
+	{name: "JSON-Format", newTestHandler: kafkaJSONBaseConfig, destinationSchema: KafkaToDestinationJSONSchema},
+	{name: "AVRO-Format", newTestHandler: kafkaAvroBaseConfig, destinationSchema: KafkaToDestinationAvroSchema},
 }
 
-func kafkaJSONBaseConfig(t *testing.T) *testutils.IntegrationTest {
-	return &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(t, string(constants.Kafka), "json"),
-		Namespace:                        "topics",
-		ExpectedData:                     ExpectedKafkaJSONData,
-		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
-		DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
-		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationJSONSchema,
-		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
-		ExecuteQuery:                     ExecuteQueryJSON,
-		DestinationDB:                    "kafka_topics",
-		PartitionRegex:                   "/{int_value,identity}",
-		ColumnToExclude:                  "col_excluded",
-		FilterConfig: `{
+// kafkaJSONTestConfig builds the config every kafka JSON suite shares: the source, the namespace and the stream settings.
+func kafkaJSONTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.Kafka, "topics", ExecuteQueryJSON,
+		append([]testutils.TestConfigOption{testutils.WithDataFormat("json")}, opts...)...)
+	require.NoError(t, err, "failed to build the test config")
+	cfg.PartitionRegex = "/{int_value,identity}"
+	cfg.ColumnToExclude = "col_excluded"
+	cfg.SkipSchemaEvolution = true
+	cfg.FilterConfig = `{
 			"logical_operator": "And",
 			"conditions": [
 				{
@@ -46,24 +47,33 @@ func kafkaJSONBaseConfig(t *testing.T) *testutils.IntegrationTest {
 					"value": 100.00
 				}
 			]
-		}`,
+		}`
+
+	return cfg
+}
+
+// kafkaJSONBaseConfig is kafkaJSONTestConfig with the integration suites' expected data.
+func kafkaJSONBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                       kafkaJSONTestConfig(t, opts...),
+		ExpectedData:                     ExpectedKafkaJSONData,
+		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
+		DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationJSONSchema,
+		TypeMapping:                      KafkaTypeMapping,
+		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 	}
 }
 
-func kafkaAvroBaseConfig(t *testing.T) *testutils.IntegrationTest {
-	return &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(t, string(constants.Kafka), "avro"),
-		Namespace:                        "topics",
-		ExpectedData:                     ExpectedKafkaAvroData,
-		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
-		DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
-		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationAvroSchema,
-		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
-		ExecuteQuery:                     ExecuteQueryAvro,
-		DestinationDB:                    "kafka_topics",
-		PartitionRegex:                   "/{int64_value,identity}",
-		ColumnToExclude:                  "col_excluded",
-		FilterConfig: `{
+// kafkaAvroTestConfig builds the config every kafka Avro suite shares: the source, the namespace and the stream settings.
+func kafkaAvroTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.Kafka, "topics", ExecuteQueryAvro,
+		append([]testutils.TestConfigOption{testutils.WithDataFormat("avro")}, opts...)...)
+	require.NoError(t, err, "failed to build the test config")
+	cfg.PartitionRegex = "/{int64_value,identity}"
+	cfg.ColumnToExclude = "col_excluded"
+	cfg.SkipSchemaEvolution = true
+	cfg.FilterConfig = `{
 			"logical_operator": "And",
 			"conditions": [
 				{
@@ -77,24 +87,38 @@ func kafkaAvroBaseConfig(t *testing.T) *testutils.IntegrationTest {
 					"value": 100.00
 				}
 			]
-		}`,
+		}`
+
+	return cfg
+}
+
+// kafkaAvroBaseConfig is kafkaAvroTestConfig with the integration suites' expected data.
+func kafkaAvroBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                       kafkaAvroTestConfig(t, opts...),
+		ExpectedData:                     ExpectedKafkaAvroData,
+		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
+		DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationAvroSchema,
+		TypeMapping:                      KafkaTypeMapping,
+		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 	}
 }
 
 func TestKafkaDiscover(t *testing.T) {
-	for _, format := range kafkaFormats(t) {
+	for _, format := range kafkaFormats {
 		t.Run(format.name, func(t *testing.T) {
-			format.cfg.TestDiscover(t)
+			format.newTestHandler(t).TestDiscover(t)
 		})
 	}
 }
 
 func TestKafkaSync(t *testing.T) {
 	t.Parallel()
-	for _, format := range kafkaFormats(t) {
+	for _, format := range kafkaFormats {
 		t.Run(format.name, func(t *testing.T) {
 			t.Parallel()
-			format.cfg.TestSync(t)
+			format.newTestHandler(t).TestSync(t)
 		})
 	}
 }
@@ -106,5 +130,180 @@ func TestKafka2PC(t *testing.T) {
 
 func TestKafkaRebalance(t *testing.T) {
 	t.Parallel()
-	kafkaJSONBaseConfig(t).TestRebalance(t)
+	testRebalance(t, kafkaJSONBaseConfig(t))
+}
+
+// TestKafkaCompatibility runs every source format. Each format owns its broker, its testdata
+// directory and its topic name, so the two formats' runs share one destination namespace without colliding.
+func TestKafkaCompatibility(t *testing.T) {
+	t.Parallel()
+	for _, format := range kafkaFormats {
+		t.Run(format.name, func(t *testing.T) {
+			t.Parallel()
+			testHandler := &compatibility.TestHandler{
+				NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
+					return format.newTestHandler(t, testutils.WithDriverVersion(version)).TestConfig
+				},
+				DestinationSchema: format.destinationSchema,
+				CDCColumnsSchema:  ExpectedKafkaDefaultCDCColumnsSchema,
+			}
+			testHandler.RunBackwardCompatibility(t)
+		})
+	}
+}
+
+func TestKafkaUpsert(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		json          bool
+		dedup         []string
+		add           string
+		update        string
+		skipTombstone bool
+	}{
+		{"kafka_key_json", true, []string{"_kafka_key"}, "", "", false},
+		{"kafka_key_avro", false, []string{"_kafka_key"}, "", "", false},
+		{"record_key_field", true, []string{"key"}, "", "", true},
+		{"single_body_column", true, []string{"customer_id"}, "upsert_column_add", "upsert_column_update", true},
+		{"composite_body_columns", true, []string{"customer_id", "order_id"}, "upsert_column_add", "upsert_column_update", true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			newTestHandler := kafkaAvroBaseConfig
+			if tc.json {
+				newTestHandler = kafkaJSONBaseConfig
+			}
+			cfg := newTestHandler(t)
+			cfg.DedupKeys = tc.dedup
+			cfg.UpsertAddOp = tc.add
+			cfg.UpsertUpdateOp = tc.update
+			cfg.SkipTombstone = tc.skipTombstone
+			cfg.TestSync(t)
+		})
+	}
+
+	icebergTestCases := []struct {
+		name       string
+		seed       string
+		dedup      []string
+		expectFail bool
+		wantErr    string
+		syncs      []integration.Upsert
+	}{
+		{
+			name:  "update_dropped_by_filter",
+			seed:  "upsert_add",
+			dedup: []string{"_kafka_key"},
+			syncs: []integration.Upsert{
+				{
+					Name:     "insert",
+					UseState: false,
+					OpSymbol: "c",
+					Expected: ExpectedKafkaJSONData,
+				},
+				{
+					Name:      "update-out-of-filter",
+					Operation: "upsert_update_out_of_filter",
+					UseState:  true,
+					OpSymbol:  "c",
+					Expected:  ExpectedKafkaJSONData,
+				},
+			},
+		},
+		{
+			name:  "update_changes_partition",
+			seed:  "upsert_add",
+			dedup: []string{"_kafka_key"},
+			syncs: []integration.Upsert{
+				{
+					Name:     "insert",
+					UseState: false,
+					OpSymbol: "c",
+					Expected: ExpectedKafkaJSONData,
+				},
+				{
+					Name:      "update-repartition",
+					Operation: "upsert_update_repartition",
+					UseState:  true,
+					OpSymbol:  "u",
+					Expected:  ExpectedKafkaRepartitionJSONData,
+				},
+			},
+		},
+		{
+			name:  "same_key_same_partition",
+			seed:  "upsert_same_key_batch",
+			dedup: []string{"_kafka_key"},
+			syncs: []integration.Upsert{
+				{
+					Name:     "insert",
+					UseState: false,
+					OpSymbol: "u",
+					Expected: ExpectedKafkaUpdatedJSONData,
+				},
+			},
+		},
+		{
+			name:  "same_key_cross_partition",
+			seed:  "upsert_add",
+			dedup: []string{"_kafka_key"},
+			syncs: []integration.Upsert{
+				{
+					Name:     "insert",
+					UseState: false,
+					OpSymbol: "c",
+					Expected: ExpectedKafkaJSONData,
+				},
+				{
+					Name:      "update-other-partition",
+					Operation: "upsert_update_partition_1",
+					UseState:  true,
+					OpSymbol:  "u",
+					Expected:  ExpectedKafkaUpdatedJSONData,
+				},
+			},
+		},
+		{
+			name:       "dedup_field_absent",
+			seed:       "upsert_add",
+			dedup:      []string{"customer_id"},
+			expectFail: true,
+			wantErr:    "encountered null values for the dedup keys",
+		},
+		{
+			name:  "dedup_value_empty",
+			seed:  "upsert_empty",
+			dedup: []string{"customer_id"},
+			syncs: []integration.Upsert{
+				{
+					Name:     "insert",
+					UseState: false,
+					OpSymbol: "c",
+					Expected: ExpectedKafkaJSONData,
+				},
+			},
+		},
+		{
+			name:       "dedup_value_null",
+			seed:       "upsert_null",
+			dedup:      []string{"customer_id"},
+			expectFail: true,
+			wantErr:    "encountered null values for the dedup keys",
+		},
+	}
+	for _, tc := range icebergTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := kafkaJSONBaseConfig(t)
+			cfg.DedupKeys = tc.dedup
+			if tc.expectFail {
+				cfg.RunUpsertIcebergExpectFail(t, tc.seed, tc.wantErr)
+				return
+			}
+			cfg.RunUpsertIceberg(t, tc.seed, tc.syncs)
+		})
+	}
 }

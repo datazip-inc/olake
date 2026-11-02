@@ -20,8 +20,25 @@ import (
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
-	PreRunE: func(_ *cobra.Command, _ []string) error {
-		if streamsPath != "" && differencePath != "" {
+	PreRunE: func(_ *cobra.Command, _ []string) (err error) {
+		if err := validateCatalogFlags(false); err != nil {
+			return err
+		}
+		if err := validateDifferenceFlags(); err != nil {
+			return err
+		}
+		// optional: the stream difference uses its type to skip fields the destination ignores
+		if err := loadDestinationConfig(); err != nil {
+			return err
+		}
+		if convertStreams {
+			if streamsPath == "" {
+				return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+					fmt.Errorf("--convert-streams requires --streams"))
+			}
+			return nil
+		}
+		if isStreamDifferenceCommand() {
 			return nil
 		}
 		if configPath == "" {
@@ -33,19 +50,27 @@ var discoverCmd = &cobra.Command{
 		}
 		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
-		if streamsPath != "" {
-			if err := utils.UnmarshalFile(streamsPath, &catalog, false); err != nil {
-				return fmt.Errorf("failed to read streams from %s: %w", streamsPath, err)
+		if streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "") {
+			catalog, err = types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
+			if err != nil {
+				return err
 			}
 		}
 
+		if err := resolveTargetQueryEngines(); err != nil {
+			return err
+		}
+
 		//version
-		logger.Infof("Ruuning OLake sync with version %s", version.GetOlakeCLIVersion())
+		logger.Infof("Running OLake sync with version %s", version.GetOlakeCLIVersion())
 
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		if streamsPath != "" && differencePath != "" {
+		if convertStreams {
+			return convertLegacyStreams()
+		}
+		if isStreamDifferenceCommand() {
 			return compareStreams()
 		}
 
@@ -68,7 +93,7 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, connector.Type())
+		types.LogCatalog(streams, catalog, queryEngines)
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -83,21 +108,72 @@ var discoverCmd = &cobra.Command{
 	},
 }
 
-// compareStreams reads two streams.json files, computes the difference, and writes the result to difference_streams.json
+// isStreamDifferenceCommand reports whether both old and new streams flags were passed
+func isStreamDifferenceCommand() bool {
+	hasOldStreams := streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "")
+	hasNewStreams := differencePath != "" || (differenceAvailableStreamsPath != "" && differenceSelectedStreamsPath != "")
+	return hasOldStreams && hasNewStreams
+}
+
+// convertLegacyStreams rewrites the --streams file as available_streams.json and selected_streams.json.
+// used to convert raw file to new format without discovering the source
+func convertLegacyStreams() error {
+	legacy, err := types.ResolveLegacyCatalog(streamsPath)
+	if err != nil {
+		return err
+	}
+	if err := types.WriteConvertedCatalog(legacy); err != nil {
+		return err
+	}
+	logger.Infof("Successfully converted %s into available_streams and selected_streams", streamsPath)
+	return nil
+}
+
+// resolveTargetQueryEngines reads the engines this discover run must satisfy. They are a
+// pure input: the run turns them into each stream's available_update_types and keeps
+// nothing else, so a caller that wants the constraint applied passes the flag every time.
+func resolveTargetQueryEngines() error {
+	engines, err := types.ParseQueryEngines(targetQueryEngines)
+	if err != nil {
+		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
+	}
+
+	// An empty intersection cannot be written at all, so fail here rather than emitting a
+	// catalog whose streams offer no delete format.
+	if len(engines) > 0 && len(types.AvailableUpdateTypes(engines)) == 0 {
+		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid,
+			fmt.Errorf("no delete format is readable by all of the selected query engines %v", engines))
+	}
+
+	queryEngines = engines
+	return nil
+}
+
+// compareStreams reads the old and new catalogs, computes the difference, and writes the result to
+// difference_streams.json, or to difference_available_streams.json and difference_selected_streams.json
+// for the v2 format.
 func compareStreams() error {
-	var oldStreams, newStreams types.Catalog
-	if serr := utils.UnmarshalFile(streamsPath, &oldStreams, false); serr != nil {
-		return fmt.Errorf("failed to read old catalog: %w", serr)
+	oldStreams, err := types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read old catalog: %w", err)
 	}
 
-	if derr := utils.UnmarshalFile(differencePath, &newStreams, false); derr != nil {
-		return fmt.Errorf("failed to read new catalog: %w", derr)
+	newStreams, err := types.ResolveCatalog(differencePath, differenceAvailableStreamsPath, differenceSelectedStreamsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read new catalog: %w", err)
 	}
 
-	diffCatalog := types.GetStreamsDelta(&oldStreams, &newStreams)
-	// log the difference catalog to stdout
+	diffCatalog := types.GetStreamsDelta(oldStreams, newStreams, destinationConfig.Type)
+	if len(diffCatalog.Streams) == 0 && len(diffCatalog.SelectedStreams) == 0 {
+		logger.Infof("No differences found between the old and new catalogs")
+	}
 
-	if err := logger.FileLoggerWithPath(diffCatalog, viper.GetString(constants.DifferencePath)); err != nil {
+	if differenceSelectedStreamsPath != "" {
+		err = diffCatalog.WriteSplitToFiles(viper.GetString(constants.DifferenceAvailableStreamsPath), viper.GetString(constants.DifferenceSelectedStreamsPath))
+	} else {
+		err = diffCatalog.WriteToFile(viper.GetString(constants.DifferencePath))
+	}
+	if err != nil {
 		return fmt.Errorf("failed to write difference streams: %w", err)
 	}
 	logger.Infof("Successfully wrote stream differences")

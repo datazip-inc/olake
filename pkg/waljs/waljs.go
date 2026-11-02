@@ -14,7 +14,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const AdvanceLSNTemplate = "SELECT * FROM pg_replication_slot_advance('%s', '%s')"
+const AdvanceLSNTemplate = "SELECT end_lsn FROM pg_replication_slot_advance('%s', '%s')"
 
 var pluginArguments = []string{
 	"\"include-lsn\" 'on'",

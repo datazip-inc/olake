@@ -11,9 +11,9 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/microsoft/go-mssqldb"
-	"github.com/stretchr/testify/require"
 )
 
 // cdcMetadataMu serializes CDC enable/disable: both write the server-wide msdb.dbo.cdc_jobs, so two
@@ -50,22 +50,18 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	// The suite picks the database, not just the table: separate tables still race on DDL like
 	// DROP/CREATE TABLE, which modify database-scoped shared metadata (system catalog, cdc schema)
-	// and fail the loser as the deadlock victim. This has to resolve to the same name
-	// variantSourceOverride writes into the suite's source.json, or olake and these queries end up
-	// in different databases. 01-init.sql provisions each with CDC enabled.
-	var connStr string
-	if config := conf.SourceBaseConfig; config != nil {
-		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
-			config.String("username"),
-			config.String("password"),
-			config.String("host"),
-			config.Int("port"),
-			testutils.SuiteDatabase(config.String("database"), conf.Suite),
-		)
-	} else {
-		connStr = fmt.Sprintf("sqlserver://sa:Password!123@localhost:1433?database=%s&encrypt=disable",
-			testutils.SuiteDatabase("olake_mssql_test", conf.Suite))
-	}
+	// and fail the loser as the deadlock victim. The name is read from the rendered source.json, so
+	// olake and these queries agree by construction, and ensureSuiteDatabase provisions it with CDC.
+	config := conf.SourceBaseConfig
+	dbName := config.String("database")
+	ensureSuiteDatabase(ctx, t, config, dbName)
+	connStr := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
+		config.String("username"),
+		config.String("password"),
+		config.Host("host"),
+		config.Int("port"),
+		dbName,
+	)
 
 	db, err := sqlx.ConnectContext(ctx, "sqlserver", connStr)
 	require.NoError(t, err, "failed to connect to mssql")
@@ -74,7 +70,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
 
 	// A capture instance is SQL Server’s logical CDC stream for a table.
 	captureInstance := fmt.Sprintf("dbo_%s", integrationTestTable)
@@ -162,6 +158,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		`, integrationTestTable, captureInstance)
 		require.NoError(t, execCDCMetadata(ctx, t, db, enableTableCDC), "failed to enable CDC on integration test table")
 
+		ensureFastCDCPolling(ctx, t, db)
+		startCDCCapture(ctx, t, db)
+
 		// Wait until current_max_lsn >= start_lsn of the capture instance so CDC is ready for sync
 		verifyCDCEnabled(ctx, t, db, captureInstance)
 
@@ -220,7 +219,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	case "add":
 		insertTestData(ctx, t, db, integrationTestTable)
-		return
 
 	case "insert":
 		insertOne := fmt.Sprintf(`
@@ -244,13 +242,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				123.50, 12.50, 1,
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+				'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				'<xml>test</xml>', 'sysname_val',
 				0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
-				'2023-01-01 12:00:00',
+				'2023-01-01 12:00:00.573605',
 				101
 			);
 		`, integrationTestTable)
@@ -278,13 +276,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 					123.50, 12.50, 1,
 					'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 					'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-					'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+					'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
 					'123e4567-e89b-12d3-a456-426614174000',
 					'<xml>test</xml>', 'sysname_val',
 					0x43434343,
 					hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 					NULL, NULL, NULL,
-					'2023-01-01 12:00:00',
+					'2023-01-01 12:00:00.573605',
 					101
 			);
 		`, integrationTestTable)
@@ -312,13 +310,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				123.50, 12.50, 1,
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+				'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				'<xml>test</xml>', 'sysname_val',
 				0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
-				'2023-01-01 12:00:00'
+				'2023-01-01 12:00:00.573605'
 			);
 		`, integrationTestTable)
 		_, err2 := db.ExecContext(ctx, insertTwo)
@@ -334,15 +332,15 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				col_real = 321.0,
 				col_bit = 0,
 				col_varchar = 'updated varchar',
-				col_datetime2 = '2024-07-01 15:30:00',
-				col_datetimeoffset = '2024-07-01 15:30:00 +00:00',
+				col_datetime2 = '2024-07-01 15:30:00.573605',
+				col_datetimeoffset = '2024-07-01 15:30:00.573605 +00:00',
 				col_uniqueidentifier = '00000000-0000-0000-0000-000000000000',
 				col_xml = '<xml>updated</xml>',
 				col_sysname = 'updated_sysname',
 				col_int_nullable = 123,
 				col_varchar_nullable = 'nullable updated',
-				col_datetime2_nullable = '2024-07-01 15:30:00',
-				created_at = '2024-07-01 15:30:00',
+				col_datetime2_nullable = '2024-07-01 15:30:00.573605',
+				created_at = '2024-07-01 15:30:00.573605',
 				excludedColumn = 102
 			WHERE id = 1;
 		`, integrationTestTable)
@@ -359,13 +357,117 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		_, err := db.ExecContext(ctx, stmt)
 		require.NoError(t, err, "failed to evolve schema")
 
-	case "wait-cdc-catchup":
-		// The caller just committed DML it expects the next CDC sync to pick up; wait for the
-		// asynchronous capture job to scan it.
-		waitForCDCCapture(ctx, t, db)
-
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
+	}
+
+	switch operation {
+	case "add", "insert", "insert_2pc", "update", "delete":
+		waitForCDCCapture(ctx, t, db)
+	}
+}
+
+// suiteDatabasesEnsured tracks the databases this process has provisioned, so ensureSuiteDatabase
+// touches master once per suite, not once per operation.
+var (
+	suiteDatabasesEnsured   = map[string]bool{}
+	suiteDatabasesEnsuredMu sync.Mutex
+)
+
+// ensureSuiteDatabase creates the suite's CDC-enabled database when the volume lacks it.
+func ensureSuiteDatabase(ctx context.Context, t *testing.T, config testutils.SourceConfig, dbName string) {
+	t.Helper()
+	suiteDatabasesEnsuredMu.Lock()
+	defer suiteDatabasesEnsuredMu.Unlock()
+	if suiteDatabasesEnsured[dbName] {
+		return
+	}
+
+	master, err := sqlx.ConnectContext(ctx, "sqlserver",
+		fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=master&encrypt=disable",
+			config.String("username"), config.String("password"), config.Host("host"), config.Int("port")))
+	require.NoError(t, err, "failed to connect to master to provision %s", dbName)
+	defer func() { require.NoError(t, master.Close()) }()
+
+	_, err = master.ExecContext(ctx, fmt.Sprintf(`IF DB_ID(N'%s') IS NULL CREATE DATABASE [%s];`, dbName, dbName))
+	require.NoError(t, err, "failed to create database %s", dbName)
+	// sp_cdc_enable_db acts on the current database; USE binds it within this one batch. Through
+	// execCDCMetadata for the msdb mutex: enabling CDC writes the same shared job metadata.
+	require.NoError(t, execCDCMetadata(ctx, t, master, fmt.Sprintf(
+		`USE [%s]; IF EXISTS (SELECT 1 FROM sys.databases WHERE name = N'%s' AND is_cdc_enabled = 0) EXEC sys.sp_cdc_enable_db;`,
+		dbName, dbName)), "failed to enable CDC on database %s", dbName)
+	suiteDatabasesEnsured[dbName] = true
+}
+
+// cdcCaptureJobStatus reports this database's capture job: 1 running, 0 stopped, -1 not registered.
+// Pinned to the agent's current session, so rows a previous one left behind do not read as running.
+func cdcCaptureJobStatus(ctx context.Context, db *sqlx.DB) (int, error) {
+	var status int
+	err := db.QueryRowContext(ctx, `
+		DECLARE @job_id UNIQUEIDENTIFIER = (
+			SELECT job_id FROM msdb.dbo.sysjobs WHERE name = N'cdc.' + DB_NAME() + N'_capture');
+		SELECT CASE
+			WHEN @job_id IS NULL THEN -1
+			WHEN EXISTS (
+				SELECT 1 FROM msdb.dbo.sysjobactivity
+				WHERE job_id = @job_id
+					AND session_id = (SELECT MAX(session_id) FROM msdb.dbo.syssessions)
+					AND start_execution_date IS NOT NULL AND stop_execution_date IS NULL) THEN 1
+			ELSE 0 END;`).Scan(&status)
+	return status, err
+}
+
+// startCDCCapture starts the database's capture job and waits for the agent to report it running.
+// drop-all's sp_cdc_disable_table stops the job as it removes the last capture instance, and
+// re-enabling the table does not start it again -- so without this the LSN verifyCDCEnabled waits
+// for never moves.
+func startCDCCapture(ctx context.Context, t *testing.T, db *sqlx.DB) {
+	t.Helper()
+	const (
+		pollInterval = 500 * time.Millisecond
+		timeout      = 30 * time.Second
+	)
+
+	deadline := time.Now().Add(timeout)
+	for {
+		switch status, err := cdcCaptureJobStatus(ctx, db); {
+		case err != nil:
+			t.Logf("startCDCCapture: read capture job status: %s", err)
+		case status != 0:
+			return // running, or no job to start
+		}
+		// The agent's "already running" refusal is authoritative even when sysjobactivity lags it;
+		// "already has a pending request" is not, so the poll above settles that one.
+		if err := execCDCMetadata(ctx, t, db, `
+			DECLARE @job SYSNAME = N'cdc.' + DB_NAME() + N'_capture';
+			IF EXISTS (SELECT 1 FROM msdb.dbo.sysjobs WHERE name = @job)
+				EXEC msdb.dbo.sp_start_job @job_name = @job;`); err != nil {
+			if strings.Contains(err.Error(), "is already running") {
+				return
+			}
+			t.Logf("startCDCCapture: start request refused: %s", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("CDC capture job did not start within %v", timeout)
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+// ensureFastCDCPolling drops this database's CDC capture job to the minimum 1s polling interval
+// (default 5s) -- the cycle every create / wait-cdc-catchup, and the driver's own catch-up, waits out.
+func ensureFastCDCPolling(ctx context.Context, t *testing.T, db *sqlx.DB) {
+	t.Helper()
+
+	var interval int
+	err := db.QueryRowContext(ctx,
+		`SELECT pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID() AND job_type = N'capture'`).Scan(&interval)
+	if err != nil || interval == 1 {
+		return // no capture job registered yet, or already fast
+	}
+	if err := execCDCMetadata(ctx, t, db,
+		`EXEC sys.sp_cdc_change_job @job_type = N'capture', @pollinginterval = 1;`); err != nil {
+		t.Logf("could not lower the CDC capture polling interval (staying on the 5s default): %s", err)
 	}
 }
 
@@ -459,13 +561,13 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 				123.50, 12.50, 1,
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+				'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				'<xml>test</xml>', 'sysname_val',
 				0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
-				'2023-01-01 12:00:00',
+				'2023-01-01 12:00:00.573605',
 				100
 			);
 		`, tableName, i)
@@ -506,9 +608,9 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"col_time":           "12:00:00",
 	"col_smalldatetime":  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_datetime2":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_datetimeoffset": arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"created_at":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetime2":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetimeoffset": arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_at":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 
 	"col_uniqueidentifier": "123e4567-e89b-12d3-a456-426614174000",
 	"col_xml":              "<xml>test</xml>",
@@ -552,8 +654,8 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_time":           "12:00:00",
 	"col_smalldatetime":  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_datetime2":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_datetimeoffset": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetime2":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetimeoffset": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 
 	"col_uniqueidentifier": "00000000-0000-0000-0000-000000000000",
 	"col_xml":              "<xml>updated</xml>",
@@ -565,9 +667,9 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 
 	"col_int_nullable":       int32(123),
 	"col_varchar_nullable":   "nullable updated",
-	"col_datetime2_nullable": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetime2_nullable": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 
-	"created_at": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_at": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 }
 
 var ExpectedMSSQLDefaultCDCColumnsSchema = map[string]string{
@@ -612,4 +714,18 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_varchar_nullable":   "string",
 	"col_datetime2_nullable": "timestamp",
 	"created_at":             "timestamp",
+}
+
+// MSSQLTypeMapping maps the source types MSSQLToDestinationSchema declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var MSSQLTypeMapping = map[string]string{
+	"bigint":    "bigint",
+	"boolean":   "boolean",
+	"double":    "double",
+	"int":       "int",
+	"real":      "float",
+	"smallint":  "int",
+	"string":    "string",
+	"timestamp": "timestamp",
+	"tinyint":   "int",
 }

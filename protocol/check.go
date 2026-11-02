@@ -38,6 +38,7 @@ var checkCmd = &cobra.Command{
 	},
 	// TODO: switch back to returning err once the worker handling is added for non-zero exit.
 	Run: func(cmd *cobra.Command, _ []string) {
+		var prerequisites types.PrerequisiteResults
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
@@ -52,7 +53,11 @@ var checkCmd = &cobra.Command{
 			}
 
 			if configPath != "not-set" {
-				return connector.Setup(cmd.Context())
+				// Prerequisite results are reported alongside the status. Setup itself fails on unmet
+				// required checks when the config selects CDC (abstract.RequireCDCPrerequisites).
+				err := connector.Setup(cmd.Context())
+				prerequisites = connector.Prerequisites()
+				return err
 			}
 
 			return nil
@@ -63,7 +68,8 @@ var checkCmd = &cobra.Command{
 		message := types.Message{
 			Type: types.ConnectionStatusMessage,
 			ConnectionStatus: &types.StatusRow{
-				Status: types.ConnectionSucceed,
+				Status:        types.ConnectionSucceed,
+				Prerequisites: prerequisites,
 			},
 		}
 		if err != nil {
