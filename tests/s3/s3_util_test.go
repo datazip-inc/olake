@@ -289,10 +289,11 @@ var (
 		"enum_col":    "string",
 		"uuid_col":    "string",
 
-		// Decimals are carried as double: the parser resolves the scale itself.
+		// A decimal stays a double while a double holds every value exactly; wider ones keep their
+		// precision and scale.
 		"dec32_col":     "double",
-		"dec64_col":     "double",
-		"dec_bytes_col": "double",
+		"dec64_col":     "decimal(18,4)",
+		"dec_bytes_col": "decimal(38,2)",
 
 		"date_col": "timestamp",
 		// Times arrive as a count of seconds, not a point in time.
@@ -447,9 +448,9 @@ func expectedParquetData(v rowValues) map[string]interface{} {
 		"enum_col":  v.Enum,
 		"uuid_col":  uuid.UUID(v.UUID).String(),
 
-		"dec32_col":     float64(v.Dec32) / 100,    // scale 2
-		"dec64_col":     float64(v.Dec64) / 10_000, // scale 4
-		"dec_bytes_col": float64(v.Dec32) / 100,    // scale 2, byte-array physical form
+		"dec32_col":     float64(v.Dec32) / 100, // scale 2
+		"dec64_col":     testutils.Decimal(big.NewRat(v.Dec64, 10_000).FloatString(4)),
+		"dec_bytes_col": testutils.Decimal(big.NewRat(int64(v.Dec32), 100).FloatString(2)), // byte-array physical form
 
 		"date_col": arrow.Timestamp(day.UnixMicro()),
 		// A time is a duration into the day, truncated to whole seconds by the parser.
@@ -1219,13 +1220,15 @@ func gzipBytes(t *testing.T, data []byte) []byte {
 // S3TypeMapping maps the source types the S3 variant schemas declare to the type they land as in
 // the destination. A declared type missing here fails the suite with "No mapping defined".
 var S3TypeMapping = map[string]string{
-	"array":     "string",
-	"bigint":    "bigint",
-	"boolean":   "boolean",
-	"double":    "double",
-	"float":     "float",
-	"int":       "int",
-	"json":      "string",
-	"string":    "string",
-	"timestamp": "timestamp",
+	"array":         "string",
+	"bigint":        "bigint",
+	"boolean":       "boolean",
+	"decimal(18,4)": "decimal(18,4)",
+	"decimal(38,2)": "decimal(38,2)",
+	"double":        "double",
+	"float":         "float",
+	"int":           "int",
+	"json":          "string",
+	"string":        "string",
+	"timestamp":     "timestamp",
 }

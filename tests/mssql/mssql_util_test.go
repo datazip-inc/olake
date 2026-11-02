@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -84,6 +85,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				CREATE TABLE dbo.%s (
 					id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
 					id_cursor INT NOT NULL,
+					col_cursor_decimal DECIMAL(20,4) NULL,
 
 					col_tinyint TINYINT NOT NULL,
 					col_smallint SMALLINT NOT NULL,
@@ -223,7 +225,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	case "insert":
 		insertOne := fmt.Sprintf(`
 			INSERT INTO dbo.%s (
-				id_cursor,
+				id_cursor, col_cursor_decimal,
 				col_tinyint, col_smallint, col_int, col_bigint,
 				col_decimal, col_numeric, col_smallmoney, col_money,
 				col_float, col_real, col_bit,
@@ -236,7 +238,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				created_at,
 				excludedColumn
 			) VALUES (
-				6,
+				6, 6,
 				3, 5, 10, 19,
 				123.50, 10.12500, 1.2500, 2.5000,
 				123.50, 12.50, 1,
@@ -257,7 +259,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 		filteredQuery := fmt.Sprintf(`
 			INSERT INTO dbo.%s (
-					id_cursor,
+					id_cursor, col_cursor_decimal,
 					col_tinyint, col_smallint, col_int, col_bigint,
 					col_decimal, col_numeric, col_smallmoney, col_money,
 					col_float, col_real, col_bit,
@@ -270,7 +272,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 					created_at,
 					excludedColumn
 				) VALUES (
-					6,
+					6, 9999999999999999.9999,
 					3, 5, 10, 19,
 					239835.89, 10.12500, 1.2500, 2.5000,
 					123.50, 12.50, 1,
@@ -292,7 +294,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	case "insert_2pc":
 		insertTwo := fmt.Sprintf(`
 			INSERT INTO dbo.%s (
-				id_cursor,
+				id_cursor, col_cursor_decimal,
 				col_tinyint, col_smallint, col_int, col_bigint,
 				col_decimal, col_numeric, col_smallmoney, col_money,
 				col_float, col_real, col_bit,
@@ -304,7 +306,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
 				created_at
 			) VALUES (
-				7,
+				7, 7,
 				3, 5, 10, 19,
 				123.50, 10.12500, 1.2500, 2.5000,
 				123.50, 12.50, 1,
@@ -326,9 +328,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		updateRow := fmt.Sprintf(`
 			UPDATE dbo.%s SET
 				id_cursor = 100,
+				col_cursor_decimal = NULL,
 				col_bigint = 20,
 				col_decimal = 543.25,
-				col_money = 9.7500,
+				col_money = 922337203685477.5807,
 				col_real = 321.0,
 				col_bit = 0,
 				col_varchar = 'updated varchar',
@@ -542,7 +545,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`
 			INSERT INTO dbo.%s (
-				id_cursor,
+				id_cursor, col_cursor_decimal,
 				col_tinyint, col_smallint, col_int, col_bigint,
 				col_decimal, col_numeric, col_smallmoney, col_money,
 				col_float, col_real, col_bit,
@@ -555,7 +558,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 				created_at,
 				excludedColumn
 			) VALUES (
-				%d,
+				%[2]d, %[2]d,
 				3, 5, 10, 19,
 				123.50, 10.12500, 1.2500, 2.5000,
 				123.50, 12.50, 1,
@@ -574,6 +577,48 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
+	// insert a filtered row: every suite's base filter drops its col_decimal, the decimal filter suites keep it
+	filteredQuery := fmt.Sprintf(`
+		INSERT INTO dbo.%s (
+			id_cursor, col_cursor_decimal,
+			col_tinyint, col_smallint, col_int, col_bigint,
+			col_decimal, col_numeric, col_smallmoney, col_money,
+			col_float, col_real, col_bit,
+			col_char, col_varchar, col_text, col_nchar, col_nvarchar, col_ntext,
+			col_date, col_time, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
+			col_uniqueidentifier,
+			col_xml, col_sysname,
+			col_image, col_hierarchyid, col_sql_variant,
+			col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
+			created_at,
+			excludedColumn
+		) VALUES (
+			-1, -1,
+			3, 5, 10, 19,
+			239835.89, 10.12500, 1.2500, 2.5000,
+			123.50, 12.50, 1,
+			'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
+			'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
+			'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
+			'123e4567-e89b-12d3-a456-426614174000',
+			'<xml>test</xml>', 'sysname_val',
+			0x43434343,
+			hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
+			NULL, NULL, NULL,
+			'2023-01-01 12:00:00.573605',
+			200
+		);
+	`, tableName)
+	_, err := db.ExecContext(ctx, filteredQuery)
+	require.NoError(t, err, "Failed to insert filtered test data row")
+}
+
+// ExpectedFilteredMSSQLData is the filtered rows as synced: the base rows with the col_decimal that
+// fails the base filter.
+func ExpectedFilteredMSSQLData() map[string]interface{} {
+	data := maps.Clone(ExpectedMSSQLData)
+	data["col_decimal"] = float64(239835.89)
+	return data
 }
 
 var ExpectedMSSQLData = map[string]interface{}{
@@ -639,7 +684,7 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 
 	// money
 	"col_smallmoney": float64(1.25),
-	"col_money":      float64(9.75),
+	"col_money":      float64(922337203685477.5807),
 
 	// strings
 	"col_char":     "char_val__",
@@ -685,6 +730,7 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_smallint":           "smallint",
 	"col_int":                "int",
 	"col_bigint":             "bigint",
+	"col_cursor_decimal":     "double",
 	"col_decimal":            "double",
 	"col_numeric":            "double",
 	"col_smallmoney":         "double",
