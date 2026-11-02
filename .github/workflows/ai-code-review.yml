@@ -19,6 +19,8 @@ name: AI Code Review
 
 on:
   pull_request_target:
+    # Filters on the PR's base branch: release PRs into master get no run, so no skipped check.
+    branches-ignore: [master]
     types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 # Only a review-worthy event shares the per-PR group; any other label lands in its own group so it
