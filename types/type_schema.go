@@ -256,16 +256,19 @@ func (p *Property) DataType() DataType {
 
 // applyStateVersionChecks rewrites the property's types for the state version this sync is pinned at.
 func (p *Property) applyStateVersionChecks() {
-	switch {
-	case !utils.IsBinarySupported():
-		types := p.Type.Array()
-		for i, d := range types {
-			if d.ValueType() == Binary {
-				types[i] = String
-			}
-		}
-		p.Type = NewSet(types...)
+	if utils.IsBinarySupported() && utils.IsDecimalSupported() {
+		return
 	}
+	types := p.Type.Array()
+	for i, d := range types {
+		switch {
+		case d.ValueType() == Binary && !utils.IsBinarySupported():
+			types[i] = String
+		case d.ValueType() == BigDecimal && !utils.IsDecimalSupported():
+			types[i] = Float64
+		}
+	}
+	p.Type = NewSet(types...)
 }
 
 func (p *Property) Nullable() bool {

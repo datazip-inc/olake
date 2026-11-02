@@ -3,6 +3,7 @@ package types
 import (
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/stretchr/testify/require"
 )
 
@@ -352,6 +353,7 @@ func TestNumericOf(t *testing.T) {
 	testCases := []struct {
 		name             string
 		precision, scale int64
+		stateVersion     *int
 		want             DataType
 	}{
 		{
@@ -402,10 +404,31 @@ func TestNumericOf(t *testing.T) {
 			scale:     17,
 			want:      Float64,
 		},
+		{
+			name:         "state before version 9 keeps a double",
+			precision:    16,
+			scale:        2,
+			stateVersion: new(8),
+			want:         Float64,
+		},
+		{
+			name:         "state version 9 maps the decimal",
+			precision:    16,
+			scale:        2,
+			stateVersion: new(9),
+			want:         DataType("decimal(16,2)"),
+		},
 	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			if tc.stateVersion != nil {
+				constants.LoadedStateVersion = *tc.stateVersion
+			}
 			require.Equal(t, tc.want, NumericOf(tc.precision, tc.scale))
 		})
 	}

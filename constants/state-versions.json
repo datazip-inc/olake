@@ -1,5 +1,5 @@
 {
-  "latest_state_version": 8,
+  "latest_state_version": 9,
   "baselines": [
     {
       "state_version": 0,
@@ -54,6 +54,12 @@
       "release_tag": "v0.12.2",
       "drivers": "mysql",
       "note": "mysql BINARY/VARBINARY/BLOB map to Binary (BINARY(n) to fixed_binary(n)) instead of String, with hex in the olake id and filter values; older state keeps them as text"
+    },
+    {
+      "state_version": 9,
+      "release_tag": "v1.2.0",
+      "drivers": "*",
+      "note": "decimal columns of precision 16 to 38 map to decimal(p,s) instead of Float64; older state keeps them as Float64"
     }
   ]
 }

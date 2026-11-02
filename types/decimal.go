@@ -27,9 +27,9 @@ const exactDoubleDigits = 15
 
 // NumericOf is the type of a source decimal column of precision digits, scale of them after the point, which
 // drivers map to Float64: decimal(precision, scale) only where a double cannot hold every value exactly and
-// iceberg can hold the decimal.
+// iceberg can hold the decimal. Older state keeps Float64 so an existing destination column keeps its type.
 func NumericOf(precision, scale int64) DataType {
-	if precision <= exactDoubleDigits || scale < 0 || !validDecimal([]int64{precision, scale}) {
+	if !utils.IsDecimalSupported() || precision <= exactDoubleDigits || scale < 0 || !validDecimal([]int64{precision, scale}) {
 		return Float64
 	}
 	return Decimal.Of(precision, scale)

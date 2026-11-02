@@ -506,6 +506,7 @@ func TestTypeSchemaJSONRoundTrip(t *testing.T) {
 	schema.AddTypes("Digest", false, FixedBinaryOf(32))
 	schema.AddTypes("Payload", false, Binary, Null)
 	schema.AddTypes("Hashes", false, FixedBinaryOf(16), FixedBinaryOf(32))
+	schema.AddTypes("Amount", false, DecimalOf(18, 4), Null)
 
 	data, err := json.Marshal(schema)
 	require.NoError(t, err)
@@ -535,15 +536,31 @@ func TestTypeSchemaJSONRoundTrip(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, Binary, prop.DataType())
 
+	found, prop = restored.GetProperty("Amount")
+	require.True(t, found)
+	require.Equal(t, DecimalOf(18, 4), prop.DataType())
+
 	constants.LoadedStateVersion = 7
 	preBinary := NewTypeSchema()
 	require.NoError(t, json.Unmarshal(data, preBinary))
-	for column, expected := range map[string]DataType{"User ID": Int64, "Digest": String, "Payload": String, "Hashes": String} {
+	for column, expected := range map[string]DataType{"User ID": Int64, "Digest": String, "Payload": String, "Hashes": String, "Amount": Float64} {
 		found, prop := preBinary.GetProperty(column)
 		require.True(t, found, column)
 		require.Equal(t, expected, prop.DataType(), column)
 	}
 	_, prop = preBinary.GetProperty("Payload")
+	require.True(t, prop.Nullable())
+
+	// state 8 keeps binary bytes but predates decimal, so only the decimal falls back to a double
+	constants.LoadedStateVersion = 8
+	preDecimal := NewTypeSchema()
+	require.NoError(t, json.Unmarshal(data, preDecimal))
+	for column, expected := range map[string]DataType{"Digest": FixedBinaryOf(32), "Payload": Binary, "Amount": Float64} {
+		found, prop := preDecimal.GetProperty(column)
+		require.True(t, found, column)
+		require.Equal(t, expected, prop.DataType(), column)
+	}
+	_, prop = preDecimal.GetProperty("Amount")
 	require.True(t, prop.Nullable())
 }
 

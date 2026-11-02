@@ -303,9 +303,10 @@ func TestExtractAndMapColumnType(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name       string
-		columnType string
-		expected   types.DataType
+		name         string
+		columnType   string
+		stateVersion *int
+		expected     types.DataType
 	}{
 		{name: "empty_string", columnType: "", expected: types.DataType("")},
 		{name: "only_spaces", columnType: "   ", expected: types.DataType("")},
@@ -332,10 +333,23 @@ func TestExtractAndMapColumnType(t *testing.T) {
 			columnType: "decimal(39,2)",
 			expected:   types.DataType(""),
 		},
+		{
+			name:         "a decimal in state before version 9 stays a double",
+			columnType:   "decimal(18,4)",
+			stateVersion: new(8),
+			expected:     types.Float64,
+		},
 	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			if tc.stateVersion != nil {
+				constants.LoadedStateVersion = *tc.stateVersion
+			}
 			assert.Equal(t, tc.expected, ExtractAndMapColumnType(tc.columnType, typeMapping))
 		})
 	}
@@ -346,6 +360,7 @@ func TestDecimalColumnType(t *testing.T) {
 		name             string
 		typeName         string
 		precision, scale int64
+		stateVersion     *int
 		want             string
 	}{
 		{
@@ -376,10 +391,25 @@ func TestDecimalColumnType(t *testing.T) {
 			scale:     -2,
 			want:      "NUMBER",
 		},
+		{
+			name:         "a decimal in state before version 9 keeps its name",
+			typeName:     "DECIMAL",
+			precision:    18,
+			scale:        4,
+			stateVersion: new(8),
+			want:         "DECIMAL",
+		},
 	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			if tc.stateVersion != nil {
+				constants.LoadedStateVersion = *tc.stateVersion
+			}
 			assert.Equal(t, tc.want, DecimalColumnType(tc.typeName, tc.precision, tc.scale))
 		})
 	}
