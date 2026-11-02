@@ -331,8 +331,10 @@ func pinImplicitUpdateType(metadata *StreamMetadata, oldStream, newStream *Strea
 }
 
 // mergeUpdateType keeps a previously configured delete format only while it is still in
-// available, the list this discover computed. Anything
-// else is cleared rather than replaced: switching delete formats can force a table
+// available, the list this discover computed. Equality that is no longer available moves to
+// positional when that is: the writer migrates existing equality deletes to positional ones in
+// place, so the stream keeps syncing (Kafka, which never offers equality, relies on this).
+// Anything else is cleared rather than replaced: switching delete formats can force a table
 // recreate, so the user must pick the new one explicitly, and a blank update_type fails
 // validation until they do.
 func mergeUpdateType(metadata *StreamMetadata, streamID string, available []UpdateType) {
@@ -348,6 +350,14 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, available []Upda
 	}
 
 	if slices.Contains(available, UpdateType(*metadata.UpdateType)) {
+		return
+	}
+
+	if UpdateType(*metadata.UpdateType) == UpdateTypeEquality && slices.Contains(available, UpdateTypePosition) {
+		logger.Infof("Stream %s update mode %s is not supported by the source, the selected query engines or the destination; switched to %s",
+			streamID, UpdateTypeEquality, UpdateTypePosition)
+		position := string(UpdateTypePosition)
+		metadata.UpdateType = &position
 		return
 	}
 

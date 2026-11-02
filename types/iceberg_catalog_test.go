@@ -153,6 +153,19 @@ func TestMergeUpdateTypeClearsCatalogUnsupportedValue(t *testing.T) {
 	assert.Equal(t, new(""), metadata.UpdateType)
 }
 
+// Kafka never offers equality, so a stream saved as equality (or legacy blank) keeps syncing
+// as positional instead of being blocked until the user picks a format.
+func TestMergeUpdateTypeMovesSourceUnsupportedEqualityToPositional(t *testing.T) {
+	kafka, err := AvailableUpdateTypes(nil, icebergConfig(map[string]any{}), []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector})
+	require.NoError(t, err)
+
+	for _, existing := range []string{string(UpdateTypeEquality), ""} {
+		metadata := &StreamMetadata{StreamName: "events", UpdateType: new(existing)}
+		mergeUpdateType(metadata, "topics.events", kafka)
+		assert.Equal(t, new(string(UpdateTypePosition)), metadata.UpdateType, "existing %q", existing)
+	}
+}
+
 // With no delete format left, streams stay upsert with an empty list: the UI reports the
 // missing intersection and the user picks append.
 func TestGetWrappedCatalogKeepsUpsertWhenNothingQualifies(t *testing.T) {

@@ -273,9 +273,10 @@ func TestMergeUpdateType(t *testing.T) {
 			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: new("pos"),
 		},
 		{
-			// The stream was configured before Snowflake joined the target engines.
-			name: "unreadable value is cleared", existing: new("eq"),
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: new(""),
+			// The stream was configured before Snowflake joined the target engines; the writer
+			// migrates equality deletes to positional ones, so no user choice is needed.
+			name: "unreadable equality moves to positional", existing: new("eq"),
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: new("pos"),
 		},
 		{
 			name: "legacy blank readable as equality", existing: new(""),
@@ -283,8 +284,13 @@ func TestMergeUpdateType(t *testing.T) {
 		},
 		{
 			// Blank meant equality, which Snowflake cannot read.
-			name: "legacy blank unreadable as equality is cleared", existing: new(""),
-			engines: []QueryEngine{QueryEngineSnowflake}, expected: new(""),
+			name: "legacy blank unreadable as equality moves to positional", existing: new(""),
+			engines: []QueryEngine{QueryEngineSnowflake}, expected: new("pos"),
+		},
+		{
+			// Databricks reads neither equality nor positional deletes.
+			name: "unreadable equality without positional is cleared", existing: new("eq"),
+			engines: []QueryEngine{QueryEngineDatabricks}, expected: new(""),
 		},
 		{
 			name: "readable deletion vector is kept", existing: new("dv"),
