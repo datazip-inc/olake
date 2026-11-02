@@ -748,7 +748,39 @@ func TestConfiguredStreamUpdateTypeResolution(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			configured := &ConfiguredStream{Stream: tc.stream, StreamMetadata: StreamMetadata{UpdateType: tc.selected}}
 			assert.Equal(t, tc.expected, configured.GetUpdateType())
-			err := configured.ValidateUpdateType()
+			err := configured.ValidateUpdateType(Iceberg)
+			if tc.expectedErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}
+
+// Parquet writes no deletes, so the delete format is never checked there, even with
+// append_mode off; other destinations keep validating it.
+func TestValidateUpdateTypeByDestination(t *testing.T) {
+	stream := &Stream{Name: "users", AvailableUpdateTypes: []UpdateType{UpdateTypePosition}}
+
+	testCases := []struct {
+		name            string
+		destinationType DestinationType
+		updateType      *string
+		appendMode      *bool
+		expectedErr     string
+	}{
+		{"parquet ignores a cleared update type", Parquet, new(""), new(false), ""},
+		{"parquet ignores an unreadable update type", Parquet, new(string(UpdateTypeEquality)), new(false), ""},
+		{"iceberg rejects a cleared update type", Iceberg, new(""), new(false), "update mode not set"},
+		{"iceberg rejects an unreadable update type", Iceberg, new(string(UpdateTypeEquality)), new(false), "eq"},
+		{"unknown destination rejects a cleared update type", "", new(""), new(false), "update mode not set"},
+		{"iceberg append mode skips the check", Iceberg, new(""), new(true), ""},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			configured := &ConfiguredStream{Stream: stream, StreamMetadata: StreamMetadata{UpdateType: tc.updateType, AppendMode: tc.appendMode}}
+			err := configured.ValidateUpdateType(tc.destinationType)
 			if tc.expectedErr == "" {
 				assert.NoError(t, err)
 			} else {
