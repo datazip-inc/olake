@@ -97,7 +97,6 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 		addMapKeyIfNotEmpty("header.x-goog-user-project", config.GCPProjectID)
 		//Horizon
 		addMapKeyIfNotEmpty("header.X-Iceberg-Access-Delegation", config.RESTAccessDelegation)
-		addMapKeyIfNotEmpty("header.X-Snowflake-Workload-Identity-Provider", config.SnowflakeWorkloadIdentityProvider)
 	default:
 		return nil, errs.Precondition(errs.ConfigInvalid, codeUnsupportedCatalogType,
 			fmt.Errorf("unsupported catalog type: %s", config.CatalogType))

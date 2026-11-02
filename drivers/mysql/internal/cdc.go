@@ -147,7 +147,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 				recoveryPos = mysqlMetadataState.Position
 				finishedStreams = append(finishedStreams, streamID)
 			}
-			// state >= metadata: blank sync scenario — stream forward normally
+			// state >= metadata: state is up to date, stream forward normally
 		} else {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
 				fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState))

@@ -318,12 +318,10 @@ func (s *ConfiguredStream) AppendModeEnabled() bool {
 	return s.defaultStreamProperties().AppendMode
 }
 
-// GetUpdateType returns the stream's delete format. Upsert streams always use positional deletes;
-// otherwise an omitted (nil) update_type follows the stream's default_stream_properties
+// GetUpdateType returns the stream's delete format. An omitted (nil) update_type follows
+// the stream's default_stream_properties. Kafka discover defaults that to positional so
+// upsert (no create vs update) does not fall through to equality; an explicit dv is kept.
 func (s *ConfiguredStream) GetUpdateType() UpdateType {
-	if s.ResolveUpsertOp() {
-		return UpdateTypePosition
-	}
 	if s.StreamMetadata.UpdateType == nil {
 		return resolveConfigurableField(s.defaultStreamProperties().UpdateType, UpdateTypeEquality)
 	}
@@ -332,9 +330,9 @@ func (s *ConfiguredStream) GetUpdateType() UpdateType {
 
 // ValidateUpdateType reports whether the stream's delete format is set, writable, and readable
 // by the target query engines recorded in its available_update_types.
-func (s *ConfiguredStream) ValidateUpdateType() error {
-	// Append mode writes no deletes, so the delete format is never used.
-	if s.AppendModeEnabled() {
+func (s *ConfiguredStream) ValidateUpdateType(destinationType DestinationType) error {
+	// Without upserts no deletes are written, so the delete format is never used.
+	if !s.UpsertApplies(destinationType) {
 		return nil
 	}
 
@@ -346,6 +344,12 @@ func (s *ConfiguredStream) ValidateUpdateType() error {
 	}
 
 	return s.GetUpdateType().ValidateAgainst(available)
+}
+
+// UpsertApplies reports whether append_mode, update_type and dedup_keys affect what is written.
+// Parquet always appends, so they never do there.
+func (s *ConfiguredStream) UpsertApplies(destinationType DestinationType) bool {
+	return !s.AppendModeEnabled() && UpsertSupported(destinationType)
 }
 
 // ResolveUpsertOp is true when the source cannot differentiate create from update.
