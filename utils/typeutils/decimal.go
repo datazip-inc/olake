@@ -1,6 +1,7 @@
 package typeutils
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -39,6 +40,12 @@ func DecimalText(unscaled decimal128.Num, scale int32) string {
 		return "-" + digits
 	}
 	return digits
+}
+
+// Value binds the decimal as its exact text, which a database casts back to the column's decimal; database/sql
+// rejects a struct argument.
+func (d Decimal) Value() (driver.Value, error) {
+	return d.String(), nil
 }
 
 // MarshalJSON writes the value as an exact JSON number.

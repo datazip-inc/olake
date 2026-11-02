@@ -12,6 +12,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	pq "github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/deprecated"
 	"github.com/shopspring/decimal"
@@ -45,10 +46,19 @@ func TestMapParquetTypeToOlake_LogicalTypes(t *testing.T) {
 		{name: "Unsigned int16 fits Int32", node: pq.Uint(16), expected: types.Int32},
 		{name: "Unsigned int32 widens to Int64 to avoid overflow", node: pq.Uint(32), expected: types.Int64},
 		{name: "Unsigned int64 maps to Int64", node: pq.Uint(64), expected: types.Int64},
-		// Decimal (any physical backing) maps to Float64.
+		// A decimal maps to Float64 while a double holds every value exactly, and keeps its precision and
+		// scale past that, whatever its physical backing.
 		{name: "Decimal int32-backed", node: pq.Decimal(2, 9, pq.Int32Type), expected: types.Float64},
-		{name: "Decimal int64-backed", node: pq.Decimal(4, 18, pq.Int64Type), expected: types.Float64},
-		{name: "Decimal fixed-backed", node: pq.Decimal(10, 38, pq.FixedLenByteArrayType(16)), expected: types.Float64},
+		{
+			name:     "Decimal int64-backed",
+			node:     pq.Decimal(4, 18, pq.Int64Type),
+			expected: types.DataType("decimal(18,4)"),
+		},
+		{
+			name:     "Decimal fixed-backed",
+			node:     pq.Decimal(10, 38, pq.FixedLenByteArrayType(16)),
+			expected: types.DataType("decimal(38,10)"),
+		},
 		// Temporal types.
 		{name: "Date", node: pq.Date(), expected: types.Timestamp},
 		{name: "Timestamp millis", node: pq.Timestamp(pq.Millisecond), expected: types.TimestampMilli},
@@ -1091,7 +1101,7 @@ func TestParquetParser_Integration(t *testing.T) {
 		"l_enum":        types.String,
 		"l_json":        types.String,
 		"l_dec_int32":   types.Float64,
-		"l_dec_int64":   types.Float64,
+		"l_dec_int64":   types.BigDecimal, // GetType reports a decimal(18,4)'s value type
 		"l_date":        types.Timestamp,
 		"l_ts_millis":   types.TimestampMilli,
 		"l_ts_micros":   types.TimestampMicro,
@@ -1132,9 +1142,11 @@ func TestParquetParser_Integration(t *testing.T) {
 	// String-family logical types.
 	assert.Equal(t, "GREEN", record["l_enum"])
 	assert.Equal(t, `{"k":"v"}`, record["l_json"])
-	// Decimals decode with their scale.
+	// A decimal a double holds decodes to a float64, a wider one to its exact decimal.
 	assert.Equal(t, 123.45, record["l_dec_int32"])
-	assert.Equal(t, 12345.6789, record["l_dec_int64"])
+	decInt64, err := typeutils.ReformatDecimal(types.DecimalOf(18, 4), "12345.6789")
+	require.NoError(t, err)
+	assert.Equal(t, decInt64, record["l_dec_int64"])
 	// Time-of-day columns
 	assert.Equal(t, int64(49530), record["l_time_millis"])
 	assert.Equal(t, int64(49530), record["l_time_micros"])

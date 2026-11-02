@@ -348,6 +348,69 @@ func TestDecimalOf(t *testing.T) {
 	}
 }
 
+func TestNumericOf(t *testing.T) {
+	testCases := []struct {
+		name             string
+		precision, scale int64
+		want             DataType
+	}{
+		{
+			name:      "fifteen digits fit a double",
+			precision: 15,
+			scale:     2,
+			want:      Float64,
+		},
+		{
+			name:      "sixteen digits need a decimal",
+			precision: 16,
+			scale:     2,
+			want:      DataType("decimal(16,2)"),
+		},
+		{
+			name:      "a whole number past a double's digits",
+			precision: 20,
+			scale:     0,
+			want:      DataType("decimal(20,0)"),
+		},
+		{
+			name:      "the widest decimal",
+			precision: 38,
+			scale:     10,
+			want:      DataType("decimal(38,10)"),
+		},
+		{
+			name:      "past 38 digits iceberg holds no decimal",
+			precision: 39,
+			scale:     2,
+			want:      Float64,
+		},
+		{
+			name:      "an unconstrained postgres numeric",
+			precision: 65535,
+			scale:     65531,
+			want:      Float64,
+		},
+		{
+			name:      "a negative scale",
+			precision: 20,
+			scale:     -2,
+			want:      Float64,
+		},
+		{
+			name:      "a scale past the precision",
+			precision: 16,
+			scale:     17,
+			want:      Float64,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, NumericOf(tc.precision, tc.scale))
+		})
+	}
+}
+
 func TestDecimalParams(t *testing.T) {
 	testCases := []struct {
 		name             string

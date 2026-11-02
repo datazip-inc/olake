@@ -2,6 +2,7 @@ package driver
 
 import (
 	"crypto/tls"
+	"database/sql"
 	"fmt"
 	"net/url"
 	"strings"
@@ -120,4 +121,7 @@ type ColumnDetails struct {
 	Name       string  `db:"column_name"`
 	DataType   *string `db:"data_type"`
 	IsNullable *string `db:"is_nullable"`
+	// a numeric column's declared precision and scale, both NULL when it is unconstrained
+	NumericPrecision sql.NullInt64 `db:"numeric_precision"`
+	NumericScale     sql.NullInt64 `db:"numeric_scale"`
 }

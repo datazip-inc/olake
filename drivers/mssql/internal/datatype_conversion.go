@@ -9,6 +9,9 @@ import (
 // rowversion, timestamp (rowversion synonym), geometry, and geography can produce
 // binary or non-UTF-8 values; mapping them to string cause sync to fail.
 
+// exactNumericTypes are the types whose declared precision and scale decide between Float64 and a decimal.
+var exactNumericTypes = []string{"decimal", "numeric", "money", "smallmoney"}
+
 // mssqlTypeToDataTypes maps SQL Server types to internal data types.
 var mssqlTypeToDataTypes = map[string]types.DataType{
 	// Integer types

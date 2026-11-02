@@ -233,14 +233,14 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 
 		for rows.Next() {
 			var columnName, columnType, dataType, isNullable, columnKey string
-			var dataMaxLength sql.NullInt64
-			if err := rows.Scan(&columnName, &columnType, &dataType, &dataMaxLength, &isNullable, &columnKey); err != nil {
+			var dataMaxLength, numericPrecision, numericScale sql.NullInt64
+			if err := rows.Scan(&columnName, &columnType, &dataType, &dataMaxLength, &numericPrecision, &numericScale, &isNullable, &columnKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			stream.WithCursorField(columnName)
 			var olakeDataType types.DataType
 			if val, found := m.typeMapping[dataType]; found {
-				olakeDataType = resolveColumnType(dataType, dataMaxLength, val)
+				olakeDataType = resolveColumnType(dataType, dataMaxLength, numericPrecision, numericScale, val)
 			} else {
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				olakeDataType = types.String

@@ -181,6 +181,10 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 
 		// Convert according to OID to string
 		typeName := oidToString(colType)
+		if mod := rel.Columns[idx].TypeModifier; colType == pgtype.NumericOID && mod >= 4 {
+			// a constrained numeric's type modifier is (precision<<16 | scale) + 4
+			typeName = typeutils.DecimalColumnType(typeName, int64((mod-4)>>16), int64((mod-4)&0xffff))
+		}
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, 0, err

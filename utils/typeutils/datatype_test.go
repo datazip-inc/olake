@@ -317,11 +317,70 @@ func TestExtractAndMapColumnType(t *testing.T) {
 		{name: "unknown", columnType: "unknown", expected: types.Unknown},
 		{name: "varbinary_with_size", columnType: "varbinary(64)", expected: types.Binary},
 		{name: "unmapped_type", columnType: "varchar(255)", expected: types.DataType("")},
+		{
+			name:       "a decimal a double cannot hold",
+			columnType: "decimal(18,4)",
+			expected:   types.DataType("decimal(18,4)"),
+		},
+		{
+			name:       "a decimal a double holds",
+			columnType: "decimal(15,2)",
+			expected:   types.Float64,
+		},
+		{
+			name:       "a decimal past 38 digits maps by its base type",
+			columnType: "decimal(39,2)",
+			expected:   types.DataType(""),
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, ExtractAndMapColumnType(tc.columnType, typeMapping))
+		})
+	}
+}
+
+func TestDecimalColumnType(t *testing.T) {
+	testCases := []struct {
+		name             string
+		typeName         string
+		precision, scale int64
+		want             string
+	}{
+		{
+			name:      "a decimal a double cannot hold is named by its precision and scale",
+			typeName:  "DECIMAL",
+			precision: 18,
+			scale:     4,
+			want:      "decimal(18,4)",
+		},
+		{
+			name:      "a decimal a double holds keeps its name",
+			typeName:  "NUMERIC",
+			precision: 15,
+			scale:     2,
+			want:      "NUMERIC",
+		},
+		{
+			name:      "an unconstrained postgres numeric keeps its name",
+			typeName:  "NUMERIC",
+			precision: 65535,
+			scale:     65531,
+			want:      "NUMERIC",
+		},
+		{
+			name:      "a negative scale keeps its name",
+			typeName:  "NUMBER",
+			precision: 20,
+			scale:     -2,
+			want:      "NUMBER",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, DecimalColumnType(tc.typeName, tc.precision, tc.scale))
 		})
 	}
 }

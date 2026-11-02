@@ -15,9 +15,24 @@ const MaxDecimalPrecision = 38
 // scale sit after the point.
 var decimalFamily = newTypeFamily(Decimal, validDecimal[int])
 
-// validDecimal also checks the int32 parameters DecimalParams scans, the type arrow takes them in.
-func validDecimal[N int | int32](p []N) bool {
+// validDecimal also checks the int32 parameters DecimalParams scans, the type arrow takes them in, and the
+// int64 ones database/sql reports.
+func validDecimal[N int | int32 | int64](p []N) bool {
 	return len(p) == 2 && p[0] >= 1 && p[0] <= MaxDecimalPrecision && p[1] <= p[0]
+}
+
+// exactDoubleDigits is the most significant digits a double holds exactly: any decimal of up to 15 digits
+// survives a round trip through float64.
+const exactDoubleDigits = 15
+
+// NumericOf is the type of a source decimal column of precision digits, scale of them after the point, which
+// drivers map to Float64: decimal(precision, scale) only where a double cannot hold every value exactly and
+// iceberg can hold the decimal.
+func NumericOf(precision, scale int64) DataType {
+	if precision <= exactDoubleDigits || scale < 0 || !validDecimal([]int64{precision, scale}) {
+		return Float64
+	}
+	return Decimal.Of(precision, scale)
 }
 
 // decimalNode stores the unscaled value in an int32 up to 9 digits and an int64 up to 18. parquet-go

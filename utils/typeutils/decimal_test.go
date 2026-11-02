@@ -1,6 +1,7 @@
 package typeutils
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"math/big"
 	"testing"
@@ -128,6 +129,39 @@ func TestDecimalText(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, DecimalText(unscaledNum(tc.unscaled), tc.scale))
+		})
+	}
+}
+
+func TestDecimalValue(t *testing.T) {
+	testCases := []struct {
+		name  string
+		value Decimal
+		want  driver.Value
+	}{
+		{
+			name:  "binds every digit a float64 would round",
+			value: newDecimal(types.DecimalOf(20, 4), "99999999999999999999"),
+			want:  "9999999999999999.9999",
+		},
+		{
+			name:  "binds the column's full scale",
+			value: newDecimal(types.DecimalOf(18, 4), "1234500"),
+			want:  "123.4500",
+		},
+		{
+			name:  "binds a negative value",
+			value: newDecimal(types.DecimalOf(18, 2), "-6789"),
+			want:  "-67.89",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// the converter every database/sql driver falls back to, which rejects a plain struct
+			got, err := driver.DefaultParameterConverter.ConvertValue(tc.value)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
