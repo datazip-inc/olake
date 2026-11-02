@@ -291,6 +291,7 @@ func TestGenerateThreadID(t *testing.T) {
 func TestInjectCDCColumns(t *testing.T) {
 	testCases := []struct {
 		name            string
+		driverType      string
 		driverColumns   map[string]types.DataType
 		selectedColumns []string
 	}{
@@ -310,7 +311,9 @@ func TestInjectCDCColumns(t *testing.T) {
 			selectedColumns: []string{"id", "name"},
 		},
 		{
-			name:          "kafka driver has no extra columns",
+			// kafka does not populate _cdc_timestamp, so neither it nor any driver column is added
+			name:          "kafka driver gets no cdc columns",
+			driverType:    string(constants.Kafka),
 			driverColumns: nil,
 		},
 	}
@@ -327,11 +330,15 @@ func TestInjectCDCColumns(t *testing.T) {
 				}
 			}
 
-			injectCDCColumns(stubDriver{cdcColumns: tc.driverColumns}, []types.StreamInterface{configured})
+			injectCDCColumns(stubDriver{typ: tc.driverType, cdcColumns: tc.driverColumns}, []types.StreamInterface{configured})
 
 			hasCdcTimestamp, cdcTimestampProp := stream.Schema.GetProperty(constants.CdcTimestamp)
-			assert.True(t, hasCdcTimestamp)
-			assert.True(t, cdcTimestampProp.OlakeColumn, "expected %s to be marked as an olake column", constants.CdcTimestamp)
+			if tc.driverType == string(constants.Kafka) {
+				assert.False(t, hasCdcTimestamp, "expected %s to be skipped for kafka", constants.CdcTimestamp)
+			} else {
+				assert.True(t, hasCdcTimestamp)
+				assert.True(t, cdcTimestampProp.OlakeColumn, "expected %s to be marked as an olake column", constants.CdcTimestamp)
+			}
 
 			for col := range tc.driverColumns {
 				found, prop := stream.Schema.GetProperty(col)
@@ -500,7 +507,7 @@ func (s stubDriver) FetchMaxCursorValues(context.Context, types.StreamInterface)
 func (s stubDriver) StreamIncrementalChanges(context.Context, types.StreamInterface, BackfillMsgFn) error {
 	return nil
 }
-func (s stubDriver) CDCSupported() bool                    { return s.cdcSupported }
+func (s stubDriver) CDCSupported() bool                            { return s.cdcSupported }
 func (s stubDriver) CDCMetadataColumns() map[string]types.DataType { return s.cdcColumns }
 func (s stubDriver) ChangeStreamConfig() (bool, bool, bool) {
 	return false, false, false

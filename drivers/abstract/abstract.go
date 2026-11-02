@@ -327,12 +327,15 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 // injectCDCColumns adds _cdc_timestamp and the driver's own CDC metadata columns to the stream
 // schema at sync time. Discover omits them so they never reach streams.json for non-CDC modes;
 // they are marked as olake columns, which ToParquet and ToIceberg keep regardless of the user's
-// column selection.
+// column selection. Kafka does not populate _cdc_timestamp, so it is skipped there.
 func injectCDCColumns(driver DriverInterface, streams []types.StreamInterface) {
 	driverColumns := driver.CDCMetadataColumns()
+	addCdcTimestamp := driver.Type() != string(constants.Kafka)
 	for _, stream := range streams {
 		s := stream.GetStream()
-		s.UpsertField(constants.CdcTimestamp, types.TimestampMicro, true, true)
+		if addCdcTimestamp {
+			s.UpsertField(constants.CdcTimestamp, types.TimestampMicro, true, true)
+		}
 		for name, typ := range driverColumns {
 			s.UpsertField(name, typ, true, true)
 		}

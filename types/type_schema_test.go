@@ -489,7 +489,7 @@ func TestTypeSchemaToParquet(t *testing.T) {
 	schema.AddTypes("_meta_col", true, String)
 	stream := &ConfiguredStream{Stream: &Stream{Name: "test_stream", Schema: schema}}
 
-	defaultColumns := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType, constants.CdcTimestamp}
+	defaultColumns := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
 
 	t.Run("all columns with reformatted names", func(t *testing.T) {
 		names := parquetFieldNames(schema.ToParquet(false, stream))
