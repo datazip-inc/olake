@@ -84,11 +84,12 @@
                 "azure_auth_type": {
                   "type": "string",
                   "title": "Azure Auth Type",
-                  "description": "How OLake authenticates to Azure Blob",
+                  "description": "How OLake authenticates to Azure Blob. Managed or Workload Identity uses DefaultAzureCredential (Entra VM managed identity / AKS workload identity). Optional azure_client_id pins a user-assigned identity",
                   "enum": [
                     "shared-key",
                     "sas-token",
-                    "connection-string"
+                    "connection-string",
+                    "managed-or-workload-identity"
                   ],
                   "default": "shared-key"
                 },
@@ -178,6 +179,31 @@
                       },
                       "required": [
                         "azure_connection_string"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "azure_auth_type": {
+                          "const": "managed-or-workload-identity"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "The name of an existing Azure storage account with appropriate access permissions to store output files"
+                        },
+                        "azure_endpoint": {
+                          "type": "string",
+                          "title": "Azure Endpoint",
+                          "description": "Blob service URL. Leave empty for https://{account}.blob.core.windows.net/"
+                        },
+                        "azure_client_id": {
+                          "type": "string",
+                          "title": "Azure Client ID",
+                          "description": "Client ID of a user-assigned managed identity. Leave empty to use the VM's system-assigned identity, or on Kubernetes the job ServiceAccount's identity"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_name"
                       ]
                     }
                   ]
