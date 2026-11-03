@@ -40,3 +40,28 @@ func TestValidateToastStreams(t *testing.T) {
 		})
 	}
 }
+
+func TestSupportedUpdateTypes(t *testing.T) {
+	tests := []struct {
+		name         string
+		updateMethod any
+		expected     []types.UpdateType
+	}{
+		{name: "no update method has no restriction"},
+		{name: "standard replication has no restriction", updateMethod: map[string]any{"type": "standard"}},
+		{name: "preserve_toast_values without cdc has no restriction", updateMethod: map[string]any{"type": "standard", "preserve_toast_values": true}},
+		{name: "cdc without preserve_toast_values has no restriction", updateMethod: map[string]any{"replication_slot": "olake_slot"}},
+		{
+			name:         "preserve_toast_values offers only the indexed formats",
+			updateMethod: map[string]any{"replication_slot": "olake_slot", "preserve_toast_values": true},
+			expected:     []types.UpdateType{types.UpdateTypePosition, types.UpdateTypeDeletionVector},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Postgres{config: &Config{UpdateMethod: tc.updateMethod}}
+			assert.Equal(t, tc.expected, p.SupportedUpdateTypes())
+		})
+	}
+}

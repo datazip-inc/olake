@@ -104,7 +104,7 @@ func TestAvailableUpdateTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, AvailableUpdateTypes(tc.engines))
+			assert.Equal(t, tc.expected, availableUpdateTypes(tc.engines, ""))
 		})
 	}
 }
@@ -152,99 +152,38 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema(), DefaultStreamProperties: &DefaultStreamProperties{}}}
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
-	catalog := GetWrappedCatalog(streams, []QueryEngine{QueryEngineSpark, QueryEngineSnowflake})
+	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, "")
+	ApplyDestinationDefaults(streams, available, false)
+	catalog := GetWrappedCatalog(streams)
 
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
 }
 
-// A driver may limit a stream's delete formats; discover keeps only those the engines can also
-// read, and defaults to the cheapest of them.
-func TestGetWrappedCatalogKeepsDriverLimitedUpdateTypes(t *testing.T) {
-	indexed := []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}
-
-	testCases := []struct {
-		name            string
-		driverLimit     []UpdateType
-		preset          UpdateType
-		engines         []QueryEngine
-		expected        []UpdateType
-		expectedDefault UpdateType
-	}{
-		{
-			// Without engines the driver's list is all that constrains the stream.
-			name:            "no engines keeps the driver list",
-			driverLimit:     indexed,
-			expected:        indexed,
-			expectedDefault: UpdateTypePosition,
-		},
-		{
-			name:            "engine without deletion vector support leaves pos",
-			driverLimit:     indexed,
-			engines:         []QueryEngine{QueryEngineSpark, QueryEngineAthena},
-			expected:        []UpdateType{UpdateTypePosition},
-			expectedDefault: UpdateTypePosition,
-		},
-		{
-			// The default is picked from the narrowed list, not from what the engines alone read.
-			name:            "deletion vector only engine leaves dv as the default",
-			driverLimit:     indexed,
-			engines:         []QueryEngine{QueryEngineDatabricks},
-			expected:        []UpdateType{UpdateTypeDeletionVector},
-			expectedDefault: UpdateTypeDeletionVector,
-		},
-		{
-			// The result keeps OLake's cheapest-first order, whatever order the driver used.
-			name:            "driver order does not change the result order",
-			driverLimit:     []UpdateType{UpdateTypeDeletionVector, UpdateTypePosition},
-			expected:        indexed,
-			expectedDefault: UpdateTypePosition,
-		},
-		{
-			name:            "preset pos is kept while offered",
-			driverLimit:     indexed,
-			preset:          UpdateTypePosition,
-			engines:         []QueryEngine{QueryEngineSnowflake},
-			expected:        indexed,
-			expectedDefault: UpdateTypePosition,
-		},
-		{
-			name:            "preset pos falls back when the engines cannot read it",
-			driverLimit:     indexed,
-			preset:          UpdateTypePosition,
-			engines:         []QueryEngine{QueryEngineDatabricks},
-			expected:        []UpdateType{UpdateTypeDeletionVector},
-			expectedDefault: UpdateTypeDeletionVector,
-		},
-		{
-			// Nothing both sides allow: no format is offered and no default is set.
-			name:            "driver and engines with nothing in common",
-			driverLimit:     []UpdateType{UpdateTypePosition},
-			engines:         []QueryEngine{QueryEngineDatabricks},
-			expected:        []UpdateType{},
-			expectedDefault: "",
-		},
+func TestGetWrappedCatalogKafkaPositionalYieldsWhenUnreadable(t *testing.T) {
+	kafkaSupported := []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}
+	kafkaStream := func(engines []QueryEngine) *Stream {
+		streams := []*Stream{{
+			Name: "users", Namespace: "public", Schema: NewTypeSchema(),
+			DefaultStreamProperties: &DefaultStreamProperties{},
+		}}
+		available, err := AvailableUpdateTypes(engines, &WriterConfig{Type: Iceberg, WriterConfig: map[string]any{}}, kafkaSupported)
+		require.NoError(t, err)
+		ApplyDestinationDefaults(streams, available, false)
+		return GetWrappedCatalog(streams).Streams[0].Stream
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// The driver sets the same limit on every stream of the source.
-			var streams []*Stream
-			for _, name := range []string{"users", "orders"} {
-				streams = append(streams, &Stream{
-					Name: name, Namespace: "public", Schema: NewTypeSchema(),
-					AvailableUpdateTypes:    tc.driverLimit,
-					DefaultStreamProperties: &DefaultStreamProperties{UpdateType: tc.preset},
-				})
-			}
+	// Spark reads pos, the first format Kafka allows.
+	spark := kafkaStream([]QueryEngine{QueryEngineSpark})
+	assert.Equal(t, UpdateTypePosition, spark.DefaultStreamProperties.UpdateType)
 
-			catalog := GetWrappedCatalog(streams, tc.engines)
-
-			for _, configured := range catalog.Streams {
-				assert.Equal(t, tc.expected, configured.Stream.AvailableUpdateTypes, configured.Name())
-				assert.Equal(t, tc.expectedDefault, configured.Stream.DefaultStreamProperties.UpdateType, configured.Name())
-			}
-		})
+	// Databricks reads only deletion vectors, so the default cannot be positional.
+	databricks := kafkaStream([]QueryEngine{QueryEngineDatabricks})
+	assert.Equal(t, UpdateTypeDeletionVector, databricks.DefaultStreamProperties.UpdateType)
+	upsert := &ConfiguredStream{
+		Stream:         databricks,
+		StreamMetadata: StreamMetadata{AppendMode: new(false), DedupKeys: []string{"_kafka_key"}},
 	}
+	assert.Equal(t, UpdateTypeDeletionVector, upsert.GetUpdateType())
 }
 
 // The engines themselves are an input, never a field: only the list they produce is written.
@@ -254,7 +193,9 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 		DefaultStreamProperties: &DefaultStreamProperties{},
 	}}
 
-	catalog := GetWrappedCatalog(streams, []QueryEngine{QueryEngineSpark, QueryEngineDuckDB})
+	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, "")
+	ApplyDestinationDefaults(streams, available, false)
+	catalog := GetWrappedCatalog(streams)
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	assert.NotContains(t, string(serialized), "target_query_engines")
@@ -285,8 +226,13 @@ func TestMergeCatalogsKeepsImplicitUpdateType(t *testing.T) {
 			engines: []QueryEngine{QueryEngineSpark}, expected: new("pos"),
 		},
 		{
-			// Databricks reads deletion vectors only: the switch to dv must be the user's choice.
-			name: "changed default with an unreadable previous format is cleared", previousDefault: UpdateTypeEquality, currentDefault: UpdateTypeDeletionVector,
+			// Databricks reads deletion vectors only, so the pinned equality moves to them.
+			name: "changed default with an unreadable previous equality moves to the default", previousDefault: UpdateTypeEquality, currentDefault: UpdateTypeDeletionVector,
+			engines: []QueryEngine{QueryEngineDatabricks}, expected: new("dv"),
+		},
+		{
+			// Only equality moves on its own; any other switch must be the user's choice.
+			name: "changed default with an unreadable previous format is cleared", previousDefault: UpdateTypePosition, currentDefault: UpdateTypeDeletionVector,
 			engines: []QueryEngine{QueryEngineDatabricks}, expected: new(""),
 		},
 	}
@@ -302,7 +248,7 @@ func TestMergeCatalogsKeepsImplicitUpdateType(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
 			}
 
-			merged := mergeCatalogs(oldCatalog, newCatalog, tc.engines)
+			merged := mergeCatalogs(oldCatalog, newCatalog, availableUpdateTypes(tc.engines, ""))
 			assert.Equal(t, tc.expected, merged.SelectedStreams["public"][0].UpdateType)
 		})
 	}
@@ -332,9 +278,10 @@ func TestMergeUpdateType(t *testing.T) {
 			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: new("pos"),
 		},
 		{
-			// The stream was configured before Snowflake joined the target engines.
-			name: "unreadable value is cleared", existing: new("eq"),
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: new(""),
+			// The stream was configured before Snowflake joined the target engines; the writer
+			// migrates equality deletes to positional ones, so no user choice is needed.
+			name: "unreadable equality moves to positional", existing: new("eq"),
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: new("pos"),
 		},
 		{
 			name: "legacy blank readable as equality", existing: new(""),
@@ -342,8 +289,13 @@ func TestMergeUpdateType(t *testing.T) {
 		},
 		{
 			// Blank meant equality, which Snowflake cannot read.
-			name: "legacy blank unreadable as equality is cleared", existing: new(""),
-			engines: []QueryEngine{QueryEngineSnowflake}, expected: new(""),
+			name: "legacy blank unreadable as equality moves to positional", existing: new(""),
+			engines: []QueryEngine{QueryEngineSnowflake}, expected: new("pos"),
+		},
+		{
+			// Databricks reads neither equality nor positional deletes.
+			name: "unreadable equality without positional moves to deletion vectors", existing: new("eq"),
+			engines: []QueryEngine{QueryEngineDatabricks}, expected: new("dv"),
 		},
 		{
 			name: "readable deletion vector is kept", existing: new("dv"),
@@ -359,7 +311,7 @@ func TestMergeUpdateType(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			metadata := &StreamMetadata{StreamName: "users", UpdateType: tc.existing}
-			mergeUpdateType(metadata, "public.users", tc.engines)
+			mergeUpdateType(metadata, "public.users", availableUpdateTypes(tc.engines, ""))
 			assert.Equal(t, tc.expected, metadata.UpdateType)
 		})
 	}

@@ -47,7 +47,6 @@ var (
 	connector                      *abstract.AbstractDriver
 	availableQueryEngines          bool
 	targetQueryEngines             []string
-	queryEngines                   []types.QueryEngine
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -223,6 +222,8 @@ const (
 	codeQueryEngineInvalid = "catalog.query_engine_invalid"
 	// codeUpdateTypeInvalid marks a selected stream whose update type is unset or not offered for it.
 	codeUpdateTypeInvalid = "catalog.update_type_invalid"
+	// codeDestinationConfigInvalid marks a destination config discover cannot read.
+	codeDestinationConfigInvalid = "config.destination_invalid"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )
