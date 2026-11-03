@@ -54,7 +54,7 @@ public final class RowReader {
    * gRPC limit however many large values the row holds: a message is then at most this, the
    * rows batched before it, and one value (Postgres caps a value at 1 GB).
    */
-  static final int ROW_PART_BYTES = 16 * 1024 * 1024;
+  private static final int ROW_PART_BYTES = 16 * 1024 * 1024;
 
   /** Marks a soft-deleted row ("d"), and is repeated in every part of a split row. */
   private static final String OP_TYPE = "_op_type";

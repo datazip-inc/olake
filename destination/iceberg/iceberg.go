@@ -157,9 +157,9 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode, indexThread)
 	}
 
-	// Recovery needs the row's previous location, which only an upsert thread with a
-	// stream index has. Backfill and equality mode keep the placeholder.
-	if indexThread != nil && upsertMode {
+	// Recovery needs the row's previous location, which only a thread with a stream index
+	// has. Equality mode keeps the placeholder; backfill records never carry one.
+	if indexThread != nil {
 		i.unavailableValues = newUnavailableValuesResolver(options.ThreadID, i.stream, i.writer, indexThread, i.server.tableIndexClient)
 	}
 

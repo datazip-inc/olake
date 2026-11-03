@@ -352,5 +352,4 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
       batchBytes = 0;
     }
   }
-
 }
