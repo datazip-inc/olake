@@ -27,10 +27,12 @@ var discoverCmd = &cobra.Command{
 		if err := validateDifferenceFlags(); err != nil {
 			return err
 		}
+
 		// optional: the stream difference uses its type to skip fields the destination ignores
 		if err := loadDestinationConfig(); err != nil {
 			return err
 		}
+
 		if convertStreams {
 			if streamsPath == "" {
 				return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
@@ -38,9 +40,11 @@ var discoverCmd = &cobra.Command{
 			}
 			return nil
 		}
+
 		if isStreamDifferenceCommand() {
 			return nil
 		}
+
 		if configPath == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		}
@@ -48,6 +52,7 @@ var discoverCmd = &cobra.Command{
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
+
 		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "") {
@@ -55,10 +60,6 @@ var discoverCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-		}
-
-		if err := resolveTargetQueryEngines(); err != nil {
-			return err
 		}
 
 		//version
@@ -70,11 +71,18 @@ var discoverCmd = &cobra.Command{
 		if convertStreams {
 			return convertLegacyStreams()
 		}
+
 		if isStreamDifferenceCommand() {
 			return compareStreams()
 		}
 
-		err := connector.Setup(cmd.Context())
+		// resolved before the slow discover so a bad flag or destination fails fast
+		availableUpdateTypes, err := resolveAvailableUpdateTypes(connector.SupportedUpdateTypes())
+		if err != nil {
+			return err
+		}
+
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -93,7 +101,9 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, queryEngines)
+
+		types.ApplyDestinationDefaults(streams, availableUpdateTypes, !types.UpsertSupported(destinationConfig.Type))
+		types.LogCatalog(streams, catalog, availableUpdateTypes)
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -129,24 +139,27 @@ func convertLegacyStreams() error {
 	return nil
 }
 
-// resolveTargetQueryEngines reads the engines this discover run must satisfy. They are a
-// pure input: the run turns them into each stream's available_update_types and keeps
-// nothing else, so a caller that wants the constraint applied passes the flag every time.
-func resolveTargetQueryEngines() error {
+// resolveAvailableUpdateTypes turns --target-query-engines, --destination and the source's own
+// restriction (sourceSupported, nil for none) into the delete formats every stream may use. The
+// flags are not persisted, so a caller that wants them applied passes both on every discover.
+func resolveAvailableUpdateTypes(sourceSupported []types.UpdateType) ([]types.UpdateType, error) {
 	engines, err := types.ParseQueryEngines(targetQueryEngines)
 	if err != nil {
-		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
+		return nil, errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
 	}
 
-	// An empty intersection cannot be written at all, so fail here rather than emitting a
-	// catalog whose streams offer no delete format.
-	if len(engines) > 0 && len(types.AvailableUpdateTypes(engines)) == 0 {
-		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid,
-			fmt.Errorf("no delete format is readable by all of the selected query engines %v", engines))
+	available, err := types.AvailableUpdateTypes(engines, destinationConfig, sourceSupported)
+	if err != nil {
+		return nil, errs.Precondition(errs.ConfigInvalid, codeDestinationConfigInvalid, err)
 	}
 
-	queryEngines = engines
-	return nil
+	// Not fatal: append writes no deletes, and the empty list tells the UI to warn. Expected,
+	// so silent, for an append-only destination.
+	if len(available) == 0 && types.UpsertSupported(destinationConfig.Type) {
+		logger.Warnf("No delete format is readable by all of the selected query engines %v and writable to the destination; upsert streams need append mode to sync", engines)
+	}
+
+	return available, nil
 }
 
 // compareStreams reads the old and new catalogs, computes the difference, and writes the result to
