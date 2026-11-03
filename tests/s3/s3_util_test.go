@@ -289,9 +289,8 @@ var (
 		"enum_col":    "string",
 		"uuid_col":    "string",
 
-		// A decimal stays a double while a double holds every value exactly; wider ones keep their
-		// precision and scale.
-		"dec32_col":     "double",
+		// A decimal keeps its precision and scale.
+		"dec32_col":     "decimal(9,2)",
 		"dec64_col":     "decimal(18,4)",
 		"dec_bytes_col": "decimal(38,2)",
 
@@ -448,7 +447,7 @@ func expectedParquetData(v rowValues) map[string]interface{} {
 		"enum_col":  v.Enum,
 		"uuid_col":  uuid.UUID(v.UUID).String(),
 
-		"dec32_col":     float64(v.Dec32) / 100, // scale 2
+		"dec32_col":     testutils.Decimal(big.NewRat(int64(v.Dec32), 100).FloatString(2)),
 		"dec64_col":     testutils.Decimal(big.NewRat(v.Dec64, 10_000).FloatString(4)),
 		"dec_bytes_col": testutils.Decimal(big.NewRat(int64(v.Dec32), 100).FloatString(2)), // byte-array physical form
 
@@ -1225,6 +1224,7 @@ var S3TypeMapping = map[string]string{
 	"boolean":       "boolean",
 	"decimal(18,4)": "decimal(18,4)",
 	"decimal(38,2)": "decimal(38,2)",
+	"decimal(9,2)":  "decimal(9,2)",
 	"double":        "double",
 	"float":         "float",
 	"int":           "int",

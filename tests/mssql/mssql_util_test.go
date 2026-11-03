@@ -630,14 +630,14 @@ var ExpectedMSSQLData = map[string]interface{}{
 
 	// numerics
 	"col_decimal": testutils.Decimal("123.50"),
-	"col_numeric": float64(10.125),
+	"col_numeric": testutils.Decimal("10.12500"),
 	"col_float":   float64(123.5),
 	"col_real":    float32(12.5),
 
 	"col_bit": true,
 
 	// money
-	"col_smallmoney": float64(1.25),
+	"col_smallmoney": testutils.Decimal("1.2500"),
 	"col_money":      testutils.Decimal("2.5000"),
 
 	// strings
@@ -675,7 +675,7 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 
 	// numerics
 	"col_decimal": testutils.Decimal("543.25"),
-	"col_numeric": float64(10.125),
+	"col_numeric": testutils.Decimal("10.12500"),
 	"col_float":   float64(123.5),
 	"col_real":    float32(321.0),
 
@@ -683,7 +683,7 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_bit": false,
 
 	// money
-	"col_smallmoney": float64(1.25),
+	"col_smallmoney": testutils.Decimal("1.2500"),
 	"col_money":      testutils.Decimal("922337203685477.5807"),
 
 	// strings
@@ -732,8 +732,8 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_bigint":             "bigint",
 	"col_cursor_decimal":     "decimal(20,4)",
 	"col_decimal":            "decimal(18,2)",
-	"col_numeric":            "double",
-	"col_smallmoney":         "double",
+	"col_numeric":            "decimal(10,5)",
+	"col_smallmoney":         "decimal(10,4)",
 	"col_money":              "decimal(19,4)",
 	"col_float":              "double",
 	"col_real":               "real",
@@ -767,6 +767,8 @@ var MSSQLToDestinationSchema = map[string]string{
 var MSSQLTypeMapping = map[string]string{
 	"bigint":        "bigint",
 	"boolean":       "boolean",
+	"decimal(10,4)": "decimal(10,4)",
+	"decimal(10,5)": "decimal(10,5)",
 	"decimal(18,2)": "decimal(18,2)",
 	"decimal(19,4)": "decimal(19,4)",
 	"decimal(20,4)": "decimal(20,4)",
