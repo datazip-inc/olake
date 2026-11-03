@@ -88,8 +88,10 @@ func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter
 	case hasPrecisionScale && slices.Contains(decimalTypeNames, datatype):
 		datatype = typeutils.DecimalColumnType(datatype, precision, scale)
 	case datatype == "MONEY":
-		// mssql reports no precision for MONEY, a DECIMAL(19,4)
+		// mssql reports no precision for MONEY, a DECIMAL(19,4), or SMALLMONEY, a DECIMAL(10,4)
 		datatype = typeutils.DecimalColumnType(datatype, 19, 4)
+	case datatype == "SMALLMONEY":
+		datatype = typeutils.DecimalColumnType(datatype, 10, 4)
 	}
 	conv, err := converter(rawData, datatype)
 	if err != nil && err != typeutils.ErrNullValue {
