@@ -85,7 +85,7 @@ func mysqlTypeToDataTypes() map[string]types.DataType {
 
 // resolveColumnType returns the type a column carries once its declared length, precision and scale are known:
 // a BINARY(n) column the mapping carries as bytes always holds exactly n bytes, so it resolves to
-// fixed_binary(n), and a DECIMAL(p,s) to the decimal a double cannot stand in for.
+// fixed_binary(n), and a DECIMAL(p,s) to the type NumericOf gives it.
 func resolveColumnType(dataType string, dataMaxLength, precision, scale sql.NullInt64, mapped types.DataType) types.DataType {
 	switch {
 	case dataType == "decimal" && precision.Valid && scale.Valid:

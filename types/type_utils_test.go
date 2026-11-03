@@ -357,10 +357,10 @@ func TestNumericOf(t *testing.T) {
 		want             DataType
 	}{
 		{
-			name:      "fifteen digits fit a double",
+			name:      "a decimal a double could hold stays a decimal",
 			precision: 15,
 			scale:     2,
-			want:      Float64,
+			want:      DataType("decimal(15,2)"),
 		},
 		{
 			name:      "sixteen digits need a decimal",

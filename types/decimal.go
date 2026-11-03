@@ -21,15 +21,10 @@ func validDecimal[N int | int32 | int64](p []N) bool {
 	return len(p) == 2 && p[0] >= 1 && p[0] <= MaxDecimalPrecision && p[1] <= p[0]
 }
 
-// exactDoubleDigits is the most significant digits a double holds exactly: any decimal of up to 15 digits
-// survives a round trip through float64.
-const exactDoubleDigits = 15
-
-// NumericOf is the type of a source decimal column of precision digits, scale of them after the point, which
-// drivers map to Float64: decimal(precision, scale) only where a double cannot hold every value exactly and
-// iceberg can hold the decimal. Older state keeps Float64 so an existing destination column keeps its type.
+// NumericOf maps a source decimal column of precision digits, scale of them after the point, to decimal(p,s) where
+// iceberg can hold it. Otherwise, and on older state so an existing destination column keeps its type, Float64.
 func NumericOf(precision, scale int64) DataType {
-	if !utils.IsDecimalSupported() || precision <= exactDoubleDigits || scale < 0 || !validDecimal([]int64{precision, scale}) {
+	if !utils.IsDecimalSupported() || scale < 0 || !validDecimal([]int64{precision, scale}) {
 		return Float64
 	}
 	return Decimal.Of(precision, scale)

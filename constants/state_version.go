@@ -54,8 +54,7 @@ import (
 //     * Older state keeps every one of those as text so existing destination columns do not change type.
 //
 //   - Version 9: (Current Version) Exact decimal columns map to decimal(p,s).
-//     * A decimal-family column of precision 16 to 38 maps to decimal(p,s) where it was Float64; precision 15
-//       or below still maps to Float64, since a double holds those values exactly.
+//     * A decimal-family column of precision up to 38 maps to decimal(p,s) where it was Float64
 //     * Values and decimal cursors keep the column's exact digits and scale.
 //     * Older state keeps those columns as Float64 so existing destination columns do not change type.
 

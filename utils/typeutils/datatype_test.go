@@ -324,9 +324,9 @@ func TestExtractAndMapColumnType(t *testing.T) {
 			expected:   types.DataType("decimal(18,4)"),
 		},
 		{
-			name:       "a decimal a double holds",
+			name:       "a decimal a double could hold stays a decimal",
 			columnType: "decimal(15,2)",
-			expected:   types.Float64,
+			expected:   types.DataType("decimal(15,2)"),
 		},
 		{
 			name:       "a decimal past 38 digits maps by its base type",
@@ -371,11 +371,11 @@ func TestDecimalColumnType(t *testing.T) {
 			want:      "decimal(18,4)",
 		},
 		{
-			name:      "a decimal a double holds keeps its name",
+			name:      "a decimal a double could hold is named by its precision and scale",
 			typeName:  "NUMERIC",
 			precision: 15,
 			scale:     2,
-			want:      "NUMERIC",
+			want:      "decimal(15,2)",
 		},
 		{
 			name:      "an unconstrained postgres numeric keeps its name",

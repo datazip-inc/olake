@@ -304,7 +304,7 @@ func TestResolvedTypesAllTypes(t *testing.T) {
 		"c_mediumint": "MEDIUMINT", "c_mediumint_u": "UNSIGNED MEDIUMINT",
 		"c_int": "INT", "c_int_u": "UNSIGNED INT",
 		"c_bigint": "BIGINT", "c_bigint_u": "UNSIGNED BIGINT",
-		"c_decimal": "DECIMAL", "c_float": "FLOAT", "c_double": "DOUBLE",
+		"c_decimal": "decimal(10,2)", "c_float": "FLOAT", "c_double": "DOUBLE",
 		"c_bit": "BIT", "c_year": "YEAR", "c_date": "DATE",
 		"c_datetime": "DATETIME", "c_timestamp": "TIMESTAMP", "c_time": "TIME",
 		"c_char": "CHAR", "c_varchar": "VARCHAR", "c_varchar_latin1": "VARCHAR",

@@ -46,9 +46,8 @@ func TestMapParquetTypeToOlake_LogicalTypes(t *testing.T) {
 		{name: "Unsigned int16 fits Int32", node: pq.Uint(16), expected: types.Int32},
 		{name: "Unsigned int32 widens to Int64 to avoid overflow", node: pq.Uint(32), expected: types.Int64},
 		{name: "Unsigned int64 maps to Int64", node: pq.Uint(64), expected: types.Int64},
-		// A decimal maps to Float64 while a double holds every value exactly, and keeps its precision and
-		// scale past that, whatever its physical backing.
-		{name: "Decimal int32-backed", node: pq.Decimal(2, 9, pq.Int32Type), expected: types.Float64},
+		// A decimal keeps its precision and scale, whatever its physical backing.
+		{name: "Decimal int32-backed", node: pq.Decimal(2, 9, pq.Int32Type), expected: types.DataType("decimal(9,2)")},
 		{
 			name:     "Decimal int64-backed",
 			node:     pq.Decimal(4, 18, pq.Int64Type),
@@ -1100,7 +1099,7 @@ func TestParquetParser_Integration(t *testing.T) {
 		"p_fixed_len":   types.String,
 		"l_enum":        types.String,
 		"l_json":        types.String,
-		"l_dec_int32":   types.Float64,
+		"l_dec_int32":   types.BigDecimal,
 		"l_dec_int64":   types.BigDecimal, // GetType reports a decimal(18,4)'s value type
 		"l_date":        types.Timestamp,
 		"l_ts_millis":   types.TimestampMilli,
@@ -1142,8 +1141,10 @@ func TestParquetParser_Integration(t *testing.T) {
 	// String-family logical types.
 	assert.Equal(t, "GREEN", record["l_enum"])
 	assert.Equal(t, `{"k":"v"}`, record["l_json"])
-	// A decimal a double holds decodes to a float64, a wider one to its exact decimal.
-	assert.Equal(t, 123.45, record["l_dec_int32"])
+	// Decimals decode to their exact value.
+	decInt32, err := typeutils.ReformatDecimal(types.DecimalOf(9, 2), "123.45")
+	require.NoError(t, err)
+	assert.Equal(t, decInt32, record["l_dec_int32"])
 	decInt64, err := typeutils.ReformatDecimal(types.DecimalOf(18, 4), "12345.6789")
 	require.NoError(t, err)
 	assert.Equal(t, decInt64, record["l_dec_int64"])
