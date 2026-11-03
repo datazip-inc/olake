@@ -239,20 +239,19 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		}
 	}
 	if m.OldTuple != nil && len(primaryKeys) > 0 {
-		oldValues, oldRowBytes, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+		oldValues, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 		if err != nil {
 			return err
 		}
-		for _, key := range primaryKeys {
-			if oldValues[key] == nil {
-				return fmt.Errorf("%w: old tuple for %s is missing primary key column %q", constants.ErrNonRetryable, stream.ID(), key)
-			}
+		if err := validateOldPrimaryKeys(stream.ID(), oldValues, primaryKeys); err != nil {
+			return err
 		}
 		// A changed key identifies a new destination row; remove the previous identity first.
 		if utils.GetKeysHash(oldValues, primaryKeys...) != utils.GetKeysHash(values, primaryKeys...) {
-			if err := insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", oldValues,
-				map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, oldRowBytes)); err != nil {
-				return err
+			if err := p.emitDelete(ctx, &pglogrepl.DeleteMessage{
+				RelationID: m.RelationID, OldTupleType: m.OldTupleType, OldTuple: m.OldTuple,
+			}, insertFn); err != nil {
+				return fmt.Errorf("failed to emit delete for primary key change in stream %s: %w", stream.ID(), err)
 			}
 		}
 	}
@@ -276,9 +275,21 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 	if err != nil {
 		return err
 	}
+	if err := validateOldPrimaryKeys(stream.ID(), values, stream.GetStream().SourceDefinedPrimaryKey.Array()); err != nil {
+		return err
+	}
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
 		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+}
+
+func validateOldPrimaryKeys(streamID string, values map[string]any, keys []string) error {
+	for _, key := range keys {
+		if values[key] == nil {
+			return fmt.Errorf("%w: old tuple for %s is missing primary key column %q", constants.ErrNonRetryable, streamID, key)
+		}
+	}
+	return nil
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

@@ -46,7 +46,7 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, stream := newUpdateReplicator(tt.keys...)
+			p, stream := newPgoutputReplicator(tt.keys...)
 			if tt.oldType != 'O' {
 				p.relationIDToMsgMap[1].ReplicaIdentity = 'd'
 				for _, column := range p.relationIDToMsgMap[1].Columns {
@@ -89,16 +89,19 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 		})
 	}
 
-	t.Run("old tuple cannot identify the primary key", func(t *testing.T) {
-		p, _ := newUpdateReplicator("id")
-		message := &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'O', OldTuple: tuple(null, null, text("9"), null), NewTuple: newRow}
-		err := p.emitUpdate(context.Background(), message, func(context.Context, abstract.CDCChange) error {
-			t.Error("unidentifiable old row must fail before delivery")
-			return nil
+	// A missing key must fail even if its hash matches the literal new key "<nil>".
+	for _, newKey := range []string{"2", "<nil>"} {
+		t.Run("missing old key with new key "+newKey, func(t *testing.T) {
+			p, _ := newPgoutputReplicator("id")
+			message := &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'O', OldTuple: tuple(null, null, text("9"), null), NewTuple: tuple(text("after"), text(newKey), text("10"), null)}
+			err := p.emitUpdate(context.Background(), message, func(context.Context, abstract.CDCChange) error {
+				t.Error("unidentifiable old row must fail before delivery")
+				return nil
+			})
+			require.ErrorIs(t, err, constants.ErrNonRetryable)
+			assert.ErrorContains(t, err, `old tuple for public.orders is missing primary key column "id"`)
 		})
-		require.ErrorIs(t, err, constants.ErrNonRetryable)
-		assert.ErrorContains(t, err, `old tuple for public.orders is missing primary key column "id"`)
-	})
+	}
 
 	for _, coversKey := range []bool{false, true} {
 		name := "INDEX omits primary key"
@@ -106,7 +109,7 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 			name = "INDEX includes primary key"
 		}
 		t.Run(name, func(t *testing.T) {
-			p, _ := newUpdateReplicator("id")
+			p, _ := newPgoutputReplicator("id")
 			relation := p.relationIDToMsgMap[1]
 			relation.ReplicaIdentity = 'i'
 			for _, column := range relation.Columns {
@@ -137,7 +140,7 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 
 	for _, failKind := range []string{"delete", "update"} {
 		t.Run(failKind+" callback failure", func(t *testing.T) {
-			p, _ := newUpdateReplicator("id")
+			p, _ := newPgoutputReplicator("id")
 			failure := errors.New("destination write failed")
 			var kinds []string
 			err := p.emitUpdate(context.Background(), &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'O', OldTuple: oldRow, NewTuple: newRow},
@@ -158,7 +161,7 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 	}
 
 	t.Run("conversion failure precedes delivery", func(t *testing.T) {
-		p, _ := newUpdateReplicator("id")
+		p, _ := newPgoutputReplicator("id")
 		failure := errors.New("invalid column value")
 		p.socket.changeFilter.converter = func(value any, _ string) (any, error) {
 			if value == "before" {
@@ -175,7 +178,60 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 	})
 }
 
-func newUpdateReplicator(keys ...string) (*pgoutputReplicator, *types.ConfiguredStream) {
+func TestPgoutputReplicator_EmitDelete(t *testing.T) {
+	tests := []struct {
+		name    string
+		keys    []string
+		wantErr string
+	}{
+		{"DEFAULT identity", []string{"id"}, ""},
+		{"missing composite key component", []string{"id", "tenant"}, `missing primary key column "tenant"`},
+		{"missing configured column", []string{"missing"}, `missing primary key column "missing"`},
+		{"no primary key", nil, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, stream := newPgoutputReplicator(tt.keys...)
+			relation := p.relationIDToMsgMap[1]
+			relation.ReplicaIdentity = 'd'
+			for _, column := range relation.Columns {
+				column.Flags = 0
+			}
+			relation.Columns[1].Flags = 1
+			// DEFAULT identity supplies only the actual key, regardless of configured keys.
+			message := &pglogrepl.DeleteMessage{RelationID: 1, OldTupleType: 'K', OldTuple: &pglogrepl.TupleData{
+				ColumnNum: 4,
+				Columns: []*pglogrepl.TupleDataColumn{
+					{DataType: pglogrepl.TupleDataTypeNull},
+					{DataType: pglogrepl.TupleDataTypeText, Data: []byte("1")},
+					{DataType: pglogrepl.TupleDataTypeNull},
+					{DataType: pglogrepl.TupleDataTypeNull},
+				},
+			}}
+			var changes []abstract.CDCChange
+			err := p.emitDelete(context.Background(), message, func(_ context.Context, change abstract.CDCChange) error {
+				changes = append(changes, change)
+				return nil
+			})
+			if tt.wantErr != "" {
+				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				assert.ErrorContains(t, err, "old tuple for public.orders is "+tt.wantErr)
+				assert.Empty(t, changes)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, changes, 1)
+			assert.Equal(t, "delete", changes[0].Kind)
+			assert.Same(t, stream, changes[0].Stream)
+			assert.Equal(t, map[string]any{"name": nil, "id": "1", "tenant": nil, "payload": nil}, changes[0].Data)
+			assert.Equal(t, p.txnCommitTime, changes[0].Timestamp)
+			assert.Equal(t, map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, changes[0].ExtraColumns)
+			assert.Equal(t, int64(1), changes[0].Bytes)
+		})
+	}
+}
+
+func newPgoutputReplicator(keys ...string) (*pgoutputReplicator, *types.ConfiguredStream) {
 	stream := types.NewStream("orders", "public", nil).WithPrimaryKey(keys...).Wrap(0)
 	relation := &pglogrepl.RelationMessage{RelationID: 1, Namespace: "public", RelationName: "orders", ReplicaIdentity: 'f', ColumnNum: 4}
 	for _, name := range []string{"name", "id", "tenant", "payload"} {
