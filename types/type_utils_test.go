@@ -92,7 +92,7 @@ func TestFixedBinaryGrammar(t *testing.T) {
 func TestBaseOf(t *testing.T) {
 	require.Equal(t, FixedBinary, baseOf(FixedBinaryOf(16)))
 	require.Equal(t, FixedBinary, baseOf(FixedBinary))
-	for _, dataType := range append(declaredDataTypes(t), Null, Unknown, DataType("undeclared_type")) {
+	for _, dataType := range append(declaredDataTypes(t), Null, Unknown, BigDecimal, DataType("undeclared_type")) {
 		require.Equal(t, dataType, baseOf(dataType), "%s must be its own base", dataType)
 	}
 }

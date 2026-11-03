@@ -190,10 +190,12 @@ func declaredIcebergDataTypes(t *testing.T) []string {
 func declaredDataTypes(t *testing.T) []DataType {
 	t.Helper()
 
-	// ignoreDeclaredTypes are data types that we don't need tests on. They are defined for fallback cases
+	// ignoreDeclaredTypes are data types that we don't need tests on. They are defined for fallback cases,
+	// or, like BigDecimal, only as a decimal column's ValueType: no column or value has that type.
 	ignoreDeclaredTypes := map[DataType]struct{}{
-		Null:    {},
-		Unknown: {},
+		Null:       {},
+		Unknown:    {},
+		BigDecimal: {},
 	}
 
 	var dataTypes []DataType
