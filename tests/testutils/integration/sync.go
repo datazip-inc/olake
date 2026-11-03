@@ -192,11 +192,12 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 		}
 		testCases = []syncTestCase{
 			{
-				name:      "CDC - strict - insert",
-				operation: "",
-				useState:  false,
-				opSymbol:  "c",
-				expected:  th.ExpectedData,
+				name:             "CDC - strict - insert",
+				operation:        "",
+				useState:         false,
+				opSymbol:         "c",
+				expected:         th.ExpectedData,
+				expectedRowCount: 1,
 			},
 			{
 				name:      "CDC - strict - update",
@@ -331,11 +332,12 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 		}
 		testCases = []syncTestCase{
 			{
-				name:      "CDC - strict - insert",
-				operation: "",
-				useState:  false,
-				opSymbol:  "u",
-				expected:  th.ExpectedData,
+				name:             "CDC - strict - insert",
+				operation:        "",
+				useState:         false,
+				opSymbol:         "u",
+				expected:         th.ExpectedData,
+				expectedRowCount: 1,
 			},
 			{
 				name:      "CDC - strict - update",

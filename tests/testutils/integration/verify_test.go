@@ -94,6 +94,19 @@ func TestExpectedRowCountContract(t *testing.T) {
 	assertS3ExpectedRowCount("r", "", 6)
 	assertS3ExpectedRowCount("u", "insert", 3)
 	assertS3ExpectedRowCount("u", "update", 3)
+
+	// 3. Upsert contract (DedupKeys defaults FullLoad to 1)
+	upsertHandler := &TestHandler{
+		DedupKeys: []string{"_kafka_key"},
+	}
+	got, err := upsertHandler.ExpectedRowCount("c", "")
+	if err != nil || got != 1 {
+		t.Errorf("upsert ExpectedRowCount(\"c\", \"\") = (%d, %v), want (1, nil)", got, err)
+	}
+	gotDel, errDel := upsertHandler.ExpectedRowCount("d", "upsert_tombstone")
+	if errDel != nil || gotDel != 0 {
+		t.Errorf("upsert ExpectedRowCount(\"d\", \"upsert_tombstone\") = (%d, %v), want (0, nil)", gotDel, errDel)
+	}
 }
 
 func TestVerifySyncedRows_Success(t *testing.T) {

@@ -51,7 +51,8 @@ func (th *TestHandler) ExpectedRowCount(opSymbol, operation string) (int, error)
 	if opSymbol == "d" {
 		return 0, nil
 	}
-	fullLoad := testutils.Ternary(th.RowCounts.FullLoad > 0, th.RowCounts.FullLoad, 5).(int)
+	defaultFullLoad := testutils.Ternary(len(th.DedupKeys) > 0, 1, 5).(int)
+	fullLoad := testutils.Ternary(th.RowCounts.FullLoad > 0, th.RowCounts.FullLoad, defaultFullLoad).(int)
 	insertCount := testutils.Ternary(th.RowCounts.Insert > 0, th.RowCounts.Insert, 1).(int)
 	updateCount := testutils.Ternary(th.RowCounts.Update > 0, th.RowCounts.Update, 1).(int)
 
@@ -138,9 +139,13 @@ func (th *TestHandler) runSyncAndVerify(
 
 	t.Logf("Sync successful for %s driver", th.TestConfig.Driver)
 
-	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
-	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
-	evolvedSchema := operation == "update" || operation == "upsert_update" || operation == "upsert_column_update" || operation == "upsert_update_repartition" || operation == "upsert_update_partition_1"
+	// Use evolved schema for CDC "update" and any subsequent operations (like "delete" or "upsert_tombstone")
+	// where the destination table has already evolved. Incremental "insert" uses opSymbol "u" or "c"
+	// before schema evolution, so it uses the original schema.
+	evolvedSchema := (operation == "update" || operation == "upsert_update" ||
+		operation == "upsert_column_update" || operation == "upsert_update_repartition" ||
+		operation == "upsert_update_partition_1" || operation == "delete" ||
+		operation == "upsert_tombstone") && len(th.UpdatedDestinationDataTypeSchema) > 0
 
 	// Verification reads the destination back through Spark Connect (with retries), a real slice of
 	// sync wall-clock; time it as its own phase.
