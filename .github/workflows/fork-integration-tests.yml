@@ -1,0 +1,98 @@
+name: Fork Integration Tests
+
+# Manually trigger integration tests on this fork without needing a self-hosted
+# runner or the upstream 'integration_tests' environment.
+# Usage: Actions → Fork Integration Tests → Run workflow → pick driver + branch.
+on:
+  workflow_dispatch:
+    inputs:
+      driver:
+        description: 'Driver to test'
+        required: true
+        type: choice
+        options:
+          - kafka
+          - mysql
+          - postgres
+          - mongodb
+          - s3
+      make_vars:
+        description: 'Extra make vars (e.g. SOURCE_COMPOSE_mysql=drivers/mysql/docker-compose.8.yml)'
+        required: false
+        default: ''
+
+jobs:
+  integration-test:
+    name: Integration Test (${{ inputs.driver }})
+    runs-on: ubuntu-latest   # GitHub-hosted; swap to your self-hosted label if you register one
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The iceberg catalog's postgres runs as uid 999 and must own its bind mount.
+      - name: Set up Data Directories
+        run: |
+          sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
+          sudo chown -R 999:999 destination/iceberg/local-test/data
+          sudo chmod -R 777 destination/iceberg/local-test/data
+
+      - name: Restore driver external dependencies
+        uses: ./.github/actions/driver-deps
+
+      - name: Start containers
+        id: containers
+        timeout-minutes: 15
+        run: make ${{ inputs.make_vars }} -j2 --output-sync=target olake.${{ inputs.driver }}.up olake.destination.all.up
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/buildx
+
+      - name: Restore Iceberg writer jar
+        uses: ./.github/actions/iceberg-jar
+
+      - name: Build driver image
+        timeout-minutes: 20
+        run: make docker.${{ inputs.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ inputs.driver }} --load"
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Restore shared Go caches
+        uses: ./.github/actions/go-caches
+
+      - name: Install test dependencies
+        timeout-minutes: 15
+        run: make test.build.${{ inputs.driver }}
+
+      - name: Wait for source + destination readiness
+        timeout-minutes: 3
+        run: make ${{ inputs.make_vars }} -j2 --output-sync=target olake.${{ inputs.driver }}.wait olake.destination.all.wait
+
+      - name: Bootstrap Iceberg catalog
+        run: |
+          set -euo pipefail
+          echo "Bootstrapping Iceberg catalog via '${{ inputs.driver }}'..."
+          docker run --rm \
+            -v "$PWD/tests/testdata:/testdata" \
+            --add-host host.docker.internal:host-gateway \
+            -e TELEMETRY_DISABLED=true \
+            "olakego/source-${{ inputs.driver }}:local" \
+            check --destination /testdata/iceberg_destination.json
+
+      - name: Verify source stack
+        run: make ${{ inputs.make_vars }} olake.${{ inputs.driver }}.verify
+
+      - name: Run integration tests
+        env:
+          OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ inputs.driver }}:local
+        run: make ${{ inputs.make_vars }} test.integration.${{ inputs.driver }}
