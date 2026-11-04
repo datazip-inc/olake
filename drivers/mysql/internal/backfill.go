@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -445,6 +446,23 @@ func isNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, c
 	if destinationDataType != types.Int32 && destinationDataType != types.Int64 {
 		logger.Debugf("Current pk is not a supported numeric column")
 		return nil
+	}
+
+	if b, ok := minVal.([]byte); ok {
+		str := string(b)
+		if v, err := strconv.ParseInt(str, 10, 64); err == nil {
+			minVal = v
+		} else if u, err := strconv.ParseUint(str, 10, 64); err == nil {
+			minVal = int64(u)
+		}
+	}
+	if b, ok := maxVal.([]byte); ok {
+		str := string(b)
+		if v, err := strconv.ParseInt(str, 10, 64); err == nil {
+			maxVal = v
+		} else if u, err := strconv.ParseUint(str, 10, 64); err == nil {
+			maxVal = int64(u)
+		}
 	}
 
 	minBoundary, err := typeutils.ReformatInt64(minVal)
