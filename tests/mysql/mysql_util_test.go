@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math"
 	"strconv"
@@ -269,6 +270,28 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	case "update_primary_key":
 		query = fmt.Sprintf("UPDATE %s SET id = 101 WHERE id = 1", integrationTestTable)
+
+	case "return_primary_key":
+		query = fmt.Sprintf("UPDATE %s SET id = 1 WHERE id = 101", integrationTestTable)
+
+	case "swap_primary_keys":
+		tx, err := db.BeginTxx(ctx, nil)
+		require.NoError(t, err)
+		defer func() {
+			if err := tx.Rollback(); err != sql.ErrTxDone {
+				require.NoError(t, err)
+			}
+		}()
+		// A spare positive key works with the seed's unsigned primary key.
+		for _, keys := range [][2]int{{1, 1001}, {2, 1}, {1001, 2}} {
+			_, err = tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET id = ? WHERE id = ?", integrationTestTable), keys[1], keys[0])
+			require.NoError(t, err, "Failed to swap primary keys")
+		}
+		require.NoError(t, tx.Commit())
+		return
+
+	case "shift_primary_keys":
+		query = fmt.Sprintf("UPDATE %s SET id = id + 1 ORDER BY id DESC", integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)

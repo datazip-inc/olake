@@ -104,27 +104,40 @@ func (th *TestHandler) testCDCPrimaryKeyUpdate(ctx context.Context, t *testing.T
 
 	spark := getSparkSession(ctx, t)
 	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, testTable)
-	readRows := func() map[string]string {
+	type rowState struct {
+		operation string
+		rowMarker string
+	}
+	markerColumn := "id_cursor"
+	if th.Driver == string(constants.Postgres) {
+		markerColumn = "col_cursor"
+	}
+	readRows := func() map[string]rowState {
 		refreshTable(ctx, t, spark, fullTableName)
-		df, err := spark.Sql(ctx, fmt.Sprintf("SELECT _olake_id, _op_type FROM %s", fullTableName))
+		df, err := spark.Sql(ctx, fmt.Sprintf("SELECT _olake_id, _op_type, %s AS row_marker FROM %s", markerColumn, fullTableName))
 		require.NoError(t, err)
 		rows, err := df.Collect(ctx)
 		require.NoError(t, err)
-		result := make(map[string]string, len(rows))
+		result := make(map[string]rowState, len(rows))
 		for _, row := range rows {
 			id := fmt.Sprint(row.Value("_olake_id"))
 			_, duplicate := result[id]
 			require.Falsef(t, duplicate, "duplicate destination identity %s", id)
-			result[id] = fmt.Sprint(row.Value("_op_type"))
+			state := rowState{operation: fmt.Sprint(row.Value("_op_type"))}
+			// DEFAULT identity omits non-key values from delete records.
+			if state.operation != "d" {
+				state.rowMarker = fmt.Sprint(row.Value("row_marker"))
+			}
+			result[id] = state
 		}
 		return result
 	}
-	want := map[string]string{"1": "r", "2": "r", "3": "r", "4": "r", "5": "r"}
+	want := map[string]rowState{"1": {"r", "1"}, "2": {"r", "2"}, "3": {"r", "3"}, "4": {"r", "4"}, "5": {"r", "5"}}
 	// The seed's normally filtered row is present in this unfiltered scenario too.
 	if th.Driver == string(constants.Postgres) {
-		want["6"] = "r"
+		want["6"] = rowState{"r", "-1"}
 	} else {
-		want["998"] = "r"
+		want["998"] = rowState{"r", "-1"}
 	}
 	require.Equal(t, want, readRows())
 
@@ -132,8 +145,43 @@ func (th *TestHandler) testCDCPrimaryKeyUpdate(ctx context.Context, t *testing.T
 	if err := th.runIcebergSync(ctx, t, "primary key update sync", true); err != nil {
 		return err
 	}
-	want["1"] = "d"
-	want["101"] = "u"
+	want["1"] = rowState{"d", ""}
+	want["101"] = rowState{"u", "1"}
+	require.Equal(t, want, readRows())
+
+	th.ExecuteQuery(ctx, t, th.TestConfig, "return_primary_key")
+	if err := th.runIcebergSync(ctx, t, "primary key return sync", true); err != nil {
+		return err
+	}
+	want["1"] = rowState{"u", "1"}
+	want["101"] = rowState{"d", ""}
+	require.Equal(t, want, readRows())
+
+	th.ExecuteQuery(ctx, t, th.TestConfig, "swap_primary_keys")
+	if err := th.runIcebergSync(ctx, t, "primary key swap sync", true); err != nil {
+		return err
+	}
+	want["1"] = rowState{"u", "2"}
+	want["2"] = rowState{"u", "1"}
+	want["1001"] = rowState{"d", ""}
+	require.Equal(t, want, readRows())
+
+	th.ExecuteQuery(ctx, t, th.TestConfig, "shift_primary_keys")
+	if err := th.runIcebergSync(ctx, t, "primary key shift sync", true); err != nil {
+		return err
+	}
+	want["1"] = rowState{"d", ""}
+	want["2"] = rowState{"u", "2"}
+	want["3"] = rowState{"u", "1"}
+	want["4"] = rowState{"u", "3"}
+	want["5"] = rowState{"u", "4"}
+	want["6"] = rowState{"u", "5"}
+	if th.Driver == string(constants.Postgres) {
+		want["7"] = rowState{"u", "-1"}
+	} else {
+		want["998"] = rowState{"d", ""}
+		want["999"] = rowState{"u", "-1"}
+	}
 	require.Equal(t, want, readRows())
 
 	// Keep source state and destination metadata so a new process exercises normal resume.

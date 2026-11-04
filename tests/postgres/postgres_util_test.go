@@ -242,6 +242,24 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	case "update_primary_key":
 		query = fmt.Sprintf("UPDATE %s SET col_bigserial = 101 WHERE col_bigserial = 1", integrationTestTable)
 
+	case "return_primary_key":
+		query = fmt.Sprintf("UPDATE %s SET col_bigserial = 1 WHERE col_bigserial = 101", integrationTestTable)
+
+	case "swap_primary_keys":
+		query = fmt.Sprintf(`DO $$ BEGIN
+			UPDATE %[1]s SET col_bigserial = 1001 WHERE col_bigserial = 1;
+			UPDATE %[1]s SET col_bigserial = 1 WHERE col_bigserial = 2;
+			UPDATE %[1]s SET col_bigserial = 2 WHERE col_bigserial = 1001;
+		END $$`, integrationTestTable)
+
+	case "shift_primary_keys":
+		// Descending order avoids collisions with keys that have not moved yet.
+		query = fmt.Sprintf(`DO $$ DECLARE old_id bigint; BEGIN
+			FOR old_id IN SELECT col_bigserial FROM %[1]s ORDER BY col_bigserial DESC LOOP
+				UPDATE %[1]s SET col_bigserial = old_id + 1 WHERE col_bigserial = old_id;
+			END LOOP;
+		END $$`, integrationTestTable)
+
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
 
