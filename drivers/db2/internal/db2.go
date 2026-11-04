@@ -32,7 +32,7 @@ func (d *DB2) CDCSupported() bool {
 
 func (d *DB2) Setup(ctx context.Context) error {
 	if err := d.config.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: failed to validate config: %w", constants.ErrManualIntervention, err)
 	}
 
 	if d.config.SSHConfig != nil && d.config.SSHConfig.Host != "" {

@@ -14,11 +14,11 @@ import (
 )
 
 // TestRetryOnBackoffMarkers pins how many times RetryOnBackoff runs f for each kind of error:
-// unmarked errors are retried, ErrRetryable and ErrNonRetryable stop after the first attempt.
+// unmarked errors are retried, ErrRestartRequired and ErrManualIntervention stop after the first attempt.
 func TestRetryOnBackoffMarkers(t *testing.T) {
 	plain := errors.New("connection reset by peer")
-	retryable := fmt.Errorf("%w: LSN not updated after 5 minutes", constants.ErrRetryable)
-	nonRetryable := fmt.Errorf("%w: publication does not exist", constants.ErrNonRetryable)
+	restartRequired := fmt.Errorf("%w: LSN not updated after 5 minutes", constants.ErrRestartRequired)
+	manualIntervention := fmt.Errorf("%w: publication does not exist", constants.ErrManualIntervention)
 
 	testCases := []struct {
 		name          string
@@ -30,26 +30,26 @@ func TestRetryOnBackoffMarkers(t *testing.T) {
 		{name: "success on first attempt", attempts: 3, errs: nil, expectedCalls: 1},
 		{name: "plain error is retried until attempts run out", attempts: 3, errs: []error{plain, plain, plain, plain}, expectedCalls: 4, expectedErr: plain},
 		{name: "plain error then success", attempts: 3, errs: []error{plain}, expectedCalls: 2},
-		{name: "ErrRetryable stops after one attempt", attempts: 3, errs: []error{retryable}, expectedCalls: 1, expectedErr: retryable},
-		{name: "ErrNonRetryable stops after one attempt", attempts: 3, errs: []error{nonRetryable}, expectedCalls: 1, expectedErr: nonRetryable},
-		{name: "plain error then ErrNonRetryable stops at the marker", attempts: 3, errs: []error{plain, nonRetryable}, expectedCalls: 2, expectedErr: nonRetryable},
+		{name: "ErrRestartRequired stops after one attempt", attempts: 3, errs: []error{restartRequired}, expectedCalls: 1, expectedErr: restartRequired},
+		{name: "ErrManualIntervention stops after one attempt", attempts: 3, errs: []error{manualIntervention}, expectedCalls: 1, expectedErr: manualIntervention},
+		{name: "plain error then ErrManualIntervention stops at the marker", attempts: 3, errs: []error{plain, manualIntervention}, expectedCalls: 2, expectedErr: manualIntervention},
 		{
-			name:          "ErrNonRetryable inside errs.Precondition stops",
+			name:          "ErrManualIntervention inside errs.Precondition stops",
 			attempts:      3,
-			errs:          []error{errs.Precondition(errs.StateInvalid, "kafka.offset_mismatch", fmt.Errorf("%w: clear destination", constants.ErrNonRetryable))},
+			errs:          []error{errs.Precondition(errs.StateInvalid, "kafka.offset_mismatch", fmt.Errorf("%w: clear destination", constants.ErrManualIntervention))},
 			expectedCalls: 1,
 		},
 		{
-			name:          "ErrRetryable wrapped by an outer %w layer stops",
+			name:          "ErrRestartRequired wrapped by an outer %w layer stops",
 			attempts:      3,
-			errs:          []error{fmt.Errorf("reader[0]: sync committed offsets failed: %w", retryable)},
+			errs:          []error{fmt.Errorf("reader[0]: sync committed offsets failed: %w", restartRequired)},
 			expectedCalls: 1,
 		},
 		// a %s wrap drops the marker, so the error is retried like a plain one
 		{
 			name:          "marker lost through %s is retried",
 			attempts:      3,
-			errs:          []error{fmt.Errorf("outer: %s", nonRetryable), fmt.Errorf("outer: %s", nonRetryable), fmt.Errorf("outer: %s", nonRetryable), fmt.Errorf("outer: %s", nonRetryable)},
+			errs:          []error{fmt.Errorf("outer: %s", manualIntervention), fmt.Errorf("outer: %s", manualIntervention), fmt.Errorf("outer: %s", manualIntervention), fmt.Errorf("outer: %s", manualIntervention)},
 			expectedCalls: 4,
 		},
 		{name: "single attempt is not retried", attempts: 0, errs: []error{plain}, expectedCalls: 1, expectedErr: plain},
@@ -81,34 +81,36 @@ func TestRetryOnBackoffMarkers(t *testing.T) {
 
 // TestRetryOnBackoffCanceled: a canceled context ends the loop with ctx.Err(), never with a marker.
 func TestRetryOnBackoffCanceled(t *testing.T) {
-	t.Run("canceled before the first attempt", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
+	testCases := []struct {
+		name              string
+		cancelBeforeStart bool
+		sleep             time.Duration
+		expectedCalls     int
+	}{
+		{name: "canceled before the first attempt", cancelBeforeStart: true, sleep: time.Millisecond, expectedCalls: 0},
+		// the loop would wait an hour to retry; cancellation must end it
+		{name: "canceled during the backoff wait", sleep: time.Hour, expectedCalls: 1},
+	}
 
-		calls := 0
-		err := RetryOnBackoff(ctx, 3, time.Millisecond, func(context.Context) error {
-			calls++
-			return nil
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.cancelBeforeStart {
+				cancel()
+			}
+
+			calls := 0
+			err := RetryOnBackoff(ctx, 3, tc.sleep, func(context.Context) error {
+				calls++
+				cancel()
+				return errors.New("connection reset by peer")
+			})
+
+			assert.Equal(t, tc.expectedCalls, calls)
+			assert.ErrorIs(t, err, context.Canceled)
+			assert.False(t, IsRestartRequired(err))
+			assert.False(t, IsManualIntervention(err))
 		})
-
-		assert.Equal(t, 0, calls)
-		assert.ErrorIs(t, err, context.Canceled)
-		assert.False(t, constants.IsRetryable(err))
-		assert.False(t, constants.IsNonRetryable(err))
-	})
-
-	t.Run("canceled during the backoff wait", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-
-		calls := 0
-		err := RetryOnBackoff(ctx, 3, time.Hour, func(context.Context) error {
-			calls++
-			cancel() // the loop is now waiting an hour to retry; cancellation must end it
-			return errors.New("connection reset by peer")
-		})
-
-		assert.Equal(t, 1, calls)
-		assert.ErrorIs(t, err, context.Canceled)
-		assert.False(t, constants.IsNonRetryable(err))
-	})
+	}
 }

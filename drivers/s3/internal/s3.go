@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/drivers/s3/internal/pkg/parser"
 	"github.com/datazip-inc/olake/pkg/objstorage"
@@ -52,7 +53,7 @@ func (s *S3) Type() string {
 func (s *S3) Setup(ctx context.Context) error {
 	// Validate configuration
 	if err := s.config.Validate(); err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
+		return fmt.Errorf("%w: failed to validate config: %w", constants.ErrManualIntervention, err)
 	}
 
 	// Compile file pattern regex if provided
@@ -262,7 +263,7 @@ func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types
 		inferredStream, err = s.inferSchemaForXML(ctx, firstFile, stream)
 	default:
 		return nil, errs.Precondition(errs.ConfigInvalid, codeUnsupportedFileFormat,
-			fmt.Errorf("unsupported file format: %s", s.config.FileFormat))
+			fmt.Errorf("%w: unsupported file format: %s", constants.ErrManualIntervention, s.config.FileFormat))
 	}
 
 	if err != nil {

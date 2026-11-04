@@ -92,7 +92,7 @@ func (k *Kafka) SetupState(state *types.State) {
 
 func (k *Kafka) Setup(ctx context.Context) error {
 	if err := k.config.Validate(); err != nil {
-		return fmt.Errorf("config validation failed: %w", err)
+		return fmt.Errorf("%w: config validation failed: %w", constants.ErrManualIntervention, err)
 	}
 
 	// Compile topic pattern regex if provided
@@ -131,7 +131,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	if k.config.SchemaRegistry != nil {
 		k.config.SchemaRegistry.Init()
 		if err := k.config.SchemaRegistry.Validate(); err != nil {
-			return fmt.Errorf("schema registry validation failed: %w", err)
+			return fmt.Errorf("%w: schema registry validation failed: %w", constants.ErrManualIntervention, err)
 		}
 		k.schemaRegistryClient = k.config.SchemaRegistry
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)

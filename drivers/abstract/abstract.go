@@ -121,7 +121,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream types.StreamID) error {
 			streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
 			if err != nil {
-				return fmt.Errorf("failed to produce schema for stream %s: %w", stream, err)
+				return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrRestartRequired, stream, err)
 			}
 			streamMap.Store(streamSchema.ID(), streamSchema)
 			return nil
@@ -204,7 +204,7 @@ func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler Samp
 				err = ctx.Err()
 			}
 			if err != nil {
-				return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrRetryable, streamID, err)
+				return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrRestartRequired, streamID, err)
 			}
 
 			streamMap.Store(stream.ID(), stream) // replaces the previous bucket's schema
@@ -302,7 +302,7 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		} else {
 			return errs.Precondition(errs.CDCPreconditionFailed,
 				fmt.Sprintf("%s.cdc_not_configured", a.driver.Type()),
-				fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type()))
+				fmt.Errorf("%w: %s cdc configuration not provided, use full refresh for all streams", constants.ErrManualIntervention, a.driver.Type()))
 		}
 	}
 

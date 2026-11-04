@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,21 +36,21 @@ func (s markerStubDriver) GetOrSplitChunks(context.Context, *destination.WriterP
 	return nil, s.splitChunksErr
 }
 
-// TestDiscoverProduceSchemaMarker: discover no longer marks ProduceSchema failures, so they are
-// retried in process and exit 1; a marker the driver itself attached still reaches connector.go.
+// TestDiscoverProduceSchemaMarker: a ProduceSchema failure is marked ErrRestartRequired (no
+// in-process retry, exit 1), unless the driver already marked it ErrManualIntervention.
 func TestDiscoverProduceSchemaMarker(t *testing.T) {
 	transient := networkReset()
-	driverMarked := fmt.Errorf("%w: table was dropped", constants.ErrNonRetryable)
+	driverMarked := fmt.Errorf("%w: table was dropped", constants.ErrManualIntervention)
 
 	testCases := []struct {
-		name                 string
-		produceSchemaErr     error
-		expectedRetryable    bool
-		expectedNonRetryable bool
+		name                       string
+		produceSchemaErr           error
+		expectedRestartRequired    bool
+		expectedManualIntervention bool
 	}{
-		{name: "transient failure carries no marker", produceSchemaErr: transient},
-		{name: "plain failure carries no marker", produceSchemaErr: errors.New("unknown failure")},
-		{name: "driver's ErrNonRetryable is kept", produceSchemaErr: driverMarked, expectedRetryable: true, expectedNonRetryable: true},
+		{name: "transient failure is ErrRestartRequired", produceSchemaErr: transient, expectedRestartRequired: true},
+		{name: "plain failure is ErrRestartRequired", produceSchemaErr: errors.New("unknown failure"), expectedRestartRequired: true},
+		{name: "driver's ErrManualIntervention is kept", produceSchemaErr: driverMarked, expectedRestartRequired: true, expectedManualIntervention: true},
 	}
 
 	for _, tc := range testCases {
@@ -69,25 +70,25 @@ func TestDiscoverProduceSchemaMarker(t *testing.T) {
 			assert.Equal(t, 1, calls, "ProduceSchema runs once per attempt")
 			assert.ErrorIs(t, err, tc.produceSchemaErr, "the cause stays in the chain")
 			assert.Contains(t, err.Error(), "failed to produce schema for stream public.users")
-			assert.Equal(t, tc.expectedRetryable, constants.IsRetryable(err), "IsRetryable")
-			assert.Equal(t, tc.expectedNonRetryable, constants.IsNonRetryable(err), "IsNonRetryable")
+			assert.Equal(t, tc.expectedRestartRequired, utils.IsRestartRequired(err), "IsRestartRequired")
+			assert.Equal(t, tc.expectedManualIntervention, utils.IsManualIntervention(err), "IsManualIntervention")
 		})
 	}
 }
 
 // TestRunChangeStreamBackfillMarker: a failure while planning backfill chunks in a CDC sync is
-// marked ErrRetryable (exit 1, restart), unless the driver already marked it ErrNonRetryable.
+// marked ErrRestartRequired (exit 1, restart), unless the driver already marked it ErrManualIntervention.
 func TestRunChangeStreamBackfillMarker(t *testing.T) {
 	transient := networkReset()
-	driverMarked := fmt.Errorf("%w: permission denied", constants.ErrNonRetryable)
+	driverMarked := fmt.Errorf("%w: permission denied", constants.ErrManualIntervention)
 
 	testCases := []struct {
-		name                 string
-		splitChunksErr       error
-		expectedNonRetryable bool
+		name                       string
+		splitChunksErr             error
+		expectedManualIntervention bool
 	}{
-		{name: "transient chunk planning failure is ErrRetryable", splitChunksErr: transient},
-		{name: "driver's ErrNonRetryable is kept", splitChunksErr: driverMarked, expectedNonRetryable: true},
+		{name: "transient chunk planning failure is ErrRestartRequired", splitChunksErr: transient},
+		{name: "driver's ErrManualIntervention is kept", splitChunksErr: driverMarked, expectedManualIntervention: true},
 	}
 
 	for _, tc := range testCases {
@@ -112,8 +113,8 @@ func TestRunChangeStreamBackfillMarker(t *testing.T) {
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tc.splitChunksErr, "the cause stays in the chain")
 			assert.Contains(t, err.Error(), "failed to run backfill")
-			assert.True(t, constants.IsRetryable(err), "stops in-process retries")
-			assert.Equal(t, tc.expectedNonRetryable, constants.IsNonRetryable(err), "IsNonRetryable")
+			assert.True(t, utils.IsRestartRequired(err), "stops in-process retries")
+			assert.Equal(t, tc.expectedManualIntervention, utils.IsManualIntervention(err), "IsManualIntervention")
 		})
 	}
 }

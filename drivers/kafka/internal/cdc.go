@@ -214,7 +214,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 						dedupKeysErr := fmt.Errorf("encountered null values for the dedup keys, at least one of configured dedupe keys should be a non null value. dedup_keys: %v", dedupKeys)
 						return false, errs.Precondition(errs.CDCPreconditionFailed, "kafka.null_dedup_keys",
 							fmt.Errorf("%w: stream[%s], partition=%d, offset=%d: %w",
-								constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, dedupKeysErr))
+								constants.ErrManualIntervention, stream.ID(), record.Message.Partition, record.Message.Offset, dedupKeysErr))
 					}
 				} else {
 					extraColumns := map[string]any{
@@ -366,10 +366,10 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 					return nil
 				}
 
-				// any fetch error (including parent ctx cancellation) is non-retryable.
+				// any fetch error (including parent ctx cancellation) stops retries; a restart can recover.
 				// For more info, go through the documentation: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#Fetches.Errors
 				if err := fetches.Err(); err != nil {
-					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrRetryable, err)
+					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrRestartRequired, err)
 				}
 
 				// wrap batch into iterator
@@ -554,7 +554,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		partitionMeta, ok := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(currentTopic, currentPartitionID))
 		if !ok {
 			return false, errs.Precondition(errs.StateInvalid, codePartitionMetadataAbsent,
-				fmt.Errorf("%w: assigned partition %s:%d missing from partition metadata", constants.ErrRetryable, currentTopic, currentPartitionID))
+				fmt.Errorf("%w: assigned partition %s:%d missing from partition metadata", constants.ErrRestartRequired, currentTopic, currentPartitionID))
 		}
 
 		streamID := partitionMeta.Stream.ID()
@@ -569,7 +569,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 				mtStateStr, ok := rawMetadataStateValue.(string)
 				if !ok {
 					return false, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
-						fmt.Errorf("stream[%s]: failed to typecast metadata state of type[%T] to string", streamID, rawMetadataStateValue))
+						fmt.Errorf("%w: stream[%s]: failed to typecast metadata state of type[%T] to string", constants.ErrManualIntervention, streamID, rawMetadataStateValue))
 				}
 
 				var parsedMetadataStateValue map[string]any
@@ -583,7 +583,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 				metaConsumerGroupID, _ := parsedMetadataStateValue["consumer_group_id"].(string)
 				if metaConsumerGroupID != "" && metaConsumerGroupID != k.consumerGroupID {
 					return false, errs.Precondition(errs.StateInvalid, codeConsumerGroupMismatch,
-						fmt.Errorf("%w: stream[%s]: consumer_group_id mismatch (destination metadata=%q, current=%q), run clear destination and restart", constants.ErrNonRetryable, streamID, metaConsumerGroupID, k.consumerGroupID))
+						fmt.Errorf("%w: stream[%s]: consumer_group_id mismatch (destination metadata=%q, current=%q), run clear destination and restart", constants.ErrManualIntervention, streamID, metaConsumerGroupID, k.consumerGroupID))
 				}
 
 				// cache the parsed metadata state for this stream
@@ -610,13 +610,13 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		// this can happen when a topic is deleted and recreated with fewer messages.
 		if metaCommittedOffset > partitionMeta.EndOffset {
 			return false, errs.Precondition(errs.StateInvalid, codeOffsetMismatch,
-				fmt.Errorf("%w: stream[%s] topic %s partition %d metadata offset: %d exceeds partition end offset: %d, run clear destination and restart", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, metaCommittedOffset, partitionMeta.EndOffset))
+				fmt.Errorf("%w: stream[%s] topic %s partition %d metadata offset: %d exceeds partition end offset: %d, run clear destination and restart", constants.ErrManualIntervention, streamID, currentTopic, currentPartitionID, metaCommittedOffset, partitionMeta.EndOffset))
 		}
 
 		// kafkaCommittedOffset must not exceed metaCommittedOffset.
 		if kafkaCommittedOffset >= 0 && kafkaCommittedOffset > metaCommittedOffset {
 			return false, errs.Precondition(errs.StateInvalid, codeOffsetMismatch,
-				fmt.Errorf("%w: stream[%s] topic %s partition %d broker committed offset: %d is ahead of destination metadata offset: %d, run clear destination and restart", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, kafkaCommittedOffset, metaCommittedOffset))
+				fmt.Errorf("%w: stream[%s] topic %s partition %d broker committed offset: %d is ahead of destination metadata offset: %d, run clear destination and restart", constants.ErrManualIntervention, streamID, currentTopic, currentPartitionID, kafkaCommittedOffset, metaCommittedOffset))
 		}
 
 		// Broker is behind destination (or has no committed offset yet): align broker to destination before consuming.

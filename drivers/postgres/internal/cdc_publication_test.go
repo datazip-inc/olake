@@ -58,13 +58,13 @@ func ms(schema, table string) types.StreamInterface {
 
 func TestCheckStreamsInPublication(t *testing.T) {
 	tests := []struct {
-		name           string
-		publication    string
-		pubTables      []pubTable
-		streams        []types.StreamInterface
-		wantErr        bool
-		errContains    []string
-		isNonRetryable bool
+		name                 string
+		publication          string
+		pubTables            []pubTable
+		streams              []types.StreamInterface
+		wantErr              bool
+		errContains          []string
+		isManualIntervention bool
 	}{
 		{
 			name:        "happy path — all streams present, matched via ID()",
@@ -89,9 +89,9 @@ func TestCheckStreamsInPublication(t *testing.T) {
 				ms("public", "orders"),
 				ms("public", "payments"), // not in publication
 			},
-			wantErr:        true,
-			errContains:    []string{"public.payments", "ALTER PUBLICATION", "my_pub"},
-			isNonRetryable: true,
+			wantErr:              true,
+			errContains:          []string{"public.payments", "ALTER PUBLICATION", "my_pub"},
+			isManualIntervention: true,
 		},
 		{
 			name:        "all streams missing from publication",
@@ -103,18 +103,18 @@ func TestCheckStreamsInPublication(t *testing.T) {
 				ms("public", "orders"),
 				ms("analytics", "events"),
 			},
-			wantErr:        true,
-			errContains:    []string{"public.orders", "analytics.events"},
-			isNonRetryable: true,
+			wantErr:              true,
+			errContains:          []string{"public.orders", "analytics.events"},
+			isManualIntervention: true,
 		},
 		{
-			name:           "publication has no tables at all",
-			publication:    "empty_pub",
-			pubTables:      []pubTable{},
-			streams:        []types.StreamInterface{ms("public", "orders")},
-			wantErr:        true,
-			errContains:    []string{"empty_pub", "no tables"},
-			isNonRetryable: true,
+			name:                 "publication has no tables at all",
+			publication:          "empty_pub",
+			pubTables:            []pubTable{},
+			streams:              []types.StreamInterface{ms("public", "orders")},
+			wantErr:              true,
+			errContains:          []string{"empty_pub", "no tables"},
+			isManualIntervention: true,
 		},
 		{
 			name:        "case-sensitive match DB side uppercase, stream.ID() lowercase",
@@ -125,9 +125,9 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			streams: []types.StreamInterface{
 				ms("public", "orders"),
 			},
-			wantErr:        true,
-			errContains:    []string{"public.orders"},
-			isNonRetryable: true,
+			wantErr:              true,
+			errContains:          []string{"public.orders"},
+			isManualIntervention: true,
 		},
 		{
 			name:        "case-sensitive match stream.ID() uppercase, DB side lowercase",
@@ -138,9 +138,9 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			streams: []types.StreamInterface{
 				ms("PUBLIC", "ORDERS"),
 			},
-			wantErr:        true,
-			errContains:    []string{"PUBLIC.ORDERS"},
-			isNonRetryable: true,
+			wantErr:              true,
+			errContains:          []string{"PUBLIC.ORDERS"},
+			isManualIntervention: true,
 		},
 		{
 			name:        "multiple schemas — correct matching via ID()",
@@ -164,9 +164,9 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			streams: []types.StreamInterface{
 				ms("analytics", "orders"), // analytics.orders is NOT covered
 			},
-			wantErr:        true,
-			errContains:    []string{"analytics.orders"},
-			isNonRetryable: true,
+			wantErr:              true,
+			errContains:          []string{"analytics.orders"},
+			isManualIntervention: true,
 		},
 		{
 			name:        "no streams selected — no error",
@@ -225,8 +225,8 @@ func TestCheckStreamsInPublication(t *testing.T) {
 				}
 			}
 
-			if tt.isNonRetryable && !errors.Is(err, constants.ErrNonRetryable) {
-				t.Errorf("expected ErrNonRetryable to be wrapped in error, got: %v", err)
+			if tt.isManualIntervention && !errors.Is(err, constants.ErrManualIntervention) {
+				t.Errorf("expected ErrManualIntervention to be wrapped in error, got: %v", err)
 			}
 		})
 	}

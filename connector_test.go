@@ -23,13 +23,13 @@ const exitTestModeEnv = "OLAKE_EXIT_CODE_TEST_MODE"
 
 // exitTestErrors is the error each child mode fails with.
 var exitTestErrors = map[string]error{
-	"plain":                      errors.New("connection reset by peer"),
-	"retryable":                  fmt.Errorf("%w: kafka sync aborted due to partition loss", constants.ErrRetryable),
-	"non_retryable":              fmt.Errorf("%w: publication %q does not exist", constants.ErrNonRetryable, "olake_pub"),
-	"non_retryable_wrapped":      fmt.Errorf("failed in pre cdc run: %w", fmt.Errorf("publication validation failed: %w", fmt.Errorf("%w: publication missing", constants.ErrNonRetryable))),
-	"non_retryable_precondition": errs.Precondition(errs.StateInvalid, "kafka.offset_mismatch", fmt.Errorf("%w: run clear destination and restart", constants.ErrNonRetryable)),
-	"non_retryable_lost_by_s":    fmt.Errorf("outer: %s", fmt.Errorf("%w: publication missing", constants.ErrNonRetryable)),
-	"canceled":                   fmt.Errorf("failed to process cdc streams: %w", context.Canceled),
+	"plain":                            errors.New("connection reset by peer"),
+	"restart_required":                 fmt.Errorf("%w: kafka sync aborted due to partition loss", constants.ErrRestartRequired),
+	"manual_intervention":              fmt.Errorf("%w: publication %q does not exist", constants.ErrManualIntervention, "olake_pub"),
+	"manual_intervention_wrapped":      fmt.Errorf("failed in pre cdc run: %w", fmt.Errorf("publication validation failed: %w", fmt.Errorf("%w: publication missing", constants.ErrManualIntervention))),
+	"manual_intervention_precondition": errs.Precondition(errs.StateInvalid, "kafka.offset_mismatch", fmt.Errorf("%w: run clear destination and restart", constants.ErrManualIntervention)),
+	"manual_intervention_lost_by_s":    fmt.Errorf("outer: %s", fmt.Errorf("%w: publication missing", constants.ErrManualIntervention)),
+	"canceled":                         fmt.Errorf("failed to process cdc streams: %w", context.Canceled),
 }
 
 // TestRegisterDriverExitCodes runs RegisterDriver in a child process, because it ends with
@@ -45,13 +45,13 @@ func TestRegisterDriverExitCodes(t *testing.T) {
 		expected int
 	}{
 		{mode: "plain", expected: constants.ExitCodeFailure},
-		{mode: "retryable", expected: constants.ExitCodeFailure},
+		{mode: "restart_required", expected: constants.ExitCodeFailure},
 		{mode: "canceled", expected: constants.ExitCodeFailure},
-		{mode: "non_retryable", expected: constants.ExitCodeManualIntervention},
-		{mode: "non_retryable_wrapped", expected: constants.ExitCodeManualIntervention},
-		{mode: "non_retryable_precondition", expected: constants.ExitCodeManualIntervention},
+		{mode: "manual_intervention", expected: constants.ExitCodeManualIntervention},
+		{mode: "manual_intervention_wrapped", expected: constants.ExitCodeManualIntervention},
+		{mode: "manual_intervention_precondition", expected: constants.ExitCodeManualIntervention},
 		// a %s wrap drops the marker: the error falls back to exit 1
-		{mode: "non_retryable_lost_by_s", expected: constants.ExitCodeFailure},
+		{mode: "manual_intervention_lost_by_s", expected: constants.ExitCodeFailure},
 	}
 
 	for _, tc := range testCases {

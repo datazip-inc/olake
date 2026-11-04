@@ -93,7 +93,7 @@ func (p *Postgres) CDCSupported() bool {
 func (p *Postgres) Setup(ctx context.Context) error {
 	err := p.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
+		return fmt.Errorf("%w: failed to validate config: %w", constants.ErrManualIntervention, err)
 	}
 
 	if p.config.SSHConfig != nil && p.config.SSHConfig.Host != "" {

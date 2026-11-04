@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -109,7 +110,7 @@ func RequireCDCPrerequisites(driverType string, prerequisites types.Prerequisite
 		// a definite misconfiguration is the actionable failure, even if another check also errored
 		return errs.Precondition(errs.CDCPreconditionFailed,
 			fmt.Sprintf("%s.cdc_prerequisites_failed", driverType),
-			fmt.Errorf("required CDC prerequisites not met: %s", strings.Join(names, ", ")))
+			fmt.Errorf("%w: required CDC prerequisites not met: %s", constants.ErrManualIntervention, strings.Join(names, ", ")))
 	}
 	return fmt.Errorf("required CDC prerequisites could not be evaluated: %s: %w",
 		strings.Join(names, ", "), errors.Join(causes...))
