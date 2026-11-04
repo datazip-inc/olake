@@ -24,6 +24,7 @@ func TestMySQLGTIDFailover(t *testing.T) {
 		t.Skip("the dedicated MySQL 8.0 pair runs in the default MySQL matrix job")
 	}
 	t.Run("migrate and promote", testGTIDPromotion)
+	t.Run("anonymous transactions", testGTIDAnonymousTransactions)
 }
 
 func testGTIDPromotion(t *testing.T) {
@@ -72,6 +73,47 @@ func testGTIDPromotion(t *testing.T) {
 	require.NoError(t, f.sync(t, true))
 	require.Equal(t, promoted, f.checkpoint(t))
 	f.assertIDs(t, 1, 2, 3, 4, 5)
+}
+
+func testGTIDAnonymousTransactions(t *testing.T) {
+	f := newGTIDFailoverTest(t)
+	insert := fmt.Sprintf("INSERT INTO %s (id) VALUES ", f.table)
+	require.NoError(t, f.sync(t, false))
+	saved := f.checkpoint(t)
+	f.exec(t, f.primary, insert+"(2)")
+	f.setGTIDMode(t, "OFF_PERMISSIVE")
+	f.setGTIDMode(t, "ON_PERMISSIVE")
+	f.setGTIDMode(t, "ON")
+	f.exec(t, f.primary, "FLUSH BINARY LOGS")
+
+	// Rotating does not make an unread anonymous transaction available under ON.
+	err := f.sync(t, true)
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "ON_PERMISSIVE")
+	require.Equal(t, saved, f.checkpoint(t))
+	f.assertIDs(t, 1)
+
+	// Drain the unread row and leave a processed anonymous prefix in the saved file.
+	f.setGTIDMode(t, "ON_PERMISSIVE")
+	conn, err := f.primary.Conn(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+	for _, query := range []string{"SET GTID_NEXT='ANONYMOUS'", insert + "(3)", "SET GTID_NEXT='AUTOMATIC'"} {
+		_, err = conn.ExecContext(t.Context(), query)
+		require.NoError(t, err)
+	}
+	require.NoError(t, f.sync(t, true))
+	f.assertIDs(t, 1, 2, 3)
+	require.True(t, f.checkpoint(t).GTIDSet == nil)
+
+	f.setGTIDMode(t, "ON")
+	f.exec(t, f.primary, "FLUSH BINARY LOGS", insert+"(4)")
+	require.NoError(t, f.sync(t, true))
+	require.True(t, f.checkpoint(t).GTIDSet == nil, "finish this run by file position")
+	f.assertIDs(t, 1, 2, 3, 4)
+	require.NoError(t, f.sync(t, true))
+	f.assertGTIDCheckpoint(t, f.primary)
+	f.assertIDs(t, 1, 2, 3, 4)
 }
 
 type failoverPosition struct {

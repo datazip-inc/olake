@@ -291,6 +291,15 @@ to an older state manually.
 After migration, resume with a GTID-aware driver; older versions interpret only
 the file/offset fields.
 
+If anonymous transactions block migration's scan of already processed history,
+OLake tries the saved file position once on the original server. A successful
+file sync saves a file checkpoint; the next run retries migration. MySQL cannot
+stream pending anonymous transactions with `gtid_mode=ON`. In that case, have
+your DBA stop anonymous writes and sync through a GTID-only binlog on the
+original server in `ON_PERMISSIVE` before enabling `ON` again. Rotating logs
+alone does not advance the saved checkpoint. OLake never falls back from a
+committed GTID boundary.
+
 Older checkpoints have no server identity, so OLake cannot determine whether
 their endpoint already switched before migration. An unchanged source is a
 prerequisite for those checkpoints. When an owner is recorded (`server_uuid`),

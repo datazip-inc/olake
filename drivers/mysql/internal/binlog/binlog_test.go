@@ -187,6 +187,42 @@ func TestConnection_ValidateReplicationServer(t *testing.T) {
 	}
 }
 
+func TestConnection_HandleStreamError(t *testing.T) {
+	resume := mysql.Position{Name: "bin.000001", Pos: 400}
+	fileError := mysql.NewError(mysql.ER_MASTER_FATAL_ERROR_READING_BINLOG, "Cannot replicate anonymous transaction when @@GLOBAL.GTID_MODE = ON")
+	gtidError := mysql.NewError(mysql.ER_MASTER_FATAL_ERROR_READING_BINLOG, "Cannot replicate anonymous transaction when AUTO_POSITION = 1")
+	for _, tt := range []struct {
+		name       string
+		mode       syncMode
+		recovering bool
+		position   uint32
+		cause      error
+		want       string
+	}{
+		{"other 1236", migrationMode, false, 100, mysql.NewError(1236, "Could not find first log file"), ""},
+		{"other MySQL error", migrationMode, false, 100, mysql.NewError(1105, fileError.Message), ""},
+		{"network error", migrationMode, false, 100, context.DeadlineExceeded, ""},
+		{"file fallback cannot read pending anonymous transaction", fileMode, false, 400, fileError, "ON_PERMISSIVE"},
+		{"migration already delivered pending events", migrationMode, false, 500, fileError, "ON_PERMISSIVE"},
+		{"partial migration recovery keeps GTID boundary", migrationMode, true, 100, fileError, "committed GTID checkpoint"},
+		{"GTID resume cannot use file coordinates", gtidMode, false, 100, gtidError, "committed GTID checkpoint"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			run := syncRun{mode: tt.mode, recovering: tt.recovering, resumePos: resume}
+			conn := Connection{CurrentPos: mysql.Position{Name: resume.Name, Pos: tt.position}}
+			readErr := fmt.Errorf("failed to get binlog event: %w", tt.cause)
+			err := conn.handleStreamError(context.Background(), &run, readErr)
+			if tt.want == "" {
+				require.Same(t, readErr, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.want)
+			require.ErrorIs(t, err, constants.ErrNonRetryable)
+			require.ErrorIs(t, err, tt.cause)
+		})
+	}
+}
+
 type replicationQueryHandler struct {
 	server.EmptyHandler
 	query  string

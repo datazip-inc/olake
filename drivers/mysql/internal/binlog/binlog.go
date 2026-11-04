@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -24,6 +25,7 @@ import (
 // Connection manages the binlog syncer and streamer for multiple streams.
 type Connection struct {
 	syncer          *replication.BinlogSyncer
+	config          *Config
 	cancel          context.CancelFunc
 	CurrentPos      mysql.Position // Current binlog position
 	ServerUUID      string
@@ -53,10 +55,9 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 			return nil, fmt.Errorf("failed to read lower_case_table_names: %w", err)
 		}
 	}
-	connectionCtx, cancel := context.WithCancel(ctx)
 	c := &Connection{
+		config:          config,
 		ServerID:        config.ServerID,
-		cancel:          cancel,
 		CurrentPos:      state.Position,
 		ServerUUID:      state.ServerUUID,
 		gtidSet:         gtidSet,
@@ -64,6 +65,14 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 		initialWaitTime: config.InitialWaitTime,
 		changeFilter:    NewChangeFilter(config.SchemaClient, state, lowerCaseTableNames != 0, typeConverter, streams...),
 	}
+	c.initSyncer(ctx)
+	return c, nil
+}
+
+func (c *Connection) initSyncer(ctx context.Context) {
+	config := c.config
+	connectionCtx, cancel := context.WithCancel(ctx)
+	c.cancel = cancel
 	syncerConfig := replication.BinlogSyncerConfig{
 		ServerID:        config.ServerID,
 		Flavor:          config.Flavor,
@@ -92,7 +101,6 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 	}
 
 	c.syncer = replication.NewBinlogSyncer(syncerConfig)
-	return c, nil
 }
 
 // Validate the actual replication session; the SQL connection may use another server.
@@ -203,8 +211,8 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 			return err
 		}
 		if !messageReceived && c.initialWaitTime > 0 && time.Since(startTime) > c.initialWaitTime {
-			if run.mode != fileMode {
-				return fmt.Errorf("initial wait time expired before reaching the MySQL GTID sync target")
+			if run.target.GTIDSet != nil {
+				return fmt.Errorf("initial wait time expired before reaching the MySQL sync target")
 			}
 			logger.Warnf("no records found in given initial wait time, try increasing it")
 			return nil
@@ -212,7 +220,11 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 
 		ev, err := c.nextEvent(ctx, run.streamer)
 		if err != nil {
-			return err
+			if err := c.handleStreamError(ctx, &run, err); err != nil {
+				return err
+			}
+			startTime, messageReceived = time.Now(), false
+			continue
 		}
 		var completed mysql.GTIDSet
 		withinTarget := true
@@ -223,6 +235,10 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 			withinTarget = !run.recovering || transaction.gtid == nil || c.targetGTIDSet.Contain(transaction.gtid)
 		case migrationMode:
 			withinTarget, err = rebuild.observe(ev, c.CurrentPos, run.resumePos)
+		case fileMode:
+			if run.target.GTIDSet != nil {
+				err = rejectUnsupported(ev, "while deferring MySQL GTID migration")
+			}
 		}
 		if err != nil {
 			return err
@@ -245,7 +261,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 			logger.Infof("Binlog rotated to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
 
 		case *replication.GTIDEvent:
-			if run.mode != fileMode {
+			if run.target.GTIDSet != nil {
 				messageReceived = true
 			}
 			if e.OriginalCommitTimestamp > 0 {
@@ -353,6 +369,36 @@ func (c *Connection) nextEvent(ctx context.Context, streamer *replication.Binlog
 		return nil, fmt.Errorf("failed to get binlog event: %w", err)
 	}
 	return event, nil
+}
+
+// An anonymous transaction before the saved offset can block a migration's scan from offset 4.
+// Only retry that prefix: restarting after delivering pending events would duplicate them.
+func (c *Connection) handleStreamError(ctx context.Context, run *syncRun, err error) error {
+	var serverErr *mysql.MyError
+	if !errors.As(err, &serverErr) || serverErr.Code != mysql.ER_MASTER_FATAL_ERROR_READING_BINLOG ||
+		!strings.Contains(strings.ToLower(serverErr.Message), "cannot replicate anonymous transaction") {
+		return err
+	}
+	if run.mode == gtidMode || (run.mode == migrationMode && run.recovering) {
+		return fmt.Errorf("%w: a committed GTID checkpoint cannot resume through anonymous transactions; restore the required GTID-only history or resync: %w",
+			constants.ErrNonRetryable, err)
+	}
+	if run.mode != migrationMode || c.CurrentPos.Compare(run.resumePos) > 0 {
+		return fmt.Errorf("%w: MySQL cannot stream the pending anonymous transactions with gtid_mode=ON; on the original server, sync through a GTID-only binlog in ON_PERMISSIVE before enabling ON; rotating logs alone does not advance the saved checkpoint: %w",
+			constants.ErrNonRetryable, err)
+	}
+
+	c.Cleanup()
+	c.initSyncer(ctx)
+	c.CurrentPos = run.resumePos
+	c.changeFilter.lastGTIDEvent = time.Time{}
+	run.mode = fileMode
+	run.streamer, err = c.syncer.StartSync(run.resumePos)
+	if err != nil {
+		return fmt.Errorf("failed to restart file-position sync after anonymous binlog history: %w", err)
+	}
+	logger.Warnf("Deferring GTID migration; resuming from the saved file position %s for this sync", run.resumePos)
+	return nil
 }
 
 func (c *Connection) reachedTarget(run *syncRun, rebuild *gtidRebuild) (bool, error) {
