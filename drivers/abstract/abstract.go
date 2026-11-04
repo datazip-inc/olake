@@ -20,12 +20,13 @@ import (
 const codeWriterPanicRecovered = "sync.writer_panic_recovered"
 
 type CDCChange struct {
-	Stream       types.StreamInterface
-	Timestamp    time.Time
-	Kind         string
-	Data         map[string]any
-	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
-	Bytes        int64
+	Stream        types.StreamInterface
+	Timestamp     time.Time
+	Kind          string
+	Data          map[string]any
+	ExtraColumns  map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
+	Bytes         int64
+	KeyOnlyDelete bool // The source logged only replica identity columns for this delete.
 }
 
 func NewCDCChange(stream types.StreamInterface, timestamp time.Time, kind string, data, extraColumns map[string]any, sourceBytes int64) CDCChange {
