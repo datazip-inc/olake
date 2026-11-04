@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
@@ -42,6 +43,7 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 		{"ordinary DEFAULT update without old tuple", []string{"id"}, 0, nil, newRow, false, "large value"},
 		{"no primary key", nil, 'O', oldRow, newRow, false, "large value"},
 		{"changed key retains unchanged TOAST", []string{"id"}, 'O', oldRow, tuple(text("after"), text("2"), text("10"), toast), true, "large value"},
+		{"unchanged TOAST key", []string{"payload"}, 'O', oldRow, tuple(text("after"), text("2"), text("10"), toast), false, "large value"},
 		{"unavailable TOAST without old tuple", []string{"id"}, 0, nil, tuple(text("after"), text("2"), text("10"), toast), false, olakeUnavailableValue},
 	}
 	for _, tt := range tests {
@@ -88,6 +90,29 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("different numeric scale preserves the destination key", func(t *testing.T) {
+		p, _ := newPgoutputReplicator("id")
+		p.relationIDToMsgMap[1].Columns[1].DataType = pgtype.NumericOID
+		p.socket.changeFilter.converter = func(value any, columnType string) (any, error) {
+			if columnType == "numeric" {
+				return typeutils.ReformatFloat64(value)
+			}
+			return value, nil
+		}
+		msg := &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'O',
+			OldTuple: tuple(text("before"), text("1.0"), null, null),
+			NewTuple: tuple(text("after"), text("1.00"), null, null),
+		}
+		var kinds []string
+		err := p.emitUpdate(context.Background(), msg, func(_ context.Context, change abstract.CDCChange) error {
+			kinds = append(kinds, change.Kind)
+			assert.Equal(t, 1.0, change.Data["id"])
+			return nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"update"}, kinds)
+	})
 
 	// A missing key must fail even if its hash matches the literal new key "<nil>".
 	for _, newKey := range []string{"2", "<nil>"} {

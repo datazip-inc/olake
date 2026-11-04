@@ -1,6 +1,7 @@
 package waljs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -170,7 +171,7 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		isUnchangedToast := col.DataType == pglogrepl.TupleDataTypeToast
 		// On UPDATE, unchanged TOAST columns in the new tuple are marked TupleDataTypeToast.
 		// REPLICA IDENTITY FULL includes the complete old row and allows recovery of these values.
-		// DEFAULT, INDEX, and NOTHING do not provide old TOAST values, so recovery is not possible.
+		// DEFAULT and INDEX can supply old replica-identity columns, but not other unchanged TOAST values.
 		if isUnchangedToast && oldTuple != nil && idx < len(oldTuple.Columns) {
 			col = oldTuple.Columns[idx]
 		}
@@ -238,7 +239,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 			}
 		}
 	}
-	if m.OldTuple != nil && len(primaryKeys) > 0 {
+	if m.OldTuple != nil && !samePrimaryKey(rel, m, primaryKeys, values) {
 		oldValues, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 		if err != nil {
 			return err
@@ -258,6 +259,22 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
 		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+}
+
+// Matching wire values skip old-row decoding. Differing representations still need
+// the destination identity comparison (for example, NUMERIC 1.0 and 1.00).
+func samePrimaryKey(rel *pglogrepl.RelationMessage, m *pglogrepl.UpdateMessage, keys []string, values map[string]any) bool {
+	for _, key := range keys {
+		i := slices.IndexFunc(rel.Columns, func(col *pglogrepl.RelationMessageColumn) bool { return col.Name == key })
+		if values[key] == nil || i < 0 || i >= len(m.OldTuple.Columns) {
+			return false
+		}
+		oldCol, newCol := m.OldTuple.Columns[i], m.NewTuple.Columns[i]
+		if oldCol.Data == nil || (newCol.DataType != pglogrepl.TupleDataTypeToast && !bytes.Equal(oldCol.Data, newCol.Data)) {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {

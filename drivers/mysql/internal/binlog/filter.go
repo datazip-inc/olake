@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -100,7 +102,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		// otherwise fall back to second-precision header timestamp
 		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
 
-		if operationType == "update" && len(primaryKeys) > 0 {
+		if operationType == "update" && !view.samePrimaryKey(e.Rows[i-1], row, primaryKeys) {
 			oldRow := e.Rows[i-1]
 			oldRecord, err := convertRowToMap(oldRow, view, f.converter)
 			if err != nil {
@@ -139,6 +141,21 @@ type columnView struct {
 	enumValues [][]string // nil for non-ENUM columns
 	setMembers [][]string // nil for non-SET columns
 	collations []uint64   // 0 = no charset decoding
+}
+
+// Only differing wire keys need the old row's conversion and destination ID comparison.
+func (view *columnView) samePrimaryKey(oldRow, row []any, keys []string) bool {
+	for _, key := range keys {
+		i := slices.Index(view.names, key)
+		if len(oldRow) != len(row) || i < 0 || !reflect.DeepEqual(oldRow[i], row[i]) {
+			return false
+		}
+		// Go considers +0 and -0 equal, but they render as different destination IDs.
+		if row[i] == float32(0) || row[i] == float64(0) {
+			return false
+		}
+	}
+	return true
 }
 
 // resolveColumns takes each field from the binlog when the server logged it and from

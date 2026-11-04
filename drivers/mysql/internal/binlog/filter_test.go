@@ -3,6 +3,7 @@ package binlog
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -125,6 +126,9 @@ func TestChangeFilter_FilterRowsEvent(t *testing.T) {
 	binaryTable.ColumnType[1] = mysql.MYSQL_TYPE_STRING
 	binaryTable.ColumnMeta[1] = uint16(mysql.MYSQL_TYPE_STRING)<<8 | 4
 	binaryTable.DefaultCharset = []uint64{63}
+	floatTable := fullTableMap()
+	floatTable.ColumnType[1] = mysql.MYSQL_TYPE_DOUBLE
+	minusZero := math.Copysign(0, -1)
 	// Sizes include eight ID bytes, raw name bytes, and one byte per ENUM/SET index.
 	type expectedChange struct {
 		kind  string
@@ -158,6 +162,14 @@ func TestChangeFilter_FilterRowsEvent(t *testing.T) {
 		{
 			name: "binary key unchanged by value", keys: []string{"name"}, table: binaryTable, rows: [][]interface{}{row(1, "\x01"), row(2, "\x01")},
 			want: []expectedChange{{"update", 2, []byte{1, 0, 0, 0}, 11}},
+		},
+		{
+			name: "binary key unchanged after padding", keys: []string{"name"}, table: binaryTable, rows: [][]interface{}{row(1, "\x01"), row(2, "\x01\x00")},
+			want: []expectedChange{{"update", 2, []byte{1, 0, 0, 0}, 12}},
+		},
+		{
+			name: "signed zero changes destination key", keys: []string{"name"}, table: floatTable, rows: [][]interface{}{row(1, minusZero), row(1, 0.0)},
+			want: []expectedChange{{"delete", 1, minusZero, 18}, {"update", 1, 0.0, 18}},
 		},
 		{
 			name: "ordinary update", keys: []string{"id"}, table: fullTableMap(), rows: [][]interface{}{before, row(1, "after")},
