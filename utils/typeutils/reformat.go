@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -21,6 +22,8 @@ import (
 
 var (
 	ErrNullValue = fmt.Errorf("null value")
+	// nanAsNull warns once a sync, not once a row, that a NaN decimal is written as null.
+	nanAsNull sync.Once
 )
 
 var DateTimeFormats = []string{
@@ -88,7 +91,12 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	case types.Binary:
 		return ReformatBytes(v)
 	case types.BigDecimal:
-		return ReformatDecimal(dataType, v)
+		value, err := ReformatDecimal(dataType, v)
+		if err == errNaN {
+			nanAsNull.Do(func() { logger.Warn("writing NaN as null in decimal columns, which cannot hold it") })
+			return nil, ErrNullValue
+		}
+		return value, err
 	default:
 		return v, nil
 	}

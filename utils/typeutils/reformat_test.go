@@ -569,11 +569,18 @@ func TestReformatValue(t *testing.T) {
 			expectedErr: fmt.Errorf("failed to change %q to decimal", "1.2.3"),
 		},
 		{
-			name:        "decimal rejects NaN",
+			name:        "decimal writes NaN as null",
 			dataType:    types.DecimalOf(10, 2),
 			value:       math.NaN(),
-			expected:    Decimal{},
-			expectedErr: fmt.Errorf("failed to change %q to decimal", "NaN"),
+			expected:    nil,
+			expectedErr: ErrNullValue,
+		},
+		{
+			name:        "decimal writes the NaN text postgres sends as null",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "NaN",
+			expected:    nil,
+			expectedErr: ErrNullValue,
 		},
 		{
 			name:        "decimal rejects an unsupported type",

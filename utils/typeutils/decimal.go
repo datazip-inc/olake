@@ -155,9 +155,15 @@ func decimalOf(v any) (decimal128.Num, int32, error) {
 // maxDecimalExponent caps a literal's exponent so the scale arithmetic cannot overflow.
 const maxDecimalExponent = 1000
 
+// errNaN is a NaN, which postgres numeric holds and no decimal can.
+var errNaN = fmt.Errorf("failed to change %q to decimal", "NaN")
+
 // parseDecimal reads a literal [+-]digits[.digits][(e|E)[+-]digits] exactly. Zeros that change
 // nothing are dropped, so the scale is the fewest digits after the point that hold the value.
 func parseDecimal(s string) (decimal128.Num, int32, error) {
+	if s == "NaN" {
+		return decimal128.Num{}, 0, errNaN
+	}
 	invalid := func() (decimal128.Num, int32, error) {
 		return decimal128.Num{}, 0, fmt.Errorf("failed to change %q to decimal", s)
 	}
