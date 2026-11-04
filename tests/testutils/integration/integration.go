@@ -145,7 +145,7 @@ func (th *TestHandler) runSyncAndVerify(
 	evolvedSchema := (operation == "update" || operation == "upsert_update" ||
 		operation == "upsert_column_update" || operation == "upsert_update_repartition" ||
 		operation == "upsert_update_partition_1" || operation == "delete" ||
-		operation == "upsert_tombstone") && len(th.UpdatedDestinationDataTypeSchema) > 0
+		(operation == "upsert_tombstone" && destinationType != "parquet")) && len(th.UpdatedDestinationDataTypeSchema) > 0
 
 	// Verification reads the destination back through Spark Connect (with retries), a real slice of
 	// sync wall-clock; time it as its own phase.
