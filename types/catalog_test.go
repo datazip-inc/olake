@@ -272,7 +272,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetWrappedCatalog(tc.streams, nil)
+			result := GetWrappedCatalog(tc.streams)
 			compareCatalogs(t, tc.expected, result, tc.name)
 
 			if len(tc.streams) > 0 {
@@ -896,7 +896,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog, nil)
+			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog, writableUpdateTypes)
 			compareCatalogs(t, tc.expected, result, tc.name)
 		})
 	}
@@ -1827,6 +1827,22 @@ func TestGetStreamsDelta(t *testing.T) {
 				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UpdateType: new(string(UpdateTypeDeletionVector))}}},
 			},
 		},
+		{
+			name:            "iceberg: kafka upsert pos -> dv is a delta",
+			destinationType: Iceberg,
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false), DedupKeys: []string{"_kafka_key"}, UpdateType: new(string(UpdateTypePosition))}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false), DedupKeys: []string{"_kafka_key"}, UpdateType: new(string(UpdateTypeDeletionVector))}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false), DedupKeys: []string{"_kafka_key"}, UpdateType: new(string(UpdateTypeDeletionVector))}}},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2167,7 +2183,9 @@ func TestLogCatalog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, t.TempDir())
 
-			LogCatalog(tc.discovered, tc.oldCatalog, nil)
+			ApplyDestinationDefaults(tc.discovered, writableUpdateTypes, false)
+
+			LogCatalog(tc.discovered, tc.oldCatalog, writableUpdateTypes)
 
 			// available_streams.json: streams[] only
 			var available Catalog

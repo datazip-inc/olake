@@ -540,14 +540,15 @@ const ParquetUISchema = `{
       { "azure_storage_account_name": 12, "azure_container_name": 12 },
       { "azure_path": 12, "azure_endpoint": 12 },
       { "azure_storage_account_key": 12, "azure_sas_token": 12 },
-      { "azure_connection_string": 24 },
+      { "azure_connection_string": 12, "azure_client_id": 12 },
       { "max_file_size_mb": 12 }
     ],
     "azure_auth_type": {
       "ui:enumNames": [
         "Shared Key",
         "SAS Token",
-        "Connection String"
+        "Connection String",
+        "Managed Identity/Workload Identity"
       ]
     },
     "azure_storage_account_key": {
@@ -559,6 +560,9 @@ const ParquetUISchema = `{
     "azure_connection_string": {
       "ui:widget": "password",
       "ui:help": "This string needs AccountName or BlobEndpoint, and AccountKey or SharedAccessSignature. UseDevelopmentStorage=true is not supported."
+    },
+    "azure_client_id": {
+      "ui:help": "Overrides the AKS ServiceAccount annotation and the VM identity. It does not fall back."
     },
     "ui:options": {
       "label": false

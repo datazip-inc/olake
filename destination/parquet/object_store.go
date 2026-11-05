@@ -57,6 +57,7 @@ func newObjectStore(cfg *Config) (objectStore, error) {
 			Endpoint:         cfg.AzureEndpoint,
 			SASToken:         cfg.AzureSASToken,
 			ConnectionString: cfg.AzureConnectionString,
+			ClientID:         cfg.AzureClientID,
 		})
 	case cfg.usingS3():
 		return s3.New(s3.Config{
