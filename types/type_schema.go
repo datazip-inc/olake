@@ -140,6 +140,15 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
+// isOlakeColumn reports whether column is flagged as an OLake column in this schema.
+func (t *TypeSchema) isOlakeColumn(column string) bool {
+	if t == nil {
+		return false
+	}
+	found, prop := t.GetProperty(column)
+	return found && prop.OlakeColumn
+}
+
 func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *parquet.Schema {
 	// keeping default columns parquet schema for backward compatibility for olake columns
 	groupNode := parquet.Group{
@@ -149,12 +158,19 @@ func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *par
 		constants.CdcTimestamp:   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
 	isSelected := stream.IsSelectedColumn()
+	// The normalized writer builds t from typeutils.Fields, which does not carry the
+	// OlakeColumn flag, so also check the stream's own schema. OLake column names are
+	// unchanged by column-name resolution, so the lookup key matches in both paths.
+	streamSchema := stream.Schema()
 
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
 		colName := key.(string)
 		outName := stream.ResolveColumnName(colName)
-		if !isSelected(outName) || (defaultColumns && !prop.OlakeColumn) {
+		// OLake metadata columns (including driver CDC columns such as _cdc_lsn) are always
+		// written, regardless of column selection, matching ToIceberg.
+		isOlakeColumn := prop.OlakeColumn || streamSchema.isOlakeColumn(colName)
+		if !isOlakeColumn && (!isSelected(outName) || defaultColumns) {
 			return true
 		}
 		groupNode[outName] = prop.DataType().ToNewParquet()

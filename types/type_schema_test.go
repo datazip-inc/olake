@@ -686,3 +686,57 @@ func TestTypeSchemaToIcebergColumnSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestTypeSchemaToParquetColumnSelection(t *testing.T) {
+	// _cdc_lsn stands in for any driver-specific OLake column (MySQL binlog file/pos,
+	// Postgres LSN, MongoDB resume token, MSSQL LSN). Unlike _olake_id and friends it is
+	// not hardcoded into the Parquet group, so it relies on the OlakeColumn flag to survive
+	// column selection, the same way ToIceberg does.
+	const driverCDCColumn = "_cdc_lsn"
+	defaultColumns := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType, constants.CdcTimestamp}
+
+	testCases := []struct {
+		name            string
+		selectedColumns []string
+		syncNewColumns  bool
+		expected        []string
+	}{
+		{
+			name:            "nil selection includes all columns",
+			selectedColumns: nil,
+			expected:        append([]string{"id", "email", driverCDCColumn}, defaultColumns...),
+		},
+		{
+			name:            "one selected column keeps OLake columns",
+			selectedColumns: []string{"id"},
+			expected:        append([]string{"id", driverCDCColumn}, defaultColumns...),
+		},
+		{
+			name:            "one selected column with sync new columns keeps OLake columns",
+			selectedColumns: []string{"id"},
+			syncNewColumns:  true,
+			expected:        append([]string{"id", driverCDCColumn}, defaultColumns...),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			stream := NewStream("users", "public", nil)
+			stream.UpsertField("id", Int64, false, false)
+			stream.UpsertField("email", String, false, false)
+			stream.UpsertField(driverCDCColumn, String, true, true)
+			configured := &ConfiguredStream{
+				Stream: stream,
+				StreamMetadata: StreamMetadata{
+					SelectedColumns: &SelectedColumns{
+						Columns:        testCase.selectedColumns,
+						SyncNewColumns: testCase.syncNewColumns,
+					},
+				},
+			}
+
+			names := parquetFieldNames(stream.Schema.ToParquet(false, configured))
+			assert.ElementsMatch(t, testCase.expected, names)
+		})
+	}
+}
