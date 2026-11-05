@@ -100,11 +100,11 @@ func (st *Set[T]) Exists(element T) bool {
 // Add an element to the set
 func (st *Set[T]) Insert(elements ...T) {
 	for _, elem := range elements {
-		if st.Exists(elem) {
+		hash := st.Hash(elem)
+
+		if _, exists := st.hash[hash]; exists {
 			continue
 		}
-
-		hash := st.Hash(elem)
 
 		st.hash[hash] = nothing{}
 		st.storage[hash] = elem
