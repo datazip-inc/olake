@@ -239,7 +239,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 			}
 		}
 	}
-	if m.OldTuple != nil && !samePrimaryKey(rel, m, primaryKeys, values) {
+	if m.OldTuple != nil && !samePrimaryKey(rel, m, primaryKeys) {
 		oldValues, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 		if err != nil {
 			return err
@@ -263,10 +263,10 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 
 // Matching wire values skip old-row decoding. Differing representations still need
 // the destination identity comparison (for example, NUMERIC 1.0 and 1.00).
-func samePrimaryKey(rel *pglogrepl.RelationMessage, m *pglogrepl.UpdateMessage, keys []string, values map[string]any) bool {
+func samePrimaryKey(rel *pglogrepl.RelationMessage, m *pglogrepl.UpdateMessage, keys []string) bool {
 	for _, key := range keys {
 		i := slices.IndexFunc(rel.Columns, func(col *pglogrepl.RelationMessageColumn) bool { return col.Name == key })
-		if values[key] == nil || i < 0 || i >= len(m.OldTuple.Columns) {
+		if i < 0 || i >= len(m.OldTuple.Columns) {
 			return false
 		}
 		oldCol, newCol := m.OldTuple.Columns[i], m.NewTuple.Columns[i]
