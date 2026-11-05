@@ -17,7 +17,7 @@ runs:
   steps:
     - id: lookup
       if: inputs.mode == 'lookup'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v6
       with:
         path: |
           ~/go/pkg/mod
@@ -27,7 +27,7 @@ runs:
         lookup-only: true
 
     - if: inputs.mode == 'restore'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v6
       with:
         path: |
           ~/go/pkg/mod
@@ -37,7 +37,7 @@ runs:
         restore-keys: ${{ runner.os }}-gobase-
 
     - if: inputs.mode == 'save'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/go/pkg/mod
