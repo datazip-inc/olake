@@ -296,10 +296,8 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return err
 	}
 
-	change := abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes)
-	change.KeyOnlyDelete = m.OldTupleType == pglogrepl.DeleteMessageTupleTypeKey
-	return insertFn(ctx, change)
+	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
 
 func validateOldPrimaryKeys(streamID string, values map[string]any, keys []string) error {

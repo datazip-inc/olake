@@ -259,19 +259,6 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	return nil
 }
 
-func (i *Iceberg) validateDeletePartitions(record types.RawRecord) error {
-	if !record.KeyOnlyDelete || i.stream.GetUpdateType() != types.UpdateTypeEquality || !isUpsertMode(i.stream, i.options.Backfill) {
-		return nil
-	}
-	for _, partition := range i.partitionInfo {
-		// Replica identity keys are NOT NULL. A null in a key-only tuple means the old value was not logged or selected.
-		if record.Data[partition.SchemaField] == nil {
-			return fmt.Errorf("%w: old row for %s is missing partition column %q required for equality deletes; select the column and use REPLICA IDENTITY FULL before future changes", constants.ErrNonRetryable, i.stream.ID(), partition.Field)
-		}
-	}
-	return nil
-}
-
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
@@ -337,9 +324,6 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			}
 			records[idx].Data = flattenRecord
 			maps.Copy(records[idx].Data, record.OlakeColumns)
-			if err := i.validateDeletePartitions(records[idx]); err != nil {
-				return err
-			}
 			// if schema difference is not detected, detect schema difference
 			if !diffThreadSchema.Load() {
 				// when detectChange is true, the function does not modify schema parameter
@@ -392,7 +376,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 					records[idx].Data[pInfo.SchemaField] = v
 				}
 			}
-			return i.validateDeletePartitions(records[idx])
+			return nil
 		})
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to pre-shape raw records: %w", err)

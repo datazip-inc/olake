@@ -274,7 +274,7 @@ For more details on partition transforms, see the [Iceberg Partition Transform S
 
 ### Handling Missing Partition Fields
 
-Iceberg normally treats a missing partition field as null. For PostgreSQL CDC, an equality delete needs the original partition value to find the old row. For example, if `orders` has primary key `id` and its Iceberg table is partitioned by `region`, select `region` and run `ALTER TABLE orders REPLICA IDENTITY FULL` before changing keys. If PostgreSQL sends only the old key and omits `region`, OLake stops the sync. Changing replica identity affects future writes. An earlier change already logged without its partition value may require a resync of the affected table.
+When a partition field is missing from a record, the writer will automatically set the field to `nil`, which Iceberg treats as a null value. This ensures that records with missing partition fields can still be processed correctly.
 
 ### Example Usage
 

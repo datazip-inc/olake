@@ -249,7 +249,6 @@ func TestPgoutputReplicator_EmitDelete(t *testing.T) {
 			assert.Equal(t, "delete", changes[0].Kind)
 			assert.Same(t, stream, changes[0].Stream)
 			assert.Equal(t, map[string]any{"name": nil, "id": "1", "tenant": nil, "payload": nil}, changes[0].Data)
-			assert.True(t, changes[0].KeyOnlyDelete)
 			assert.Equal(t, p.txnCommitTime, changes[0].Timestamp)
 			assert.Equal(t, map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, changes[0].ExtraColumns)
 			assert.Equal(t, int64(1), changes[0].Bytes)

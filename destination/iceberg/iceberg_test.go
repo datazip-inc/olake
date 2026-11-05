@@ -3,46 +3,8 @@ package iceberg
 import (
 	"testing"
 
-	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/destination"
-	"github.com/datazip-inc/olake/destination/iceberg/internal"
-	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestFlattenAndCleanData_KeyOnlyDelete(t *testing.T) {
-	for _, tc := range []struct {
-		name, partition    string
-		full, raw, wantErr bool
-	}{
-		{name: "missing old region", partition: "region", wantErr: true},
-		{name: "missing old region in raw records", partition: "region", raw: true, wantErr: true},
-		{name: "partition column excluded from the record", partition: "excluded", wantErr: true},
-		{name: "partitioned by logged key", partition: "id"},
-		{name: "partitioned by normalized key name", partition: "order_id"},
-		{name: "full old row with null region", partition: "region", full: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			stream := types.NewStream("orders", "public", nil).WithPrimaryKey("id", "Order ID").Wrap(0)
-			stream.StreamMetadata.Normalization = new(!tc.raw)
-			stream.StreamMetadata.AppendMode = new(false)
-			stream.StreamMetadata.SelectedColumns = &types.SelectedColumns{Columns: []string{"id", "Order ID", "region"}}
-			writer := Iceberg{
-				stream: stream, options: &destination.Options{}, schema: map[string]string{},
-				partitionInfo: []internal.PartitionInfo{{Field: tc.partition, SchemaField: stream.ResolveColumnName(tc.partition), Transform: "identity"}},
-			}
-			record := types.CreateRawRecord(map[string]any{"id": int64(1), "Order ID": int64(1), "region": nil}, map[string]any{constants.OpType: "d"})
-			record.KeyOnlyDelete = !tc.full
-			_, _, _, err := writer.FlattenAndCleanData(t.Context(), []types.RawRecord{record})
-			if tc.wantErr {
-				assert.ErrorIs(t, err, constants.ErrNonRetryable)
-				assert.ErrorContains(t, err, `partition column "`+tc.partition+`"`)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
 
 func TestIsValidTypeForColumn(t *testing.T) {
 	testCases := []struct {

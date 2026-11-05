@@ -166,9 +166,8 @@ var icebergToDataType = icebergToDataTypeMap{
 type Record map[string]any
 
 type RawRecord struct {
-	Data          map[string]any `json:"data"`
-	OlakeColumns  map[string]any `json:"olake_columns"`
-	KeyOnlyDelete bool           `json:"-"`
+	Data         map[string]any `json:"data"`
+	OlakeColumns map[string]any `json:"olake_columns"`
 }
 
 func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord {
