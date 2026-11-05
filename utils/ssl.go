@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/utils/errs"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 const (
@@ -53,9 +52,8 @@ const (
 	codeSSLClientKeypairInvalid   = "config.ssl_client_keypair_invalid"
 
 	// Raised during the handshake, against the CA the user supplied.
-	codeServerCertAbsent      = "tls.server_cert_absent"
-	codeServerCertUnparseable = "tls.server_cert_unparseable"
-	codeServerCertUnverified  = "tls.server_cert_unverified"
+	codeServerCertAbsent     = "tls.server_cert_absent"
+	codeServerCertUnverified = "tls.server_cert_unverified"
 )
 
 // Validate returns err if the ssl configuration is invalid
@@ -115,24 +113,16 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 	if sc.Mode == SSLModeVerifyCA {
 		// verify-ca validates cert chain but skips hostname verification.
 		tlsConfig.InsecureSkipVerify = true
-		tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-			if len(rawCerts) == 0 {
+		// VerifyConnection, not VerifyPeerCertificate: the latter is skipped on resumed
+		// sessions, which would let a resumed connection bypass this check entirely.
+		tlsConfig.VerifyConnection = func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 {
 				return errs.Precondition(errs.TLSFailed, codeServerCertAbsent,
 					fmt.Errorf("no server certificate provided"))
 			}
-			cert, err := x509.ParseCertificate(rawCerts[0])
-			if err != nil {
-				return errs.Precondition(errs.TLSFailed, codeServerCertUnparseable,
-					fmt.Errorf("failed to parse server certificate: %w", err))
-			}
 
 			intermediates := x509.NewCertPool()
-			for i := 1; i < len(rawCerts); i++ {
-				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
-				if err != nil {
-					logger.Warnf("failed to parse intermediate certificate at position %d: %s", i, err)
-					continue
-				}
+			for _, intermediateCert := range cs.PeerCertificates[1:] {
 				intermediates.AddCert(intermediateCert)
 			}
 
@@ -140,7 +130,7 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 				Roots:         rootCertPool,
 				Intermediates: intermediates,
 			}
-			if _, err := cert.Verify(verifyOpts); err != nil {
+			if _, err := cs.PeerCertificates[0].Verify(verifyOpts); err != nil {
 				return errs.Precondition(errs.TLSFailed, codeServerCertUnverified,
 					fmt.Errorf("failed to verify server certificate against CA: %w", err))
 			}

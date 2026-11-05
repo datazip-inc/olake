@@ -440,7 +440,7 @@ func Reformat(key string) string {
 	var result strings.Builder
 	for _, symbol := range key {
 		if IsLetterOrNumber(symbol) {
-			result.WriteByte(byte(symbol))
+			result.WriteRune(symbol)
 		} else {
 			result.WriteRune('_')
 		}

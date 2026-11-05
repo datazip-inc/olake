@@ -5,8 +5,8 @@ GOPATH = $(shell go env GOPATH)
 GO_VERSION = $(shell awk '/^go / {print "go"$$2; exit}' go.mod)
 # A driver is any drivers/ subdir with its own go.mod (excludes util folders like abstract).
 DRIVERS = $(notdir $(patsubst %/go.mod,%,$(wildcard drivers/*/go.mod)))
-ROOT_MODULES := $(shell go list -m -f '{{.Dir}}')
-TEST_MODULES := $(notdir $(shell cd tests && go list -m -f '{{.Dir}}'))
+ROOT_MODULES = $(shell go list -m -f '{{.Dir}}')
+TEST_MODULES = $(notdir $(shell cd tests && go list -m -f '{{.Dir}}'))
 
 # Platform resolution from drivers/platforms.conf; PLATFORMS=... overrides it.
 # parse_platforms_conf: driver $(1)'s entry; falls back to the '*' default when $(2) is non-empty.
@@ -50,8 +50,9 @@ gomod:
 	cd tests && go work sync
 	find . -name go.mod -execdir go mod tidy \;
 
+# Pinned so a new golangci-lint release can't fail lint on unchanged code.
 golangci.install:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
 # Shared dependency check used by both lint targets.
 define check_go_mod_tidy
