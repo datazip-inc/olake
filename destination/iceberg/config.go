@@ -86,7 +86,7 @@ type Config struct {
 	// Required by BigLake for request routing/billing (sent as the x-goog-user-project header).
 	GCPProjectID string `json:"gcp_project_id,omitempty"`
 
-	// Horizon
+	// Horizon and BigLake (sent as the X-Iceberg-Access-Delegation header).
 	RESTAccessDelegation string `json:"rest_access_delegation,omitempty"`
 
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
@@ -115,9 +115,11 @@ func (c *Config) Validate() error {
 	if c.CatalogType == "unity" {
 		c.NoIdentifierFields = true
 	}
-	// BigLake requires GoogleAuthManager for authentication
+	// BigLake requires GoogleAuthManager for authentication, and catalogs in
+	// vended-credentials mode reject table requests without access delegation
 	if c.CatalogType == "biglake" {
 		c.RestAuthType = "org.apache.iceberg.gcp.auth.GoogleAuthManager"
+		c.RESTAccessDelegation = "vended-credentials"
 	}
 	// Horizon requires access delegation
 	if c.CatalogType == "horizon" {
