@@ -18,10 +18,13 @@ import (
 // pgUndefinedObject is SQLSTATE 42704, raised when a named role does not exist.
 const pgUndefinedObject = "42704"
 
+// postgresMinVersionPG19 is the server_version_num for PostgreSQL 19.0, the first with effective_wal_level.
+const postgresMinVersionPG19 = 190000
+
 func (p *Postgres) prerequisiteChecks(cdc *CDC) []abstract.Prerequisite {
 	checks := []abstract.Prerequisite{
 		{
-			Name: "wal_level", Required: true, Recommended: "logical",
+			Name: "wal_level", Required: true, Recommended: "logical (PG 19+: replica with a logical slot also works)",
 			Description: "Without logical WAL, Postgres cannot stream row changes.",
 			Check:       p.checkWalLevel,
 		},
@@ -64,9 +67,15 @@ func (p *Postgres) checkWalSenderTimeout(ctx context.Context) (string, bool, err
 	return utils.HumanDuration(time.Duration(timeoutMs) * time.Millisecond), false, nil
 }
 
+// checkWalLevel reads effective_wal_level on PG 19+, which turns logical once a logical slot exists even
+// under wal_level=replica; older servers only expose the configured wal_level.
 func (p *Postgres) checkWalLevel(ctx context.Context) (string, bool, error) {
+	query := jdbc.PostgresWalLevelQuery()
+	if p.version >= postgresMinVersionPG19 {
+		query = jdbc.PostgresEffectiveWalLevelQuery()
+	}
 	var level string
-	err := p.client.QueryRowContext(ctx, jdbc.PostgresWalLevelQuery()).Scan(&level)
+	err := p.client.QueryRowContext(ctx, query).Scan(&level)
 	return level, level == "logical", err
 }
 

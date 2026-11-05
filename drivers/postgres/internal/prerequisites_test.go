@@ -137,6 +137,20 @@ func TestPostgresCheckWalLevel(t *testing.T) {
 		})
 	}
 
+	// PG 19+ validates effective_wal_level, which is logical under wal_level=replica once a logical slot exists
+	for _, tc := range tests {
+		t.Run("pg19 effective "+tc.level, func(t *testing.T) {
+			p, mock := newMockPostgres(t)
+			p.version = postgresMinVersionPG19
+			mock.ExpectQuery(jdbc.PostgresEffectiveWalLevelQuery()).WillReturnRows(sqlmock.NewRows([]string{"effective_wal_level"}).AddRow(tc.level))
+
+			current, ok, err := p.checkWalLevel(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.level, current)
+			assert.Equal(t, tc.wantOK, ok)
+		})
+	}
+
 	t.Run("query error", func(t *testing.T) {
 		p, mock := newMockPostgres(t)
 		mock.ExpectQuery(jdbc.PostgresWalLevelQuery()).WillReturnError(errors.New("boom"))
