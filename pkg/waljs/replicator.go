@@ -191,7 +191,7 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			// parent cancelled: report that; otherwise the 5-minute wait ran out
+			// parent canceled: report that; otherwise the 5-minute wait ran out
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
