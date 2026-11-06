@@ -229,22 +229,9 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 	}
 
 	primaryKeys := stream.GetStream().SourceDefinedPrimaryKey.Array()
-	if rel.ReplicaIdentity == 'i' {
-		// PostgreSQL can omit the old tuple when only a key outside this index changes.
-		for _, key := range primaryKeys {
-			if !slices.ContainsFunc(rel.Columns, func(column *pglogrepl.RelationMessageColumn) bool {
-				return column.Name == key && column.Flags&1 != 0
-			}) {
-				return fmt.Errorf("%w: replica identity for %s does not include primary key column %q", constants.ErrNonRetryable, stream.ID(), key)
-			}
-		}
-	}
-	if m.OldTuple != nil && !samePrimaryKey(rel, m, primaryKeys) {
+	if m.OldTuple != nil && primaryKeyChanged(rel, m, primaryKeys) {
 		oldValues, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 		if err != nil {
-			return err
-		}
-		if err := validateOldPrimaryKeys(stream.ID(), oldValues, primaryKeys); err != nil {
 			return err
 		}
 		// A changed key identifies a new destination row; remove the previous identity first.
@@ -261,20 +248,19 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
 
-// Matching wire values skip old-row decoding. Differing representations still need
-// the destination identity comparison (for example, NUMERIC 1.0 and 1.00).
-func samePrimaryKey(rel *pglogrepl.RelationMessage, m *pglogrepl.UpdateMessage, keys []string) bool {
+// Missing old keys cannot identify a row to delete. Differing wire values still
+// need the destination identity comparison (for example, NUMERIC 1.0 and 1.00).
+func primaryKeyChanged(rel *pglogrepl.RelationMessage, m *pglogrepl.UpdateMessage, keys []string) bool {
+	changed := false
 	for _, key := range keys {
 		i := slices.IndexFunc(rel.Columns, func(col *pglogrepl.RelationMessageColumn) bool { return col.Name == key })
-		if i < 0 || i >= len(m.OldTuple.Columns) {
+		if i < 0 || i >= len(m.OldTuple.Columns) || m.OldTuple.Columns[i].Data == nil {
 			return false
 		}
-		oldCol, newCol := m.OldTuple.Columns[i], m.NewTuple.Columns[i]
-		if oldCol.Data == nil || (newCol.DataType != pglogrepl.TupleDataTypeToast && !bytes.Equal(oldCol.Data, newCol.Data)) {
-			return false
-		}
+		newCol := m.NewTuple.Columns[i]
+		changed = changed || (newCol.DataType != pglogrepl.TupleDataTypeToast && !bytes.Equal(m.OldTuple.Columns[i].Data, newCol.Data))
 	}
-	return true
+	return changed
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -292,21 +278,9 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 	if err != nil {
 		return err
 	}
-	if err := validateOldPrimaryKeys(stream.ID(), values, stream.GetStream().SourceDefinedPrimaryKey.Array()); err != nil {
-		return err
-	}
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
 		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
-}
-
-func validateOldPrimaryKeys(streamID string, values map[string]any, keys []string) error {
-	for _, key := range keys {
-		if values[key] == nil {
-			return fmt.Errorf("%w: old tuple for %s is missing primary key column %q", constants.ErrNonRetryable, streamID, key)
-		}
-	}
-	return nil
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

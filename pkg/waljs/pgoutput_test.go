@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -42,6 +41,8 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 		{"ordinary FULL update", []string{"id"}, 'O', oldRow, tuple(text("after"), text("1"), text("10"), text("large value")), false, "large value"},
 		{"ordinary DEFAULT update without old tuple", []string{"id"}, 0, nil, newRow, false, "large value"},
 		{"no primary key", nil, 'O', oldRow, newRow, false, "large value"},
+		{"configured key absent from relation", []string{"missing"}, 'O', oldRow, newRow, false, "large value"},
+		{"empty old key", []string{"id"}, 'O', tuple(text("before"), text(""), text("10"), null), newRow, true, "large value"},
 		{"changed key retains unchanged TOAST", []string{"id"}, 'O', oldRow, tuple(text("after"), text("2"), text("10"), toast), true, "large value"},
 		{"unchanged TOAST key", []string{"payload"}, 'O', oldRow, tuple(text("after"), text("2"), text("10"), toast), false, "large value"},
 		{"unavailable TOAST without old tuple", []string{"id"}, 0, nil, tuple(text("after"), text("2"), text("10"), toast), false, olakeUnavailableValue},
@@ -114,52 +115,46 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 		assert.Equal(t, []string{"update"}, kinds)
 	})
 
-	// A missing key must fail even if its hash matches the literal new key "<nil>".
-	for _, newKey := range []string{"2", "<nil>"} {
-		t.Run("missing old key with new key "+newKey, func(t *testing.T) {
-			p, _ := newPgoutputReplicator("id")
-			message := &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'O', OldTuple: tuple(null, null, text("9"), null), NewTuple: tuple(text("after"), text(newKey), text("10"), null)}
-			err := p.emitUpdate(context.Background(), message, func(context.Context, abstract.CDCChange) error {
-				t.Error("unidentifiable old row must fail before delivery")
-				return nil
-			})
-			require.ErrorIs(t, err, constants.ErrNonRetryable)
-			assert.ErrorContains(t, err, `old tuple for public.orders is missing primary key column "id"`)
-		})
-	}
-
-	for _, coversKey := range []bool{false, true} {
-		name := "INDEX omits primary key"
-		if coversKey {
-			name = "INDEX includes primary key"
-		}
-		t.Run(name, func(t *testing.T) {
-			p, _ := newPgoutputReplicator("id")
+	for _, tt := range []struct {
+		name       string
+		keys       []string
+		old        *pglogrepl.TupleData
+		new        *pglogrepl.TupleData
+		wantDelete bool
+	}{
+		{"INDEX without old tuple", []string{"id"}, nil, newRow, false},
+		{"INDEX omits old primary key", []string{"id"}, tuple(null, null, text("9"), null), newRow, false},
+		// A missing old key must not produce a delete, even for the literal new key "<nil>".
+		{"INDEX missing old key with literal nil new key", []string{"id"}, tuple(null, null, text("9"), null), tuple(text("after"), text("<nil>"), text("10"), null), false},
+		{"INDEX omits composite key component", []string{"id", "tenant"}, tuple(null, null, text("9"), null), newRow, false},
+		{"INDEX includes primary key", []string{"tenant"}, tuple(null, null, text("9"), null), newRow, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _ := newPgoutputReplicator(tt.keys...)
 			relation := p.relationIDToMsgMap[1]
 			relation.ReplicaIdentity = 'i'
 			for _, column := range relation.Columns {
 				column.Flags = 0
 			}
 			relation.Columns[2].Flags = 1
-			if coversKey {
-				relation.Columns[1].Flags = 1
-			}
-			// An unchanged replica-identity key produces no old tuple, even if another key changed.
+			// The identity index supplies tenant, which may omit part or all of the primary key.
 			var changes []abstract.CDCChange
-			err := p.emitUpdate(context.Background(), &pglogrepl.UpdateMessage{RelationID: 1, NewTuple: newRow},
+			err := p.emitUpdate(context.Background(), &pglogrepl.UpdateMessage{RelationID: 1, OldTupleType: 'K', OldTuple: tt.old, NewTuple: tt.new},
 				func(_ context.Context, change abstract.CDCChange) error {
 					changes = append(changes, change)
 					return nil
 				})
-			if !coversKey {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
-				assert.ErrorContains(t, err, `replica identity for public.orders does not include primary key column "id"`)
-				assert.Empty(t, changes)
-				return
-			}
 			require.NoError(t, err)
-			require.Len(t, changes, 1)
-			assert.Equal(t, "update", changes[0].Kind)
+			if tt.wantDelete {
+				require.Len(t, changes, 2)
+				assert.Equal(t, "delete", changes[0].Kind)
+				assert.Equal(t, "9", changes[0].Data["tenant"])
+			} else {
+				require.Len(t, changes, 1)
+			}
+			assert.Equal(t, "update", changes[len(changes)-1].Kind)
+			assert.Equal(t, string(tt.new.Columns[1].Data), changes[len(changes)-1].Data["id"])
+			assert.Equal(t, "10", changes[len(changes)-1].Data["tenant"])
 		})
 	}
 
@@ -203,52 +198,74 @@ func TestPgoutputReplicator_EmitUpdate(t *testing.T) {
 	})
 }
 
+func TestPrimaryKeyChanged(t *testing.T) {
+	p, _ := newPgoutputReplicator("id", "tenant")
+	message := &pglogrepl.UpdateMessage{
+		OldTuple: &pglogrepl.TupleData{ColumnNum: 4, Columns: []*pglogrepl.TupleDataColumn{
+			{DataType: pglogrepl.TupleDataTypeNull},
+			{DataType: pglogrepl.TupleDataTypeNull},
+			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("9")},
+			{DataType: pglogrepl.TupleDataTypeNull},
+		}},
+		NewTuple: &pglogrepl.TupleData{ColumnNum: 4, Columns: []*pglogrepl.TupleDataColumn{
+			{DataType: pglogrepl.TupleDataTypeNull},
+			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("1")},
+			{DataType: pglogrepl.TupleDataTypeText, Data: []byte("10")},
+			{DataType: pglogrepl.TupleDataTypeNull},
+		}},
+	}
+	// A changed component cannot identify the old row when another component is missing.
+	for _, keys := range [][]string{{"id", "tenant"}, {"tenant", "id"}} {
+		t.Run("missing component with first key "+keys[0], func(t *testing.T) {
+			assert.False(t, primaryKeyChanged(p.relationIDToMsgMap[1], message, keys))
+		})
+	}
+}
+
 func TestPgoutputReplicator_EmitDelete(t *testing.T) {
 	tests := []struct {
-		name    string
-		keys    []string
-		wantErr string
+		name      string
+		keys      []string
+		identity  uint8
+		keyColumn int
 	}{
-		{"DEFAULT identity", []string{"id"}, ""},
-		{"missing composite key component", []string{"id", "tenant"}, `missing primary key column "tenant"`},
-		{"missing configured column", []string{"missing"}, `missing primary key column "missing"`},
-		{"no primary key", nil, ""},
+		{"DEFAULT identity", []string{"id"}, 'd', 1},
+		{"INDEX includes primary key", []string{"id"}, 'i', 1},
+		{"INDEX omits primary key", []string{"id"}, 'i', 2},
+		{"no primary key", nil, 'i', 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p, stream := newPgoutputReplicator(tt.keys...)
 			relation := p.relationIDToMsgMap[1]
-			relation.ReplicaIdentity = 'd'
+			relation.ReplicaIdentity = tt.identity
 			for _, column := range relation.Columns {
 				column.Flags = 0
 			}
-			relation.Columns[1].Flags = 1
-			// DEFAULT identity supplies only the actual key, regardless of configured keys.
+			relation.Columns[tt.keyColumn].Flags = 1
+			// Ordinary deletes retain the values supplied by the source's replica identity.
 			message := &pglogrepl.DeleteMessage{RelationID: 1, OldTupleType: 'K', OldTuple: &pglogrepl.TupleData{
 				ColumnNum: 4,
 				Columns: []*pglogrepl.TupleDataColumn{
 					{DataType: pglogrepl.TupleDataTypeNull},
-					{DataType: pglogrepl.TupleDataTypeText, Data: []byte("1")},
+					{DataType: pglogrepl.TupleDataTypeNull},
 					{DataType: pglogrepl.TupleDataTypeNull},
 					{DataType: pglogrepl.TupleDataTypeNull},
 				},
 			}}
+			message.OldTuple.Columns[tt.keyColumn] = &pglogrepl.TupleDataColumn{DataType: pglogrepl.TupleDataTypeText, Data: []byte("1")}
 			var changes []abstract.CDCChange
 			err := p.emitDelete(context.Background(), message, func(_ context.Context, change abstract.CDCChange) error {
 				changes = append(changes, change)
 				return nil
 			})
-			if tt.wantErr != "" {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
-				assert.ErrorContains(t, err, "old tuple for public.orders is "+tt.wantErr)
-				assert.Empty(t, changes)
-				return
-			}
 			require.NoError(t, err)
 			require.Len(t, changes, 1)
 			assert.Equal(t, "delete", changes[0].Kind)
 			assert.Same(t, stream, changes[0].Stream)
-			assert.Equal(t, map[string]any{"name": nil, "id": "1", "tenant": nil, "payload": nil}, changes[0].Data)
+			wantValues := map[string]any{"name": nil, "id": nil, "tenant": nil, "payload": nil}
+			wantValues[relation.Columns[tt.keyColumn].Name] = "1"
+			assert.Equal(t, wantValues, changes[0].Data)
 			assert.Equal(t, p.txnCommitTime, changes[0].Timestamp)
 			assert.Equal(t, map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, changes[0].ExtraColumns)
 			assert.Equal(t, int64(1), changes[0].Bytes)
