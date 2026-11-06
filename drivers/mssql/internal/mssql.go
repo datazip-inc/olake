@@ -60,7 +60,7 @@ func (m *MSSQL) CDCSupported() bool {
 // Setup establishes the database connection and initializes CDC settings.
 func (m *MSSQL) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
+		return fmt.Errorf("%w: failed to validate config: %w", constants.ErrManualIntervention, err)
 	}
 
 	var err error

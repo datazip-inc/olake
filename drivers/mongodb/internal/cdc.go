@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -73,7 +74,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
 	if prevResumeToken == nil {
 		return nil, errs.Precondition(errs.StateInvalid, codeResumeTokenMissing,
-			fmt.Errorf("resume token not found for stream: %s", stream.ID()))
+			fmt.Errorf("%w: resume token not found for stream: %s", constants.ErrManualIntervention, stream.ID()))
 	}
 	//   metadata > state  →  metadata is further ahead (crash-recovery path: metadata
 	//                         was committed to the destination but state write failed).
@@ -280,7 +281,7 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 	dataBytes, err := hex.DecodeString(dataStr)
 	if err != nil || len(dataBytes) < 9 {
 		return primitive.Timestamp{}, errs.Precondition(errs.StateInvalid, codeResumeTokenInvalid,
-			fmt.Errorf("invalid resume token"))
+			fmt.Errorf("%w: invalid resume token", constants.ErrManualIntervention))
 	}
 	return primitive.Timestamp{
 		T: binary.BigEndian.Uint32(dataBytes[1:5]),
@@ -305,7 +306,7 @@ func GetResumeToken(cursor *mongo.ChangeStream, streamID string) (string, error)
 	token := rawToken.StringValue()
 	if token == "" {
 		return "", errs.Precondition(errs.StateInvalid, codeResumeTokenInvalid,
-			fmt.Errorf("empty resume token value for stream %s", streamID))
+			fmt.Errorf("%w: empty resume token value for stream %s", constants.ErrManualIntervention, streamID))
 	}
 
 	return token, nil

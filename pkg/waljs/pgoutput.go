@@ -53,7 +53,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			return nil
 		default:
 			if !messageReceived && p.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > p.socket.initialWaitTime {
-				return fmt.Errorf("%w, try increasing it or do full load", constants.ErrNonRetryable)
+				return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrManualIntervention)
 			}
 
 			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
@@ -67,7 +67,11 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			cancel()
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrNonRetryable)
+					// nothing ever received: wait time too short (manual fix); silence after messages: connection lost (restart)
+					if !messageReceived {
+						return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrManualIntervention)
+					}
+					return fmt.Errorf("%w: no WAL message received for %s, replication connection may be lost: %w", constants.ErrRestartRequired, p.socket.initialWaitTime, err)
 				}
 
 				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {

@@ -80,7 +80,7 @@ func (m *MySQL) Spec() any {
 func (m *MySQL) Setup(ctx context.Context) error {
 	err := m.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
+		return fmt.Errorf("%w: failed to validate config: %w", constants.ErrManualIntervention, err)
 	}
 	m.typeMapping = mysqlTypeToDataTypes()
 

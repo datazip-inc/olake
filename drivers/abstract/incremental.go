@@ -114,7 +114,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				if !ok {
 					return errs.Precondition(errs.StateInvalid,
 						fmt.Sprintf("%s.metadata_state_invalid", a.driver.Type()),
-						fmt.Errorf("failed to unmarshal previous metadata state of type[%T]", prevMetadataState.State))
+						fmt.Errorf("%w: failed to unmarshal previous metadata state of type[%T]", constants.ErrManualIntervention, prevMetadataState.State))
 				}
 
 				var mtState map[string]any
@@ -126,7 +126,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				if mtState[primaryCursor] == nil || (secondaryCursor != "" && mtState[secondaryCursor] == nil) {
 					return errs.Precondition(errs.StateInvalid,
 						fmt.Sprintf("%s.cursor_field_changed", a.driver.Type()),
-						fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID))
+						fmt.Errorf("%w: cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", constants.ErrManualIntervention, stream.ID(), threadID))
 				}
 
 				logger.Infof("Stream[%s] cursor(s) mismatch, updating cursor(s) in state", stream.ID())
