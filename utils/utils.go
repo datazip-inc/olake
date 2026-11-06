@@ -589,10 +589,13 @@ func RetryWithSkip(ctx context.Context, maxRetries int, sleep time.Duration, sho
 	return err
 }
 
+// IsRestartRequired reports whether in-process retries must stop. It is true for both markers;
+// use IsManualIntervention to decide the exit code or whether a restart can help.
 func IsRestartRequired(err error) bool {
 	return err != nil && (errors.Is(err, constants.ErrRestartRequired) || errors.Is(err, constants.ErrManualIntervention))
 }
 
+// IsManualIntervention reports whether a person must fix the cause; a restart alone won't (exit 3).
 func IsManualIntervention(err error) bool {
 	return err != nil && errors.Is(err, constants.ErrManualIntervention)
 }

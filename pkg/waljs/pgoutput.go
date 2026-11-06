@@ -53,7 +53,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			return nil
 		default:
 			if !messageReceived && p.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > p.socket.initialWaitTime {
-				return fmt.Errorf("%w, try increasing it or do full load", constants.ErrManualIntervention)
+				return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrManualIntervention)
 			}
 
 			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {

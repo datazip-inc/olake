@@ -576,7 +576,8 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 				decoder := json.NewDecoder(bytes.NewReader([]byte(mtStateStr)))
 				decoder.UseNumber()
 				if err := decoder.Decode(&parsedMetadataStateValue); err != nil {
-					return false, fmt.Errorf("stream[%s]: failed to unmarshal metadata state: %w", streamID, err)
+					return false, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
+						fmt.Errorf("%w: stream[%s]: failed to unmarshal metadata state: %w", constants.ErrManualIntervention, streamID, err))
 				}
 
 				// check if consumer group id mismatch
@@ -603,7 +604,8 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 
 		metaCommittedOffset, err := typeutils.ReformatInt64(offsetValue)
 		if err != nil {
-			return false, fmt.Errorf("stream[%s] topic %s partition %d: invalid metadata offset: %w", streamID, currentTopic, currentPartitionID, err)
+			return false, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
+				fmt.Errorf("%w: stream[%s] topic %s partition %d: invalid metadata offset: %w", constants.ErrManualIntervention, streamID, currentTopic, currentPartitionID, err))
 		}
 
 		// destination metadata offset must not exceed the current partition end offset.

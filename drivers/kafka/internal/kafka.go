@@ -99,7 +99,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	if k.config.TopicPattern != "" {
 		pattern, err := regexp2.Compile(k.config.TopicPattern, 0)
 		if err != nil {
-			return fmt.Errorf("failed to compile topic_pattern regex: %s", err)
+			return fmt.Errorf("%w: failed to compile topic_pattern regex: %w", constants.ErrManualIntervention, err)
 		}
 		k.topicPattern = pattern
 		logger.Infof("Using topic pattern filter: %s", k.config.TopicPattern)
@@ -107,13 +107,13 @@ func (k *Kafka) Setup(ctx context.Context) error {
 
 	dialer, err := k.createDialer()
 	if err != nil {
-		return fmt.Errorf("failed to create Kafka dialer: %w", err)
+		return fmt.Errorf("%w: failed to create Kafka dialer: %w", constants.ErrManualIntervention, err)
 	}
 
 	// create admin client for metadata and offset operations
 	client, err := kgo.NewClient(dialer...)
 	if err != nil {
-		return fmt.Errorf("failed to create kafka client: %w", err)
+		return fmt.Errorf("%w: failed to create kafka client: %w", constants.ErrManualIntervention, err)
 	}
 
 	k.client = client
