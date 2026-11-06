@@ -109,6 +109,10 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		for idx := range nCols {
 			scanTypes[idx] = rows.ColumnTypeScanType(idx)
 			colTypeNames[idx] = rows.ColumnTypeDatabaseTypeName(idx)
+			// db2 stores NUMERIC as DECIMAL, the one type named by its precision and scale
+			if precision, scale, ok := rows.ColumnTypePrecisionScale(idx); ok && strings.EqualFold(colTypeNames[idx], "DECIMAL") {
+				colTypeNames[idx] = typeutils.DecimalColumnType(colTypeNames[idx], precision, scale)
+			}
 		}
 
 		// Pre-compile per-column converters once, with the olake DataType

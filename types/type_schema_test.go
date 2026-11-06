@@ -169,6 +169,48 @@ func TestGetCommonAncestorType(t *testing.T) {
 			t2:       Object,
 			expected: Binary,
 		},
+		{
+			name:     "decimals of one scale meet at the wider precision",
+			t1:       DecimalOf(10, 2),
+			t2:       DecimalOf(12, 2),
+			expected: DecimalOf(12, 2),
+		},
+		{
+			name:     "decimals of two scales meet at the decimal holding both",
+			t1:       DecimalOf(10, 2),
+			t2:       DecimalOf(10, 4),
+			expected: DecimalOf(12, 4),
+		},
+		{
+			name:     "decimals no decimal can hold both of meet at float64",
+			t1:       DecimalOf(38, 0),
+			t2:       DecimalOf(38, 10),
+			expected: Float64,
+		},
+		{
+			name:     "decimal and integer meet at float64",
+			t1:       DecimalOf(10, 2),
+			t2:       Int64,
+			expected: Float64,
+		},
+		{
+			name:     "decimal and float32 meet at float64",
+			t1:       DecimalOf(10, 2),
+			t2:       Float32,
+			expected: Float64,
+		},
+		{
+			name:     "decimal and timestamp meet at string",
+			t1:       DecimalOf(10, 2),
+			t2:       Timestamp,
+			expected: String,
+		},
+		{
+			name:     "decimal and fixed binary meet at binary",
+			t1:       DecimalOf(10, 2),
+			t2:       FixedBinaryOf(16),
+			expected: Binary,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -366,21 +408,51 @@ func TestTypeSchemaAddTypes(t *testing.T) {
 }
 
 func TestTypeSchemaGetType(t *testing.T) {
+	// properties built by AddTypes carry destination column names, so lookup uses the source name
 	schema := NewTypeSchema()
 	schema.AddTypes("User ID", false, Int64)
-
-	// properties built by AddTypes carry destination column names, so lookup uses the source name
-	dataType, err := schema.GetType("User ID")
-	require.NoError(t, err)
-	require.Equal(t, Int64, dataType)
-
 	schema.AddTypes("Digest", false, FixedBinaryOf(16))
-	dataType, err = schema.GetType("Digest")
-	require.NoError(t, err)
-	require.Equal(t, Binary, dataType, "a fixed_binary(n) column's values are plain binary")
+	schema.AddTypes("Price", false, DecimalOf(10, 2))
 
-	_, err = schema.GetType("missing")
-	require.Error(t, err)
+	testCases := []struct {
+		name    string
+		column  string
+		want    DataType
+		wantErr bool
+	}{
+		{
+			name:   "a plain column reads as its type",
+			column: "User ID",
+			want:   Int64,
+		},
+		{
+			name:   "a fixed_binary(n) column's values are plain binary",
+			column: "Digest",
+			want:   Binary,
+		},
+		{
+			name:   "a decimal(p,s) column's values are big decimals",
+			column: "Price",
+			want:   BigDecimal,
+		},
+		{
+			name:    "a missing column is an error",
+			column:  "missing",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dataType, err := schema.GetType(tc.column)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, dataType)
+		})
+	}
 }
 
 func TestTypeSchemaGetTypeLegacyCatalog(t *testing.T) {
@@ -434,6 +506,7 @@ func TestTypeSchemaJSONRoundTrip(t *testing.T) {
 	schema.AddTypes("Digest", false, FixedBinaryOf(32))
 	schema.AddTypes("Payload", false, Binary, Null)
 	schema.AddTypes("Hashes", false, FixedBinaryOf(16), FixedBinaryOf(32))
+	schema.AddTypes("Amount", false, DecimalOf(18, 4), Null)
 
 	data, err := json.Marshal(schema)
 	require.NoError(t, err)
@@ -463,15 +536,31 @@ func TestTypeSchemaJSONRoundTrip(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, Binary, prop.DataType())
 
+	found, prop = restored.GetProperty("Amount")
+	require.True(t, found)
+	require.Equal(t, DecimalOf(18, 4), prop.DataType())
+
 	constants.LoadedStateVersion = 7
 	preBinary := NewTypeSchema()
 	require.NoError(t, json.Unmarshal(data, preBinary))
-	for column, expected := range map[string]DataType{"User ID": Int64, "Digest": String, "Payload": String, "Hashes": String} {
+	for column, expected := range map[string]DataType{"User ID": Int64, "Digest": String, "Payload": String, "Hashes": String, "Amount": Float64} {
 		found, prop := preBinary.GetProperty(column)
 		require.True(t, found, column)
 		require.Equal(t, expected, prop.DataType(), column)
 	}
 	_, prop = preBinary.GetProperty("Payload")
+	require.True(t, prop.Nullable())
+
+	// state 8 keeps binary bytes but predates decimal, so only the decimal falls back to a double
+	constants.LoadedStateVersion = 8
+	preDecimal := NewTypeSchema()
+	require.NoError(t, json.Unmarshal(data, preDecimal))
+	for column, expected := range map[string]DataType{"Digest": FixedBinaryOf(32), "Payload": Binary, "Amount": Float64} {
+		found, prop := preDecimal.GetProperty(column)
+		require.True(t, found, column)
+		require.Equal(t, expected, prop.DataType(), column)
+	}
+	_, prop = preDecimal.GetProperty("Amount")
 	require.True(t, prop.Nullable())
 }
 

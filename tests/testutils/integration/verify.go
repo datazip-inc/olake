@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/decimal128"
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/tests/testutils"
@@ -117,7 +118,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		for key, expected := range schema {
 			icebergValue, ok := icebergMap[key]
 			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
+			require.Equal(t, expected, sparkValueOf(expected, icebergValue), "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
 		}
 		if isCDC {
 			for key := range defaultCDCColumnsSchema {
@@ -318,7 +319,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		for key, expected := range schema {
 			val, ok := parquetMap[key]
 			require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-			require.Equal(t, expected, val,
+			require.Equal(t, expected, sparkValueOf(expected, val),
 				"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
 		}
 		if isCDC {
@@ -362,7 +363,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 
 		expectedType, mapped := typeMapping[dbType]
 		require.Truef(t, mapped, "column %s is declared as %q, which the %s suite's TypeMapping does not define; the declared types and the mapping must agree", col, dbType, driver)
-		require.Equal(t, sparkTypeOf(expectedType), pqType,
+		require.Equal(t, parquetSparkTypeOf(expectedType), pqType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
 	}
 	t.Logf("Verified datatypes in Parquet after sync")
@@ -442,6 +443,46 @@ func sparkTypeOf(expected string) string {
 		return "binary"
 	}
 	return expected
+}
+
+// parquetSparkTypeOf is the type Spark reports for an expected type in the parquet destination, which keeps a
+// decimal past 18 digits as its exact text.
+func parquetSparkTypeOf(expected string) string {
+	var precision, scale int
+	if n, _ := fmt.Sscanf(expected, "decimal(%d,%d)", &precision, &scale); n == 2 && precision > 18 {
+		return "string"
+	}
+	return sparkTypeOf(expected)
+}
+
+// sparkValueOf is a destination value in the form its expectation states it. A Decimal expectation is exact
+// text at the column's scale; Spark returns a decimal as its unscaled integer, or as text for parquet past 18 digits.
+func sparkValueOf(expected, actual any) any {
+	if _, isDecimal := expected.(testutils.Decimal); !isDecimal {
+		return actual
+	}
+	switch v := actual.(type) {
+	case decimal128.Num:
+		_, fraction, _ := strings.Cut(string(expected.(testutils.Decimal)), ".")
+		return testutils.Decimal(decimalText(v, len(fraction)))
+	case string:
+		return testutils.Decimal(v)
+	default:
+		return actual
+	}
+}
+
+// decimalText prints an unscaled integer at scale exactly, with every digit of the scale.
+func decimalText(unscaled decimal128.Num, scale int) string {
+	digits := unscaled.Abs().BigInt().String()
+	if scale > 0 {
+		digits = strings.Repeat("0", max(scale+1-len(digits), 0)) + digits
+		digits = digits[:len(digits)-scale] + "." + digits[len(digits)-scale:]
+	}
+	if unscaled.Sign() < 0 {
+		return "-" + digits
+	}
+	return digits
 }
 
 // fixedBinaryWidth parses the n of an expected fixed[n].

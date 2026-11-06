@@ -102,6 +102,8 @@ func TestTypeFromValue(t *testing.T) {
 		{name: "channel", input: make(chan int), expected: types.Unknown},
 		{name: "function", input: func() {}, expected: types.Unknown},
 
+		{name: "decimal_carries_its_type", input: newDecimal(types.DecimalOf(10, 2), "12345"), expected: types.DecimalOf(10, 2)},
+
 		{name: "json_number_integer", input: json.Number("42"), expected: types.Int64},
 		{name: "json_number_float", input: json.Number("42.5"), expected: types.Float64},
 		{name: "json_number_invalid", input: json.Number("invalid"), expected: types.Float64},
@@ -301,9 +303,10 @@ func TestExtractAndMapColumnType(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name       string
-		columnType string
-		expected   types.DataType
+		name         string
+		columnType   string
+		stateVersion *int
+		expected     types.DataType
 	}{
 		{name: "empty_string", columnType: "", expected: types.DataType("")},
 		{name: "only_spaces", columnType: "   ", expected: types.DataType("")},
@@ -315,11 +318,99 @@ func TestExtractAndMapColumnType(t *testing.T) {
 		{name: "unknown", columnType: "unknown", expected: types.Unknown},
 		{name: "varbinary_with_size", columnType: "varbinary(64)", expected: types.Binary},
 		{name: "unmapped_type", columnType: "varchar(255)", expected: types.DataType("")},
+		{
+			name:       "a decimal a double cannot hold",
+			columnType: "decimal(18,4)",
+			expected:   types.DataType("decimal(18,4)"),
+		},
+		{
+			name:       "a decimal a double could hold stays a decimal",
+			columnType: "decimal(15,2)",
+			expected:   types.DataType("decimal(15,2)"),
+		},
+		{
+			name:       "a decimal past 38 digits maps by its base type",
+			columnType: "decimal(39,2)",
+			expected:   types.DataType(""),
+		},
+		{
+			name:         "a decimal in state before version 9 stays a double",
+			columnType:   "decimal(18,4)",
+			stateVersion: new(8),
+			expected:     types.Float64,
+		},
 	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			if tc.stateVersion != nil {
+				constants.LoadedStateVersion = *tc.stateVersion
+			}
 			assert.Equal(t, tc.expected, ExtractAndMapColumnType(tc.columnType, typeMapping))
+		})
+	}
+}
+
+func TestDecimalColumnType(t *testing.T) {
+	testCases := []struct {
+		name             string
+		typeName         string
+		precision, scale int64
+		stateVersion     *int
+		want             string
+	}{
+		{
+			name:      "a decimal a double cannot hold is named by its precision and scale",
+			typeName:  "DECIMAL",
+			precision: 18,
+			scale:     4,
+			want:      "decimal(18,4)",
+		},
+		{
+			name:      "a decimal a double could hold is named by its precision and scale",
+			typeName:  "NUMERIC",
+			precision: 15,
+			scale:     2,
+			want:      "decimal(15,2)",
+		},
+		{
+			name:      "an unconstrained postgres numeric keeps its name",
+			typeName:  "NUMERIC",
+			precision: 65535,
+			scale:     65531,
+			want:      "NUMERIC",
+		},
+		{
+			name:      "a negative scale keeps its name",
+			typeName:  "NUMBER",
+			precision: 20,
+			scale:     -2,
+			want:      "NUMBER",
+		},
+		{
+			name:         "a decimal in state before version 9 keeps its name",
+			typeName:     "DECIMAL",
+			precision:    18,
+			scale:        4,
+			stateVersion: new(8),
+			want:         "DECIMAL",
+		},
+	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			if tc.stateVersion != nil {
+				constants.LoadedStateVersion = *tc.stateVersion
+			}
+			assert.Equal(t, tc.want, DecimalColumnType(tc.typeName, tc.precision, tc.scale))
 		})
 	}
 }

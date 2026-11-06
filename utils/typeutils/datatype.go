@@ -44,6 +44,8 @@ func TypeFromValue(v interface{}) types.DataType {
 		}
 	case time.Time:
 		return detectTimestampPrecision(val)
+	case Decimal:
+		return val.Type()
 	case []any:
 		return types.Array
 	case map[string]any:
@@ -211,7 +213,20 @@ func detectTimestampPrecision(t time.Time) types.DataType {
 }
 
 func ExtractAndMapColumnType(columnType string, typeMapping map[string]types.DataType) types.DataType {
+	// a reader names a decimal column by its precision and scale (DecimalColumnType)
+	if precision, scale, isDecimal := types.DecimalParams(types.DataType(columnType)); isDecimal {
+		return types.NumericOf(int64(precision), int64(scale))
+	}
 	// extracts the base type (e.g., varchar(50) -> varchar)
 	baseType := strings.ToLower(strings.TrimSpace(strings.Split(columnType, "(")[0]))
 	return typeMapping[baseType]
+}
+
+// DecimalColumnType is the type name a reader hands the converter for a decimal column of precision digits,
+// scale after the point: decimal(p,s) where the column maps to a decimal, name otherwise.
+func DecimalColumnType(name string, precision, scale int64) string {
+	if dataType := types.NumericOf(precision, scale); dataType != types.Float64 {
+		return string(dataType)
+	}
+	return name
 }

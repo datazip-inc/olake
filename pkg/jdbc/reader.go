@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -73,12 +74,24 @@ func getColumnMetadata(rows *sql.Rows) ([]string, []*sql.ColumnType, error) {
 	return columns, colTypes, nil
 }
 
+// decimalTypeNames are the names database/sql drivers report a decimal column under: postgres NUMERIC, mysql
+// and mssql DECIMAL, oracle NUMBER.
+var decimalTypeNames = []string{"NUMERIC", "DECIMAL", "NUMBER"}
+
 // normalizeDataTypeAndConvert normalizes the datatype and converts the raw value using the converter function
 func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter func(value interface{}, columnType string) (interface{}, error)) (any, error) {
 	datatype := colType.DatabaseTypeName()
 	precision, scale, hasPrecisionScale := colType.DecimalSize()
-	if datatype == "NUMBER" && hasPrecisionScale && scale == 0 {
+	switch {
+	case datatype == "NUMBER" && hasPrecisionScale && scale == 0:
 		datatype = utils.Ternary(precision > 9, "int64", "int32").(string)
+	case hasPrecisionScale && slices.Contains(decimalTypeNames, datatype):
+		datatype = typeutils.DecimalColumnType(datatype, precision, scale)
+	case datatype == "MONEY":
+		// mssql reports no precision for MONEY, a DECIMAL(19,4), or SMALLMONEY, a DECIMAL(10,4)
+		datatype = typeutils.DecimalColumnType(datatype, 19, 4)
+	case datatype == "SMALLMONEY":
+		datatype = typeutils.DecimalColumnType(datatype, 10, 4)
 	}
 	conv, err := converter(rawData, datatype)
 	if err != nil && err != typeutils.ErrNullValue {

@@ -83,12 +83,16 @@ func mysqlTypeToDataTypes() map[string]types.DataType {
 	}
 }
 
-// resolveColumnType returns the type a column carries once its declared length is known: a
-// BINARY(n) column the mapping carries as bytes always holds exactly n bytes, so it resolves to
-// fixed_binary(n).
-func resolveColumnType(dataType string, dataMaxLength sql.NullInt64, mapped types.DataType) types.DataType {
-	if dataType != "binary" || dataMaxLength.Int64 == 0 || mapped != types.Binary {
+// resolveColumnType returns the type a column carries once its declared length, precision and scale are known:
+// a BINARY(n) column the mapping carries as bytes always holds exactly n bytes, so it resolves to
+// fixed_binary(n), and a DECIMAL(p,s) to the type NumericOf gives it.
+func resolveColumnType(dataType string, dataMaxLength, precision, scale sql.NullInt64, mapped types.DataType) types.DataType {
+	switch {
+	case dataType == "decimal" && precision.Valid && scale.Valid:
+		return types.NumericOf(precision.Int64, scale.Int64)
+	case dataType != "binary" || dataMaxLength.Int64 == 0 || mapped != types.Binary:
 		return mapped
+	default:
+		return types.FixedBinaryOf(int(dataMaxLength.Int64))
 	}
-	return types.FixedBinaryOf(int(dataMaxLength.Int64))
 }

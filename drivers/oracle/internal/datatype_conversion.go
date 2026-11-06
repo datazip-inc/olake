@@ -62,6 +62,9 @@ func reformatOracleDatatype(dataType string, precision, scale sql.NullInt64) (ty
 			}
 			return types.Int64, true
 		}
+		if precision.Valid && scale.Valid {
+			return types.NumericOf(precision.Int64, scale.Int64), true
+		}
 		return types.Float64, true
 
 	default:

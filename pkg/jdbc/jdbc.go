@@ -421,8 +421,10 @@ func MySQLTableSchemaQuery() string {
 		SELECT 
 			COLUMN_NAME, 
 			COLUMN_TYPE,
-			DATA_TYPE, 
+			DATA_TYPE,
 			CHARACTER_MAXIMUM_LENGTH,
+			NUMERIC_PRECISION,
+			NUMERIC_SCALE,
 			IS_NULLABLE,
 			COLUMN_KEY
 		FROM 
@@ -708,6 +710,8 @@ func MSSQLTableSchemaQuery() string {
 	return `
 		SELECT  c.COLUMN_NAME,
 		        c.DATA_TYPE,
+		        c.NUMERIC_PRECISION,
+		        c.NUMERIC_SCALE,
 		        c.IS_NULLABLE,
 		        CAST(CASE WHEN tc.CONSTRAINT_TYPE = 'PRIMARY KEY' THEN 1 ELSE 0 END AS BIT) AS IS_PRIMARY_KEY
 		FROM    INFORMATION_SCHEMA.COLUMNS AS c
@@ -1689,6 +1693,8 @@ func DB2TableSchemaAndPrimaryKeysQuery() string {
 		SELECT
 			c.COLNAME   AS column_name,
 			c.TYPENAME  AS data_type,
+			c.LENGTH    AS data_precision,
+			c.SCALE     AS data_scale,
 			c.NULLS     AS is_nullable,
 			k.COLNAME   AS pk_column
 		FROM SYSCAT.COLUMNS c

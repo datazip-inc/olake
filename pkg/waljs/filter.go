@@ -47,6 +47,11 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 		data := make(map[string]any)
 		for i, val := range values {
 			colType := types[i]
+			// wal2json names a constrained numeric by its precision and scale
+			var precisionScale [2]int
+			if utils.ScanType(colType, "numeric(%d,%d)", precisionScale[:]) {
+				colType = typeutils.DecimalColumnType(colType, int64(precisionScale[0]), int64(precisionScale[1]))
+			}
 			conv, err := c.converter(val, colType)
 			if err != nil && err != typeutils.ErrNullValue {
 				return nil, err
