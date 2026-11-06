@@ -26,16 +26,20 @@ type CDCChange struct {
 	Data         map[string]any
 	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
 	Bytes        int64
+	// UnavailableColumns lists columns the source could not send (Postgres unchanged
+	// TOAST); Data holds constants.UnavailableValue for them. Nil for other drivers.
+	UnavailableColumns []string
 }
 
-func NewCDCChange(stream types.StreamInterface, timestamp time.Time, kind string, data, extraColumns map[string]any, sourceBytes int64) CDCChange {
+func NewCDCChange(stream types.StreamInterface, timestamp time.Time, kind string, data, extraColumns map[string]any, sourceBytes int64, unavailableColumns []string) CDCChange {
 	return CDCChange{
-		Stream:       stream,
-		Timestamp:    timestamp,
-		Kind:         kind,
-		Data:         data,
-		ExtraColumns: extraColumns,
-		Bytes:        sourceBytes,
+		Stream:             stream,
+		Timestamp:          timestamp,
+		Kind:               kind,
+		Data:               data,
+		ExtraColumns:       extraColumns,
+		Bytes:              sourceBytes,
+		UnavailableColumns: unavailableColumns,
 	}
 }
 

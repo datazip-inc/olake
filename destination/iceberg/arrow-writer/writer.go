@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -78,7 +79,7 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, options *destination.Options, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+func New(ctx context.Context, options *destination.Options, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, indexThread *types.StreamIndexThread) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
 		options:       options,
 		partitionInfo: partitionInfo,
@@ -89,7 +90,7 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
-		indexThread:   types.NewStreamIndexThread(options.TableIndex),
+		indexThread:   indexThread,
 		deleteMode:    stream.GetUpdateType(),
 
 		pendingVectors: make(map[string]*pendingVector),
@@ -341,6 +342,12 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, part
 		return rw, nil
 	}
 
+	return w.roll(ctx, rw, partitionKey)
+}
+
+// roll uploads rw's file and returns a writer on a new file. Positions already handed
+// out stay valid: the uploaded file keeps its path.
+func (w *ArrowWriter) roll(ctx context.Context, rw *RollingWriter, partitionKey string) (*RollingWriter, error) {
 	if err := w.flush(ctx, rw, partitionKey); err != nil {
 		return nil, err
 	}
@@ -357,6 +364,26 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, part
 	newWriter.filePath = newFilePath
 
 	return newWriter, nil
+}
+
+// EnsureReadable uploads any file in paths that is still being written, so its rows
+// can be read before the commit.
+func (w *ArrowWriter) EnsureReadable(ctx context.Context, paths []string) error {
+	for partitionKey, writer := range w.writers {
+		// completeWriters (schema evolution) leaves a partition without a data writer until
+		// its next record; its files are already uploaded.
+		if writer.dataWriter == nil || !slices.Contains(paths, writer.dataWriter.filePath) {
+			continue
+		}
+
+		rolled, err := w.roll(ctx, writer.dataWriter, partitionKey)
+		if err != nil {
+			return fmt.Errorf("failed to flush open data file to read unavailable column values: %w", err)
+		}
+		writer.dataWriter = rolled
+	}
+
+	return nil
 }
 
 func (w *ArrowWriter) flush(ctx context.Context, rw *RollingWriter, partitionKey string) error {

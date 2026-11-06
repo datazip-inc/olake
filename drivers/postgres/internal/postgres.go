@@ -10,8 +10,8 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/drivers/postgres/internal/waljs"
 	"github.com/datazip-inc/olake/pkg/jdbc"
-	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -195,6 +195,16 @@ func (p *Postgres) GetConfigRef() abstract.Config {
 
 func (p *Postgres) Spec() any {
 	return Config{}
+}
+
+// SupportedUpdateTypes excludes equality when preserve_toast_values is on: unchanged TOAST values
+// are read back through the destination's table index, which only pos and dv maintain.
+func (p *Postgres) SupportedUpdateTypes() []types.UpdateType {
+	cdc := &CDC{}
+	if err := utils.Unmarshal(p.config.UpdateMethod, cdc); err != nil || !cdc.PreserveToastValues {
+		return nil
+	}
+	return []types.UpdateType{types.UpdateTypePosition, types.UpdateTypeDeletionVector}
 }
 
 func (p *Postgres) CloseConnection() {

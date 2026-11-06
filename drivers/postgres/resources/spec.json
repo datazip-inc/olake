@@ -178,6 +178,12 @@
                             "type": "string",
                             "title": "Publication",
                             "description": "Publication defines which tables need to be consumed"
+                        },
+                        "preserve_toast_values": {
+                            "type": "boolean",
+                            "title": "Preserve TOAST Values",
+                            "description": "Unless a table's replica identity is FULL, Postgres leaves large (TOAST) column values an update did not change out of the change, and they land in the destination as __olake_unavailable_value__. When enabled, OLake reads those values back from the destination instead. Iceberg destinations using positional deletes or deletion vectors only.",
+                            "default": false
                         }
                     },
                     "required": [

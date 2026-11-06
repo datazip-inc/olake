@@ -398,7 +398,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 
 		// Emit one normalized CDC change event.
 		if err := processFn(ctx, abstract.NewCDCChange(stream, time.Now().UTC(), operationType, record,
-			extraColumns, rowBytes)); err != nil {
+			extraColumns, rowBytes, nil)); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %w", err)
 		}
 	}

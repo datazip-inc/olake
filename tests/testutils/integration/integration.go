@@ -25,6 +25,7 @@ type TestHandler struct {
 	icebergDestination               string
 	ExpectedData                     map[string]interface{}
 	ExpectedUpdatedData              map[string]interface{}
+	ExpectedCDCUpdatedData           map[string]interface{} // CDC update row, when a CDC change leaves columns out
 	DestinationDataTypeSchema        map[string]string
 	UpdatedDestinationDataTypeSchema map[string]string
 	DefaultCDCColumnsSchema          map[string]string
