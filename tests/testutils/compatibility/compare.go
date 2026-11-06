@@ -110,6 +110,13 @@ func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnost
 			delete(upgradedSchema, col)
 		}
 	}
+	// CDC metadata columns are written only for cdc/strict_cdc streams now; older releases wrote them
+	// for every sync mode, so the upgrade may legitimately drop them from a full refresh or incremental run.
+	for _, col := range typeOnly {
+		if _, ok := upgradedSchema[col]; !ok && strings.HasPrefix(col, "_cdc_") {
+			delete(referenceSchema, col)
+		}
+	}
 	if !maps.Equal(referenceSchema, upgradedSchema) {
 		diag.fatalf(t, "destination schema differs between the reference and upgrade runs.\n%s\n  full reference schema (%s): %v\n  full upgrade schema   (%s): %v",
 			indent(require.MapDiff("column", "reference run", "post olake upgrade", referenceSchema, upgradedSchema), "  "), referenceOutput, referenceSchema, upgradedOutput, upgradedSchema)
