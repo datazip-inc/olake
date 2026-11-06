@@ -49,7 +49,6 @@ func TestSupportedUpdateTypes(t *testing.T) {
 	}{
 		{name: "no update method has no restriction"},
 		{name: "standard replication has no restriction", updateMethod: map[string]any{"type": "standard"}},
-		{name: "preserve_toast_values without cdc has no restriction", updateMethod: map[string]any{"type": "standard", "preserve_toast_values": true}},
 		{name: "cdc without preserve_toast_values has no restriction", updateMethod: map[string]any{"replication_slot": "olake_slot"}},
 		{
 			name:         "preserve_toast_values offers only the indexed formats",

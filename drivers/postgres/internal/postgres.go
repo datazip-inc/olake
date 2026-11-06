@@ -198,12 +198,10 @@ func (p *Postgres) Spec() any {
 }
 
 // SupportedUpdateTypes excludes equality when preserve_toast_values is on: unchanged TOAST values
-// are read back through the destination's table index, which only pos and dv maintain. Discover
-// calls it before Setup, so it reads update_method directly, as Setup does: without a
-// replication_slot it is not CDC and nothing is recovered.
+// are read back through the destination's table index, which only pos and dv maintain.
 func (p *Postgres) SupportedUpdateTypes() []types.UpdateType {
 	cdc := &CDC{}
-	if err := utils.Unmarshal(p.config.UpdateMethod, cdc); err != nil || cdc.ReplicationSlot == "" || !cdc.PreserveToastValues {
+	if err := utils.Unmarshal(p.config.UpdateMethod, cdc); err != nil || !cdc.PreserveToastValues {
 		return nil
 	}
 	return []types.UpdateType{types.UpdateTypePosition, types.UpdateTypeDeletionVector}
