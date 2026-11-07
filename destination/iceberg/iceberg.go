@@ -166,31 +166,18 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	return schema, &metadataState, nil
 }
 
-// Write sends records in order, split into chunks of at most MaxDestinationBatchBytes when values
-// recovered from the destination (unchanged TOAST) grew the batch past what the buffer measured,
-// so no single write exceeds the 2 GB message limit.
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
-	if i.unavailableValues == nil || i.unavailableValues.filledBytes == 0 {
-		return i.writer.Write(ctx, records)
-	}
+	return i.writer.Write(ctx, records)
+}
 
-	start, size := 0, int64(0)
-	for idx := range records {
-		// a fixed overhead for the record, plus the size of every value it holds
-		recordSize := carryEntryOverhead
-		for _, value := range records[idx].Data {
-			recordSize += valueSize(value)
-		}
-		if idx > start && size+recordSize > constants.MaxDestinationBatchBytes {
-			if err := i.writer.Write(ctx, records[start:idx]); err != nil {
-				return err
-			}
-			start, size = idx, 0
-		}
-		size += recordSize
+// Resolve fills the values the source could not send into a prefix of records whose values stay
+// within MaxDestinationBatchBytes, so no write exceeds the 2 GB message limit and recovered
+// values are written before more are read.
+func (i *Iceberg) Resolve(ctx context.Context, records []types.RawRecord) (int, error) {
+	if i.unavailableValues == nil {
+		return len(records), nil
 	}
-
-	return i.writer.Write(ctx, records[start:])
+	return i.unavailableValues.Resolve(ctx, records, constants.MaxDestinationBatchBytes)
 }
 
 func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error) {
@@ -299,14 +286,6 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 // validate schema change & evolution and removes null records
 func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
-	// Resolve first, so schema detection, filters, partition values and the JSON row
-	// (normalization off) all see the recovered values.
-	if i.unavailableValues != nil {
-		if err := i.unavailableValues.Resolve(ctx, records); err != nil {
-			return false, nil, nil, fmt.Errorf("failed to recover unavailable column values: %w", err)
-		}
-	}
-
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
 	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {

@@ -1,7 +1,6 @@
 package io.olake.iceberg.tableIndex;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -9,6 +8,7 @@ import java.util.Map;
 import java.util.PrimitiveIterator;
 import java.util.Set;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 
 import com.google.protobuf.ByteString;
 
@@ -56,7 +56,7 @@ public final class RowReader {
    */
   private static final int ROW_PART_BYTES = 16 * 1024 * 1024;
 
-  /** Marks a soft-deleted row ("d"), and is repeated in every part of a split row. */
+  /** Marks a soft-deleted row ("d"). */
   private static final String OP_TYPE = "_op_type";
 
   private RowReader() {
@@ -68,13 +68,9 @@ public final class RowReader {
   }
 
   /**
-   * Reads the given rows of one data file, each with its own columns, and hands each row to
-   * {@code consumer} with the values of those columns. A column the data file does not carry
-   * is left out, which is not the same as a stored NULL (an unset value).
-   * {@code rows} are in ascending position order.
-   *
-   * <p>The file is projected to every column some row wants, since Parquet reads a set of
-   * rows across all projected columns; each row is still returned with only its own.
+   * Reads the given rows of one data file, in ascending position order, and hands each to consumer
+   * with the values of its own columns. A column the file does not carry comes back unset, as a
+   * stored NULL does: neither has a value to recover.
    */
   public static void read(Table table, String filePath, List<ReadRowsRequest.Row> rows, RowConsumer consumer)
       throws Exception {
@@ -88,7 +84,7 @@ public final class RowReader {
         ParquetReadOptions.builder().build())) {
       MessageType fileSchema = reader.getFooter().getFileMetaData().getSchema();
       // Matched by Iceberg field id, as Iceberg readers do; a column the file was written
-      // without is left out.
+      // without is left out of the projection.
       Schema selected = table.schema().select(columns);
       MessageType projection = ParquetSchemaUtil.pruneColumns(fileSchema, selected);
       reader.setRequestedSchema(projection);
@@ -119,16 +115,15 @@ public final class RowReader {
   }
 
   /**
-   * Reads only the pages holding the wanted rows if the file has a page index, else the
-   * whole row group. Each projected column's pages narrow the rows read, so a narrow column
-   * such as _op_type, whose one page spans thousands of rows, does not pull in every page of
-   * a wide column around the wanted rows.
+   * Reads only the pages holding the wanted rows if the file has a page index, else the whole row
+   * group. Every column narrows the rows read, so _op_type's one big page does not pull in every
+   * page of a wide column.
    */
   private static PageReadStore readPages(ParquetFileReader reader, int blockIndex, MessageType projection,
       List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, long rowsInBlock) throws IOException {
     // The reader caches this store and readFilteredRowGroup reuses it, so each offset index is fetched from storage once.
     ColumnIndexStore indexes = reader.getColumnIndexStore(blockIndex);
-    RowRanges ranges = null;
+    RowRanges ranges = RowRanges.createSingle(rowsInBlock);
     for (ColumnDescriptor column : projection.getColumns()) {
       OffsetIndex offsetIndex;
       try {
@@ -138,7 +133,7 @@ public final class RowReader {
       }
       RowRanges columnRanges = RowRanges.create(rowsInBlock,
           pagesHolding(offsetIndex, wanted, firstRowOfBlock, rowsInBlock), offsetIndex);
-      ranges = ranges == null ? columnRanges : RowRanges.intersection(ranges, columnRanges);
+      ranges = RowRanges.intersection(ranges, columnRanges);
     }
 
     return reader.readFilteredRowGroup(blockIndex, ranges);
@@ -175,86 +170,52 @@ public final class RowReader {
     return slots;
   }
 
-  /** Walks the rows read and emits the wanted ones. */
+  /**
+   * Walks the rows read and emits the wanted ones. A row whose values pass ROW_PART_BYTES goes out
+   * in parts, each with the same file and position and some of the columns; Go merges them.
+   */
   private static void emit(MessageColumnIO columnIO, MessageType projection, Map<String, Integer> slots,
       PageReadStore pages, List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, String filePath,
       RowConsumer consumer) throws Exception {
     RecordReader<Group> records = columnIO.getRecordReader(pages, new GroupRecordConverter(projection), FilterCompat.NOOP);
-    PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes().orElse(null);
+    // a whole row group read carries no row indexes: its rows come in order from 0
+    PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes()
+        .orElseGet(() -> LongStream.range(0, pages.getRowCount()).iterator());
     Integer opTypeSlot = slots.get(OP_TYPE);
 
     // every wanted row is among the rows read, which come in position order
     int cursor = 0;
-    for (long read = 0; cursor < wanted.size(); read++) {
+    while (cursor < wanted.size()) {
       Group group = records.read();
-      long position = firstRowOfBlock + (rowIndexes != null ? rowIndexes.nextLong() : read);
+      long position = firstRowOfBlock + rowIndexes.nextLong();
       if (position != wanted.get(cursor).getPosition()) {
         continue;
       }
 
-      // a soft-deleted row has nothing to recover: only its _op_type goes back, which the
-      // caller skips the row on
+      // a soft-deleted row has nothing to recover: every column except _op_type goes back unset
       boolean deleted = opTypeSlot != null && group.getFieldRepetitionCount(opTypeSlot) > 0
           && "d".equals(group.getString(opTypeSlot, 0));
-      ReadRowsBatch.Row.Builder row = ReadRowsBatch.Row.newBuilder().setFilePath(filePath).setPosition(position);
-      for (String column : wanted.get(cursor).getColumnsList()) {
+      ReadRowsBatch.Row.Builder part = ReadRowsBatch.Row.newBuilder().setFilePath(filePath).setPosition(position);
+      long partBytes = 0;
+      for (String column : wanted.get(cursor++).getColumnsList()) {
         Integer slot = slots.get(column);
-        if (slot != null && (!deleted || column.equals(OP_TYPE))) {
-          row.putValues(column, value(group, slot));
+        FieldValue value = slot == null || (deleted && !column.equals(OP_TYPE))
+            ? FieldValue.getDefaultInstance() : value(group, slot);
+        if (partBytes > 0 && partBytes + value.getSerializedSize() > ROW_PART_BYTES) {
+          consumer.accept(part.build());
+          part.clearValues();
+          partBytes = 0;
         }
+        part.putValues(column, value);
+        partBytes += value.getSerializedSize();
       }
-      for (ReadRowsBatch.Row part : split(row.build(), ROW_PART_BYTES)) {
-        consumer.accept(part);
-      }
-      cursor++;
+      consumer.accept(part.build());
     }
   }
 
   /**
-   * Splits a row whose values pass maxBytes into parts of the same file and position, each
-   * holding some of the columns and _op_type; the caller merges them. A part passes maxBytes
-   * only by its one value.
-   */
-  static List<ReadRowsBatch.Row> split(ReadRowsBatch.Row row, int maxBytes) {
-    // summed as long: the row's own size is an int and overflows past 2 GB
-    long rowBytes = 0;
-    for (FieldValue value : row.getValuesMap().values()) {
-      rowBytes += value.getSerializedSize();
-    }
-    if (rowBytes <= maxBytes) {
-      return List.of(row);
-    }
-
-    // Go asks for _op_type on every row and every data file carries it
-    ReadRowsBatch.Row.Builder empty = ReadRowsBatch.Row.newBuilder()
-        .setFilePath(row.getFilePath()).setPosition(row.getPosition())
-        .putValues(OP_TYPE, row.getValuesOrThrow(OP_TYPE));
-
-    List<ReadRowsBatch.Row> parts = new ArrayList<>();
-    ReadRowsBatch.Row.Builder part = empty.clone();
-    long partBytes = 0;
-    for (Map.Entry<String, FieldValue> value : row.getValuesMap().entrySet()) {
-      if (value.getKey().equals(OP_TYPE)) {
-        continue;
-      }
-      long size = value.getValue().getSerializedSize();
-      if (partBytes > 0 && partBytes + size > maxBytes) {
-        parts.add(part.build());
-        part = empty.clone();
-        partBytes = 0;
-      }
-      part.putValues(value.getKey(), value.getValue());
-      partBytes += size;
-    }
-    parts.add(part.build());
-
-    return parts;
-  }
-
-  /**
-   * Reads one field of a row, unset when the column is null in that row. Only text and double
-   * columns are read: a value the source could not send is text (Postgres text, json, arrays
-   * and the like) or numeric stored as double, and _op_type and the stored row are text.
+   * Reads one field of a row, unset when it is NULL. Only text and double columns can hold a value
+   * the source left out (Postgres numeric is stored as double); text that is not UTF-8 goes as bytes.
    */
   private static FieldValue value(Group group, int slot) {
     if (group.getFieldRepetitionCount(slot) == 0) {
@@ -266,7 +227,12 @@ public final class RowReader {
       return FieldValue.newBuilder().setDoubleValue(group.getDouble(slot, 0)).build();
     }
     if (type.getLogicalTypeAnnotation() instanceof StringLogicalTypeAnnotation) {
-      return FieldValue.newBuilder().setStringValueBytes(ByteString.copyFrom(group.getBinary(slot, 0).toByteBuffer())).build();
+      ByteString text = ByteString.copyFrom(group.getBinary(slot, 0).toByteBuffer());
+      // A proto string must be UTF-8. The arrow writer stores whatever bytes a string column held
+      // (Postgres bytea is one), so such text goes back as bytes and is written back as stored.
+      return text.isValidUtf8()
+          ? FieldValue.newBuilder().setStringValueBytes(text).build()
+          : FieldValue.newBuilder().setBytesValue(text).build();
     }
     throw new IllegalArgumentException("cannot read back column " + type.getName() + " of type " + type
         + ": only string and double columns are supported");

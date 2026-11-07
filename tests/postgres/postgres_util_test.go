@@ -93,7 +93,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				CONSTRAINT key_%[2]s UNIQUE (col_bigserial),
 				excludedColumn INT NULL
 			);
-			-- Kept out of line without compression, so an UPDATE that leaves col_toast unchanged does not resend it (unchanged TOAST).
+			-- Keep long col_toast values uncompressed in Postgres' separate TOAST storage, so an UPDATE that leaves col_toast unchanged does not resend it.
 			ALTER TABLE %[1]s ALTER COLUMN col_toast SET STORAGE EXTERNAL`, integrationTestTable, id)
 
 	case "drop":

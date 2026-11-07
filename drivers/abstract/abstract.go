@@ -91,6 +91,15 @@ func (a *AbstractDriver) SupportedUpdateTypes() []types.UpdateType {
 	return nil
 }
 
+// ValidateCDCStreams fails a CDC stream the destination cannot serve for this source; nil when the source has no such need.
+func (a *AbstractDriver) ValidateCDCStreams(streams []types.StreamInterface, destinationType types.DestinationType) error {
+	if validator, ok := a.driver.(CDCStreamValidator); ok {
+		return validator.ValidateCDCStreams(streams, destinationType)
+	}
+
+	return nil
+}
+
 func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, skipSchema bool) ([]*types.Stream, error) {
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {

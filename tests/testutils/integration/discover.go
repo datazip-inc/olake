@@ -60,9 +60,9 @@ func (th *TestHandler) TestDiscover(t *testing.T) {
 	}
 }
 
-// offerIndexUpdateTypesOnly is what discover writes when the source reads rows back through the
-// table index: equality deletes keep none, so only pos and dv are offered and pos is the default.
-// selected_streams omits update_type under streams v2, so only a spelled-out one (streams v1) is changed.
+// offerIndexUpdateTypesOnly turns the expected catalog into what discover writes with preserve_toast_values
+// on: only pos and dv (the update types that keep a table index) are offered, and pos is the default.
+// Under streams v2 selected_streams has no update_type, so only one set explicitly (streams v1) is changed.
 func offerIndexUpdateTypesOnly(doc map[string]interface{}) error {
 	entries, _ := doc["streams"].([]interface{})
 	for _, raw := range entries {

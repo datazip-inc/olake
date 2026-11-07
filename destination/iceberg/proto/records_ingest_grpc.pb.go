@@ -241,10 +241,9 @@ type TableIndexServiceClient interface {
 	// MigrateEqualityDeletes rewrites the table's existing equality delete files
 	// into equivalent positional delete files in a single atomic commit.
 	MigrateEqualityDeletes(ctx context.Context, in *MigrateEqualityDeletesRequest, opts ...grpc.CallOption) (*MigrateEqualityDeletesResponse, error)
-	// ReadRows streams the requested columns of rows addressed by data file and position,
-	// the locations the index holds. Used to refill values a CDC change could not carry
-	// (Postgres unchanged TOAST). A data file the thread's writer still holds open is
-	// closed first, without committing, so rows written earlier in the sync are readable.
+	// ReadRows streams the requested columns of rows found by data file and position (as the index
+	// stores them). It refills values a CDC change could not send (Postgres unchanged TOAST). A data
+	// file the thread's writer still has open is closed first, without committing, so it can be read.
 	ReadRows(ctx context.Context, in *ReadRowsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadRowsBatch], error)
 }
 
@@ -317,10 +316,9 @@ type TableIndexServiceServer interface {
 	// MigrateEqualityDeletes rewrites the table's existing equality delete files
 	// into equivalent positional delete files in a single atomic commit.
 	MigrateEqualityDeletes(context.Context, *MigrateEqualityDeletesRequest) (*MigrateEqualityDeletesResponse, error)
-	// ReadRows streams the requested columns of rows addressed by data file and position,
-	// the locations the index holds. Used to refill values a CDC change could not carry
-	// (Postgres unchanged TOAST). A data file the thread's writer still holds open is
-	// closed first, without committing, so rows written earlier in the sync are readable.
+	// ReadRows streams the requested columns of rows found by data file and position (as the index
+	// stores them). It refills values a CDC change could not send (Postgres unchanged TOAST). A data
+	// file the thread's writer still has open is closed first, without committing, so it can be read.
 	ReadRows(*ReadRowsRequest, grpc.ServerStreamingServer[ReadRowsBatch]) error
 	mustEmbedUnimplementedTableIndexServiceServer()
 }

@@ -113,6 +113,9 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
+		if err := connector.ValidateCDCStreams(selectedStreamsMetadata.CDCStreams, destinationConfig.Type); err != nil {
+			return err
+		}
 
 		if streams == nil {
 			state.Streams = selectedStreamsMetadata.NewStreamsState

@@ -324,6 +324,8 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			return err
 		}
 
+		// written records must not stay reachable through the reused backing array
+		clear(writer.data)
 		writer.data = writer.data[:0]
 		writer.equalityDeletes = writer.equalityDeletes[:0]
 		writer.positionalDeletes = writer.positionalDeletes[:0]

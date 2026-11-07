@@ -1,11 +1,10 @@
 package io.olake.iceberg.rpc;
 
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import org.apache.iceberg.Table;
 import org.apache.iceberg.util.ThreadPools;
@@ -118,25 +117,21 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
   }
 
   /**
-   * Reads the files concurrently on {@link #READERS} and returns before they finish: the
-   * call's callbacks, onReady among them, run only once this method has returned, and a
-   * read waits on onReady whenever the caller falls behind. Rows arrive in no particular
-   * order; the caller matches them by file and position.
+   * Reads the files on {@link #READERS} and returns at once: gRPC calls this call's onReady only
+   * after this method returns, and a read waits for it when the caller falls behind. Rows arrive
+   * in any order; the caller matches them by file and position.
    */
   @Override
   public void readRows(ReadRowsRequest request, StreamObserver<ReadRowsBatch> responseObserver) {
     long startTime = System.currentTimeMillis();
-    RowEmitter emitter = new RowEmitter(responseObserver);
+    RowEmitter emitter = new RowEmitter(responseObserver, request.getMaxBytes());
     CompletableFuture<?>[] reads;
 
     try {
       IcebergSession session = requireSession(request.getThreadId());
-      Set<String> paths = new HashSet<>();
-      for (ReadRowsRequest.FileRows file : request.getFilesList()) {
-        paths.add(file.getFilePath());
-      }
       // Rows written earlier in this sync may sit in a file the writer still has open.
-      session.op.closeOpenDataFiles(paths);
+      session.op.closeOpenDataFiles(request.getFilesList().stream()
+          .map(ReadRowsRequest.FileRows::getFilePath).collect(Collectors.toSet()));
 
       reads = request.getFilesList().stream()
           .map(file -> CompletableFuture.runAsync(() -> emitter.read(session.icebergTable, file), READERS))
@@ -158,7 +153,8 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
         LOGGER.debug("read rows across {} file(s) for thread {} in {} ms",
             request.getFilesCount(), request.getThreadId(), System.currentTimeMillis() - startTime);
       } catch (CallAbandoned e) {
-        LOGGER.warn("row read for thread {} abandoned by the caller after {} ms",
+        // the caller cancels a read when its own side fails, which it reports itself
+        LOGGER.debug("row read for thread {} abandoned by the caller after {} ms",
             request.getThreadId(), System.currentTimeMillis() - startTime);
       } catch (Throwable e) {
         failReadRows(request, responseObserver, e);
@@ -196,6 +192,13 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     }
   }
 
+  /** Raised to unwind a file read once the call has sent its max_bytes: no one wants the rows left. */
+  private static final class LimitReached extends RuntimeException {
+    private LimitReached() {
+      super("read has sent its max_bytes", null, false, false);
+    }
+  }
+
   /**
    * Sends the messages of one server stream, waiting while the caller is not ready to
    * take more so neither side buffers a whole table.
@@ -221,6 +224,10 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     private void send(T message) {
       awaitReady();
       responseObserver.onNext(message);
+    }
+
+    private boolean cancelled() {
+      return call != null && call.isCancelled();
     }
 
     private void awaitReady() {
@@ -307,22 +314,32 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
 
   /**
    * Groups read rows into messages of at most READ_BATCH_ROWS rows or READ_BATCH_BYTES. Files
-   * are read concurrently, so rows are added one at a time; the first failure stops the
-   * other reads at their next row.
+   * are read concurrently, so rows are added one at a time; the first failure, or the rows sent
+   * passing max_bytes, stops the other reads at their next row.
    */
   private static final class RowEmitter {
     private final Outbound<ReadRowsBatch> outbound;
+    private final long maxBytes;
     private final AtomicReference<Throwable> failure = new AtomicReference<>();
     private ReadRowsBatch.Builder batch = ReadRowsBatch.newBuilder();
     private int batchBytes;
+    private long sentBytes;
+    private volatile boolean full; // the rows sent passed maxBytes
 
-    private RowEmitter(StreamObserver<ReadRowsBatch> responseObserver) {
+    private RowEmitter(StreamObserver<ReadRowsBatch> responseObserver, long maxBytes) {
       this.outbound = new Outbound<>(responseObserver);
+      this.maxBytes = maxBytes > 0 ? maxBytes : Long.MAX_VALUE;
     }
 
     private void read(Table table, ReadRowsRequest.FileRows file) {
+      // a file still queued when the call ended or filled up is not opened: no one wants its rows
+      if (failure.get() != null || full || outbound.cancelled()) {
+        return;
+      }
       try {
         RowReader.read(table, file.getFilePath(), file.getRowsList(), this::accept);
+      } catch (LimitReached e) {
+        // the rows left are read by a later call
       } catch (Throwable e) {
         failure.compareAndSet(null, e);
       }
@@ -332,10 +349,14 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
       if (failure.get() != null) {
         throw new CallAbandoned();
       }
+      if (full) {
+        throw new LimitReached();
+      }
 
       batch.addRows(row);
       batchBytes += row.getSerializedSize();
-      if (batch.getRowsCount() >= READ_BATCH_ROWS || batchBytes >= READ_BATCH_BYTES) {
+      full = sentBytes + batchBytes > maxBytes;
+      if (full || batch.getRowsCount() >= READ_BATCH_ROWS || batchBytes >= READ_BATCH_BYTES) {
         send();
       }
     }
@@ -348,6 +369,7 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
 
     private void send() {
       outbound.send(batch.build());
+      sentBytes += batchBytes;
       batch = ReadRowsBatch.newBuilder();
       batchBytes = 0;
     }

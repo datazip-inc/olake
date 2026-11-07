@@ -188,11 +188,9 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
   }
 
   /**
-   * Closes each data file this writer still has open whose path is in paths, so the rows
-   * written to it can be read (an open file has no footer). Only those partitions' files are
-   * closed and the writer stays open: a closed file joins this writer's result like any file
-   * it rolled, and the partition starts a new file on its next row. Returns whether any file
-   * was closed.
+   * Closes the open data files whose path is in paths, so their rows can be read (an open file has
+   * no footer). The writer stays open: a closed file is committed like any file it rolled, and its
+   * partition starts a new file on its next row. Returns whether any file was closed.
    */
   boolean closeOpen(Set<String> paths) throws IOException {
     // the routing cache may point at a writer closed below

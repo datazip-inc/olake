@@ -36,56 +36,66 @@ type unavailableValuesResolver struct {
 	threadID string
 	stream   types.StreamInterface
 
-	tracked    map[string]struct{}  // columns seen marked in this thread
+	tracked    map[string]struct{}  // synced columns seen marked in this thread
 	carry      map[string]*carryRow // olake id -> values this thread wrote
 	carryBytes int64
-	batch      int64 // batches resolved, to tell recently written rows from old ones
+	writes     int64 // counts carry writes, to tell recently written rows from old ones
+
+	// fetched holds the values read from the destination for rows whose record is not filled
+	// yet, the placeholder where the stored row has none. Its bytes count against Resolve's limit.
+	fetched      map[string]map[string]any // olake id -> column -> value
+	fetchedBytes int64
 
 	recovered  int64 // values filled into records
 	fromTable  int64 // values read from the destination
 	unresolved int64 // values left as the placeholder
 
-	// filledBytes is what the last Resolve added to its batch, which the buffer did not count
-	filledBytes int64
+	readRows  int64 // rows the last read got in full, and all the bytes it read, to size the next read
+	readBytes int64
 }
 
 const (
-	// maxCarryBytes caps the memory, across all streams, used to keep values written in this
-	// sync. Past it they are dropped and read back from the destination if needed.
+	// maxCarryBytes is split equally among the threads carrying values written in this sync; past its
+	// share a thread drops its oldest rows, read back from the destination if needed. A thread that
+	// goes idle keeps its old share until its next batch, so the total can pass this for a while.
 	maxCarryBytes = int64(128) * 1024 * 1024 // 128 MB
-	// carryEntryOverhead approximates the memory cost of one carried row.
-	carryEntryOverhead = int64(96)
+	// carryEntryOverhead and carryValueOverhead approximate the memory a carried row costs besides
+	// its id and value bytes: measured at about 400 bytes for a row of up to 8 values (Go 1.26).
+	carryEntryOverhead = int64(384)
+	carryValueOverhead = int64(24)
+	// firstReadRows caps a thread's first read, before it knows how big its rows are. Java loads the
+	// pages of all asked rows in a row group at once, so a smaller first read keeps its memory low.
+	firstReadRows = 64
 )
 
 // unavailableJSON is the placeholder as the stored JSON row (normalization off) holds it.
 const unavailableJSON = `"` + constants.UnavailableValue + `"`
 
-// carryUsage is the carry memory held by all threads of this process. The budget is shared
-// so that N streams cannot use N times maxCarryBytes.
-var carryUsage atomic.Int64
+// carriers counts the threads carrying values. Each keeps to an equal share of maxCarryBytes, so N
+// streams do not use N times the budget; an idle thread trims to a new share on its next batch.
+var carriers atomic.Int64
 
 // carryRow is what this thread last wrote for one row. deleted means nothing may be
 // carried forward from it.
 type carryRow struct {
 	deleted bool
 	values  map[string]any
-	batch   int64 // last batch that wrote the row
+	written int64 // order the row was last written in
 }
 
-// size is the carry memory the row is accounted for.
+// size is the memory the row counts for in carry: its id, a fixed cost per row for its carry
+// entry, carryRow and values map (carryEntryOverhead), its values' bytes (dataSize) and a fixed
+// cost per value (carryValueOverhead). remember counts the same parts as it stores values.
 func (row *carryRow) size(olakeID string) int64 {
-	size := int64(len(olakeID)) + carryEntryOverhead
-	for _, value := range row.values {
-		size += valueSize(value)
-	}
-	return size
+	return int64(len(olakeID)) + carryEntryOverhead + dataSize(row.values) + int64(len(row.values))*carryValueOverhead
 }
 
-// pendingRead is one stored row to read: the row it is the previous version of, and the
-// source columns wanted from it.
+// pendingRead is one stored row to read: the row it is the previous version of, where that
+// version is stored, and the source columns wanted from it.
 type pendingRead struct {
-	olakeID string
-	columns []string
+	olakeID  string
+	location types.RowLocation
+	columns  []string
 }
 
 // openFileWriter is a writer that holds data files open on the Go side.
@@ -105,97 +115,148 @@ func newUnavailableValuesResolver(threadID string, stream types.StreamInterface,
 		stream:    stream,
 		tracked:   make(map[string]struct{}),
 		carry:     make(map[string]*carryRow),
+		fetched:   make(map[string]map[string]any),
 	}
 }
 
-// Resolve fills every unavailable value in the batch it can recover. The rest keep
-// constants.UnavailableValue, as before this feature.
-func (r *unavailableValuesResolver) Resolve(ctx context.Context, records []types.RawRecord) error {
-	r.filledBytes = 0
-	marked := r.track(records)
-	// Once a column is tracked, every later batch is processed so carry stays up to date, even batches with no marker.
+// Resolve fills the unavailable values of a prefix of records and returns its length (at least 1).
+// It reads once, from the first record missing a value, and ends the prefix at a row that read did
+// not get or before the prefix passes limit bytes. Only a lone first record may pass the limit.
+func (r *unavailableValuesResolver) Resolve(ctx context.Context, records []types.RawRecord, limit int64) (int, error) {
+	r.track(records)
+	// no synced column was ever marked in this thread: nothing to fill, nothing to carry
 	if len(r.tracked) == 0 {
-		return nil
+		return len(records), nil
 	}
-	r.batch++
+	defer r.trim()
 
-	if marked {
-		if err := r.readMissing(ctx, records); err != nil {
-			return err
+	size, read := int64(0), false
+	for idx := range records {
+		record := &records[idx]
+		missing := len(r.missing(record)) > 0
+		if missing && !read {
+			if err := r.readAhead(ctx, records[idx:], limit-size-r.fetchedBytes); err != nil {
+				return 0, err
+			}
+			read, missing = true, len(r.missing(record)) > 0
+		}
+		// the first record is read alone, whatever its size, so each call moves on
+		if missing && idx == 0 {
+			if err := r.readAhead(ctx, records[:1], math.MaxInt64); err != nil {
+				return 0, err
+			}
+		}
+
+		recordSize := r.filledSize(record)
+		if idx > 0 && (missing || size+recordSize > limit) {
+			return idx, nil // the next call goes on from this record
+		}
+		r.fill(record)
+		size += recordSize
+	}
+
+	return len(records), nil
+}
+
+// previous is the row's value of column before the record: what this thread last wrote for
+// the row, else what was read for it. A row deleted earlier in this sync gives the placeholder,
+// so its old values never come back.
+func (r *unavailableValuesResolver) previous(olakeID, column string) (any, bool) {
+	if row := r.carry[olakeID]; row != nil {
+		if row.deleted {
+			return constants.UnavailableValue, true
+		}
+		if value, found := row.values[column]; found {
+			return value, true
 		}
 	}
 
-	// Records are applied in order on top of carry, which now holds each row's state from
-	// before the batch, so every record sees exactly what the changes before it wrote.
-	for idx := range records {
-		record := &records[idx]
-		olakeID := record.OlakeColumns[constants.OlakeID].(string)
+	value, found := r.fetched[olakeID][column]
+	return value, found
+}
 
-		if record.OlakeColumns[constants.OpType].(string) == "d" {
-			r.tombstone(olakeID)
+// filledSize is the size of the record's values once fill has filled them in.
+func (r *unavailableValuesResolver) filledSize(record *types.RawRecord) int64 {
+	olakeID := record.OlakeColumns[constants.OlakeID].(string)
+	size := dataSize(record.Data)
+	for _, column := range record.UnavailableColumns {
+		if value, found := r.previous(olakeID, column); found && value != constants.UnavailableValue {
+			size += valueSize(value) - valueSize(record.Data[column])
+		}
+	}
+	return size
+}
+
+// fill fills the record's unavailable columns with the row's previous values, then remembers
+// what the record writes for the next change to the row.
+func (r *unavailableValuesResolver) fill(record *types.RawRecord) {
+	olakeID := record.OlakeColumns[constants.OlakeID].(string)
+	if record.OlakeColumns[constants.OpType].(string) == "d" {
+		r.tombstone(olakeID)
+		return
+	}
+
+	for _, column := range record.UnavailableColumns {
+		if value, found := r.previous(olakeID, column); found && value != constants.UnavailableValue {
+			record.Data[column] = value
+			r.recovered++
 			continue
 		}
+		r.unresolved++
+	}
+	// what was read for the row is in the record now, and goes to carry below
+	r.release(olakeID)
 
-		for _, column := range record.UnavailableColumns {
-			if _, selected := record.Data[column]; !selected {
-				continue // column not synced
-			}
-			if row := r.carry[olakeID]; row != nil {
-				if value, carried := row.values[column]; carried {
-					record.Data[column] = value
-					r.recovered++
-					r.filledBytes += valueSize(value)
-					continue
-				}
-			}
-			r.unresolved++
-		}
-
-		// Remember the values this record does carry, for the next change to the row.
-		for column := range r.tracked {
-			if value, present := record.Data[column]; present && !isUnavailable(value) {
-				r.remember(olakeID, column, value)
-			}
+	// The placeholder is remembered too: the destination has nothing better for the row, so its
+	// next change must not read it again.
+	for column := range r.tracked {
+		if value, present := record.Data[column]; present {
+			r.remember(olakeID, column, value)
 		}
 	}
-
-	r.trim()
-
-	return nil
 }
 
-// readMissing reads from the destination the values carry cannot answer and adds them to
-// carry. Only a row's first record in the batch can need a read: every later record of the
-// row is answered by what the earlier ones wrote.
-func (r *unavailableValuesResolver) readMissing(ctx context.Context, records []types.RawRecord) error {
-	seen := make(map[string]struct{})
-	reads := make(map[types.RowLocation]*pendingRead)
+// missing lists the record's unavailable columns that neither carry nor a read answers yet.
+func (r *unavailableValuesResolver) missing(record *types.RawRecord) []string {
+	olakeID := record.OlakeColumns[constants.OlakeID].(string)
+	var missing []string
+	for _, column := range record.UnavailableColumns {
+		if _, found := r.previous(olakeID, column); !found {
+			missing = append(missing, column)
+		}
+	}
+	return missing
+}
 
+// readAhead reads the values the next records are missing, as many rows as the last read
+// suggests fit in budget with the records' own values. Only a row's first record can need a
+// read: every later record of the row is answered by what the earlier ones wrote.
+func (r *unavailableValuesResolver) readAhead(ctx context.Context, records []types.RawRecord, budget int64) error {
+	if budget <= 0 {
+		return nil // what was read ahead already fills the limit
+	}
+
+	rowBytes := int64(0) // what a read row brought on average; unknown before the first read
+	if r.readRows > 0 {
+		rowBytes = r.readBytes / r.readRows
+	}
+
+	size := int64(0)
+	seen := make(map[string]struct{})
+	var reads []*pendingRead
 	for idx := range records {
+		if len(reads) > 0 && (size >= budget || (r.readRows == 0 && len(reads) >= firstReadRows)) {
+			break
+		}
 		record := &records[idx]
+		size += dataSize(record.Data)
 		olakeID := record.OlakeColumns[constants.OlakeID].(string)
 		if _, done := seen[olakeID]; done {
 			continue
 		}
 		seen[olakeID] = struct{}{}
 
-		row := r.carry[olakeID]
-		if row != nil && row.deleted {
-			continue // deleted earlier in this sync: old values must not come back
-		}
-
-		var missing []string
-		for _, column := range record.UnavailableColumns {
-			if _, selected := record.Data[column]; !selected {
-				continue
-			}
-			if row != nil {
-				if _, carried := row.values[column]; carried {
-					continue
-				}
-			}
-			missing = append(missing, column)
-		}
+		missing := r.missing(record)
 		if len(missing) == 0 {
 			continue
 		}
@@ -205,35 +266,44 @@ func (r *unavailableValuesResolver) readMissing(ctx context.Context, records []t
 			return fmt.Errorf("failed to look up row[%s] in index: %w", olakeID, err)
 		}
 		if !found {
-			continue // no previous version: a filtered row, or the UPDATE changed the primary key
+			// no previous version: a filtered row, or the UPDATE changed the primary key
+			for _, column := range missing {
+				r.fetch(olakeID, column, constants.UnavailableValue)
+			}
+			continue
 		}
-		reads[location] = &pendingRead{olakeID: olakeID, columns: missing}
+		reads = append(reads, &pendingRead{olakeID: olakeID, location: location, columns: missing})
+		size += rowBytes
 	}
 
 	if len(reads) == 0 {
 		return nil
 	}
 
-	return r.read(ctx, reads)
+	return r.read(ctx, reads, budget)
 }
 
-// track adds this batch's marked columns to r.tracked and reports whether the batch has any.
-func (r *unavailableValuesResolver) track(records []types.RawRecord) bool {
-	marked := false
+// track drops the marked columns the stream does not sync and adds the rest to the columns
+// this thread carries.
+func (r *unavailableValuesResolver) track(records []types.RawRecord) {
 	for idx := range records {
-		for _, column := range records[idx].UnavailableColumns {
+		record := &records[idx]
+		record.UnavailableColumns = slices.DeleteFunc(record.UnavailableColumns, func(column string) bool {
+			_, selected := record.Data[column]
+			return !selected
+		})
+		for _, column := range record.UnavailableColumns {
+			if len(r.tracked) == 0 {
+				carriers.Add(1)
+			}
 			r.tracked[column] = struct{}{}
-			marked = true
 		}
 	}
-
-	return marked
 }
 
-// readColumns is what to read of one stored row: _op_type, to spot a soft-deleted row (an
-// UPDATE can move a row onto a key deleted in an earlier sync), then the destination columns
-// holding the wanted source columns. Without normalization that is the one column holding
-// the whole row as JSON.
+// readColumns lists what to read of one stored row: _op_type, which Java checks to send a
+// soft-deleted row's columns as NULL, then the columns holding the wanted values; without
+// normalization, the one column holding the whole row as JSON.
 func (r *unavailableValuesResolver) readColumns(columns []string) []string {
 	if !r.stream.NormalizationEnabled() {
 		return []string{constants.OpType, constants.StringifiedData}
@@ -247,18 +317,24 @@ func (r *unavailableValuesResolver) readColumns(columns []string) []string {
 	return read
 }
 
-// read reads the pending rows in one streamed call and adds their values to carry. Values
-// that cannot be read are left out, so the record keeps the placeholder.
-func (r *unavailableValuesResolver) read(ctx context.Context, reads map[types.RowLocation]*pendingRead) error {
+// read reads the pending rows in one streamed call into fetched. Java ends the stream after the
+// row that takes the bytes it sent past budget; a row not read in full by then is read by a later call.
+func (r *unavailableValuesResolver) read(ctx context.Context, reads []*pendingRead, budget int64) error {
+	wanted := make(map[types.RowLocation]*pendingRead, len(reads))
 	rows := make(map[string][]*proto.ReadRowsRequest_Row) // data file -> rows to read in it
-	for location, pending := range reads {
-		rows[location.FilePath] = append(rows[location.FilePath], &proto.ReadRowsRequest_Row{
-			Position: location.Position,
+	var paths []string                                    // in the order the records need them, which Java starts reading them in
+	for _, pending := range reads {
+		wanted[pending.location] = pending
+		path := pending.location.FilePath
+		if _, queued := rows[path]; !queued {
+			paths = append(paths, path)
+		}
+		rows[path] = append(rows[path], &proto.ReadRowsRequest_Row{
+			Position: pending.location.Position,
 			Columns:  r.readColumns(pending.columns),
 		})
 	}
 
-	paths := slices.Sorted(maps.Keys(rows))
 	// a file still being written has no footer and cannot be read: the arrow writer uploads
 	// its own here, Java closes the legacy writer's before serving ReadRows
 	if r.openFiles != nil {
@@ -267,7 +343,7 @@ func (r *unavailableValuesResolver) read(ctx context.Context, reads map[types.Ro
 		}
 	}
 
-	request := &proto.ReadRowsRequest{ThreadId: r.threadID}
+	request := &proto.ReadRowsRequest{ThreadId: r.threadID, MaxBytes: budget}
 	for _, path := range paths {
 		// Java reads a file front to back, so it takes the rows in position order
 		slices.SortFunc(rows[path], func(a, b *proto.ReadRowsRequest_Row) int {
@@ -276,6 +352,10 @@ func (r *unavailableValuesResolver) read(ctx context.Context, reads map[types.Ro
 		request.Files = append(request.Files, &proto.ReadRowsRequest_FileRows{FilePath: path, Rows: rows[path]})
 	}
 
+	// canceled on return, which stops Java's reads when this side fails before the stream ends
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	// The limit applies per streamed message; the 4 MB default is too small for one large
 	// value. Java keeps each message to 64 rows or 16 MB.
 	stream, err := r.reader.ReadRows(ctx, request, grpc.MaxCallRecvMsgSize(math.MaxInt32))
@@ -283,132 +363,167 @@ func (r *unavailableValuesResolver) read(ctx context.Context, reads map[types.Ro
 		return fmt.Errorf("failed to read unavailable column values: %w", err)
 	}
 
+	start, done := r.fetchedBytes, int64(0) // done: rows read in full by this call
+	defer func() {
+		if done > 0 { // the next window is sized from this read alone
+			r.readRows, r.readBytes = done, r.fetchedBytes-start
+		}
+	}()
 	for {
 		batch, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			return nil
+			return nil // every row asked has arrived, or as many as budget allowed
 		}
 		if err != nil {
 			return fmt.Errorf("failed to read unavailable column values: %w", err)
 		}
 
 		for _, row := range batch.GetRows() {
-			pending := reads[types.RowLocation{FilePath: row.GetFilePath(), Position: row.GetPosition()}]
-			if opType, _ := fieldValue(row.GetValues()[constants.OpType]).(string); opType == "d" {
-				continue
-			}
-
-			values, err := r.rowValues(row.GetValues(), pending.columns)
-			if err != nil {
+			pending := wanted[types.RowLocation{FilePath: row.GetFilePath(), Position: row.GetPosition()}]
+			if err := r.fetchRow(pending, row.GetValues()); err != nil {
 				return fmt.Errorf("failed to read row %d of %s: %w", row.GetPosition(), row.GetFilePath(), err)
 			}
-			for column, value := range values {
-				r.remember(pending.olakeID, column, value)
-				r.fromTable++
+			// a row over 16 MB comes in parts, each with some of its columns
+			if r.fetchedAll(pending) {
+				done++
 			}
 		}
 	}
 }
 
-// rowValues picks the wanted source columns out of one stored row, keyed by destination
-// column. A column the data file does not carry, that is NULL there, or that holds the
-// placeholder is left out, so the record keeps the placeholder: a value the source could not
-// send is never NULL (Postgres keeps only non-NULL values out of line), so a stored NULL was
-// written without the value, for example while the column was deselected. Without
-// normalization the row is one JSON document, parsed once, and each column's raw JSON is
-// returned.
-func (r *unavailableValuesResolver) rowValues(stored map[string]*proto.IcebergPayload_IceRecord_FieldValue, columns []string) (map[string]any, error) {
-	values := make(map[string]any, len(columns))
+// fetchedAll reports whether every column the read asked of the row has arrived.
+func (r *unavailableValuesResolver) fetchedAll(pending *pendingRead) bool {
+	for _, column := range pending.columns {
+		if _, found := r.fetched[pending.olakeID][column]; !found {
+			return false
+		}
+	}
+	return true
+}
+
+// fetchRow keeps the wanted values of one stored row, or one part of a split row, until fill uses
+// them. NULL stays the placeholder: Postgres never leaves out a NULL, so a stored NULL means the
+// value was never written. Java sends NULL for a soft-deleted row and for a column the file lacks.
+func (r *unavailableValuesResolver) fetchRow(pending *pendingRead, stored map[string]*proto.IcebergPayload_IceRecord_FieldValue) error {
 	if r.stream.NormalizationEnabled() {
-		for _, column := range columns {
-			if value := fieldValue(stored[r.stream.ResolveColumnName(column)]); value != nil && !isUnavailable(value) {
-				values[column] = value
+		for _, column := range pending.columns {
+			field, present := stored[r.stream.ResolveColumnName(column)]
+			if !present {
+				continue // in another part of the row
 			}
+			value := fieldValue(field)
+			if value == nil {
+				value = constants.UnavailableValue
+			}
+			r.fetch(pending.olakeID, column, value)
 		}
-		return values, nil
+		return nil
 	}
 
-	encoded, _ := fieldValue(stored[constants.StringifiedData]).(string)
+	// without normalization the row is one JSON document; a key missing from it predates the column
+	field, present := stored[constants.StringifiedData]
+	if !present {
+		return nil // in another part of the row
+	}
 	var row map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(encoded), &row); err != nil {
-		return nil, fmt.Errorf("failed to parse stored row: %s", err)
-	}
-	for _, column := range columns {
-		if raw, present := row[column]; present && string(raw) != "null" && string(raw) != unavailableJSON {
-			values[column] = raw
+	if encoded, _ := fieldValue(field).(string); encoded != "" {
+		if err := json.Unmarshal([]byte(encoded), &row); err != nil {
+			return fmt.Errorf("failed to parse stored row: %s", err)
 		}
 	}
+	for _, column := range pending.columns {
+		var value any = constants.UnavailableValue
+		if raw, found := row[column]; found && string(raw) != "null" && string(raw) != unavailableJSON {
+			value = raw
+		}
+		r.fetch(pending.olakeID, column, value)
+	}
+	return nil
+}
 
-	return values, nil
+// fetch keeps a value read for a row until fill writes it into the row's record. A value can come
+// twice when two source columns share one destination column (Foo and foo), so it replaces the old.
+func (r *unavailableValuesResolver) fetch(olakeID, column string, value any) {
+	if value != constants.UnavailableValue {
+		r.fromTable++
+	}
+	values := r.fetched[olakeID]
+	if values == nil {
+		values = make(map[string]any, len(r.tracked))
+		r.fetched[olakeID] = values
+	}
+	r.fetchedBytes += valueSize(value) - valueSize(values[column])
+	values[column] = value
+}
+
+// release drops what was read for a row once fill has written it into the row's record.
+func (r *unavailableValuesResolver) release(olakeID string) {
+	r.fetchedBytes -= dataSize(r.fetched[olakeID])
+	delete(r.fetched, olakeID)
 }
 
 // remember stores the newest value this thread wrote for a row's column.
 func (r *unavailableValuesResolver) remember(olakeID, column string, value any) {
 	row := r.carry[olakeID]
+	if row == nil {
+		r.carryBytes += int64(len(olakeID)) + carryEntryOverhead // a deleted row's entry is counted already
+	}
 	if row == nil || row.deleted {
-		if row == nil {
-			// a tombstone already counted this entry
-			r.account(int64(len(olakeID)) + carryEntryOverhead)
-		}
 		row = &carryRow{values: make(map[string]any, len(r.tracked))}
 		r.carry[olakeID] = row
 	}
 
-	r.account(valueSize(value) - valueSize(row.values[column]))
+	previous, found := row.values[column]
+	r.carryBytes += valueSize(value) - valueSize(previous)
+	if !found {
+		r.carryBytes += carryValueOverhead
+	}
 	row.values[column] = value
-	row.batch = r.batch
+	r.writes++
+	row.written = r.writes
 }
 
 // tombstone marks a row deleted and releases the values it carried.
 func (r *unavailableValuesResolver) tombstone(olakeID string) {
 	if row := r.carry[olakeID]; row != nil {
-		for _, value := range row.values {
-			r.account(-valueSize(value))
-		}
-	} else {
-		r.account(int64(len(olakeID)) + carryEntryOverhead)
+		r.carryBytes -= row.size(olakeID)
 	}
-
-	r.carry[olakeID] = &carryRow{deleted: true, batch: r.batch}
+	r.writes++
+	row := &carryRow{deleted: true, written: r.writes}
+	r.carry[olakeID] = row
+	r.carryBytes += row.size(olakeID)
 }
 
-// account adds delta carried bytes to this thread and to the process total.
-func (r *unavailableValuesResolver) account(delta int64) {
-	r.carryBytes += delta
-	carryUsage.Add(delta)
-}
-
-// trim brings the process back to half the budget once it is over, dropping this thread's
-// least recently written rows first. Nothing is lost: the index still locates every dropped
-// row, so its next change reads it back. Old rows go first because they sit in data files
-// already closed, which costs just a read; a recent row may sit in a file still open, which
-// the read would have to close early. Halving keeps trims rare.
+// trim drops this thread's oldest carried rows once it is over its share, down to half of it.
+// A dropped row is read back on its next change; old rows go first as they sit in closed files,
+// while a recent one may sit in a file still open. Halving keeps trims rare.
 func (r *unavailableValuesResolver) trim() {
-	if carryUsage.Load() <= maxCarryBytes {
+	share := maxCarryBytes / carriers.Load()
+	if r.carryBytes <= share {
 		return
 	}
 
 	olakeIDs := slices.SortedFunc(maps.Keys(r.carry), func(a, b string) int {
-		return cmp.Compare(r.carry[a].batch, r.carry[b].batch)
+		return cmp.Compare(r.carry[a].written, r.carry[b].written)
 	})
-	dropped := 0
 	for _, olakeID := range olakeIDs {
-		if carryUsage.Load() <= maxCarryBytes/2 {
+		if r.carryBytes <= share/2 {
 			break
 		}
-		r.account(-r.carry[olakeID].size(olakeID))
+		r.carryBytes -= r.carry[olakeID].size(olakeID)
 		delete(r.carry, olakeID)
-		dropped++
 	}
 
-	logger.Debugf("Thread[%s]: dropped %d of %d carried row(s), %d bytes left", r.threadID, dropped, dropped+len(r.carry), r.carryBytes)
+	logger.Debugf("Thread[%s]: dropped %d of %d carried row(s), %d bytes left", r.threadID, len(olakeIDs)-len(r.carry), len(olakeIDs), r.carryBytes)
 }
 
-// Close releases this thread's carry and logs what it recovered.
+// Close gives back this thread's share of the carry budget and logs what it recovered. It frees
+// the carried values now, because this writer's commit and other streams' commits run after it.
 func (r *unavailableValuesResolver) Close() {
-	carryUsage.Add(-r.carryBytes)
-	r.carryBytes = 0
-	r.carry = make(map[string]*carryRow)
+	if len(r.tracked) > 0 {
+		carriers.Add(-1)
+	}
+	r.tracked, r.carry, r.fetched = nil, nil, nil
 
 	if r.recovered+r.unresolved == 0 {
 		return
@@ -418,6 +533,16 @@ func (r *unavailableValuesResolver) Close() {
 		r.threadID, r.recovered, r.fromTable, r.unresolved)
 }
 
+func dataSize(data map[string]any) int64 {
+	size := int64(0)
+	for _, value := range data {
+		size += valueSize(value)
+	}
+	return size
+}
+
+// valueSize is roughly the bytes a value holds: text by its length, numbers, booleans and
+// times as 16. NULL and a missing value count as 0, which remember relies on.
 func valueSize(value any) int64 {
 	switch typed := value.(type) {
 	case nil:
@@ -425,8 +550,6 @@ func valueSize(value any) int64 {
 	case string:
 		return int64(len(typed))
 	case json.RawMessage:
-		return int64(len(typed))
-	case []byte:
 		return int64(len(typed))
 	case []any: // Postgres arrays
 		size := int64(0)
@@ -439,18 +562,15 @@ func valueSize(value any) int64 {
 	}
 }
 
-func isUnavailable(value any) bool {
-	text, ok := value.(string)
-	return ok && text == constants.UnavailableValue
-}
-
-// fieldValue converts one stored value for the record; unset means NULL. The columns read
-// are text (Postgres text, json, arrays and the like, _op_type, the stored row) or numeric
-// stored as double.
+// fieldValue converts one stored value for the record; unset means NULL. The columns read are
+// text (Postgres text, json, arrays and the like, _op_type, the stored row), which the reader
+// sends as bytes when it is not UTF-8, or numeric stored as double.
 func fieldValue(value *proto.IcebergPayload_IceRecord_FieldValue) any {
 	switch stored := value.GetValue().(type) {
 	case *proto.IcebergPayload_IceRecord_FieldValue_StringValue:
 		return stored.StringValue
+	case *proto.IcebergPayload_IceRecord_FieldValue_BytesValue:
+		return string(stored.BytesValue)
 	case *proto.IcebergPayload_IceRecord_FieldValue_DoubleValue:
 		return stored.DoubleValue
 	default:

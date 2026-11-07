@@ -233,10 +233,9 @@ service TableIndexService {
   // MigrateEqualityDeletes rewrites the table's existing equality delete files
   // into equivalent positional delete files in a single atomic commit.
   rpc MigrateEqualityDeletes(MigrateEqualityDeletesRequest) returns (MigrateEqualityDeletesResponse);
-  // ReadRows streams the requested columns of rows addressed by data file and position,
-  // the locations the index holds. Used to refill values a CDC change could not carry
-  // (Postgres unchanged TOAST). A data file the thread's writer still holds open is
-  // closed first, without committing, so rows written earlier in the sync are readable.
+  // ReadRows streams the requested columns of rows found by data file and position (as the index
+  // stores them). It refills values a CDC change could not send (Postgres unchanged TOAST). A data
+  // file the thread's writer still has open is closed first, without committing, so it can be read.
   rpc ReadRows(ReadRowsRequest) returns (stream ReadRowsBatch);
 }
 
@@ -291,14 +290,18 @@ message ReadRowsRequest {
   }
 
   repeated FileRows files = 2;
+  // Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
+  // the stream normally; the rows left are read by a later call. 0 means no limit.
+  int64 max_bytes = 3;
 }
 
 message ReadRowsBatch {
   message Row {
     string file_path = 1;
     int64 position = 2;
-    // The columns requested for this row, by name. A column the data file does not carry
-    // is left out; an unset value is a stored NULL.
+    // The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+    // or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+    // with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
     map<string, IcebergPayload.IceRecord.FieldValue> values = 3;
   }
 

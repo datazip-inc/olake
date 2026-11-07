@@ -23,7 +23,8 @@ var icebergTableIndexTestDrivers = []constants.DriverType{constants.Postgres}
 const seedRowCount int64 = 5
 
 // ToastValueLength is the length of the col_toast value ExecuteQuery("add") seeds in Postgres.
-// Stored out of line, an UPDATE that leaves it unchanged does not resend it (unchanged TOAST).
+// It is long enough to go to Postgres' separate TOAST storage, so an UPDATE that leaves it
+// unchanged does not resend it.
 const ToastValueLength = 4000
 
 // hasIcebergTableIndexTest reports whether the driver participates in Iceberg row-index tests.

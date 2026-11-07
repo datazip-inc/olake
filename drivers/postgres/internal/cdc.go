@@ -115,9 +115,17 @@ func validatePublicationContainsStreams(ctx context.Context, conn *sqlx.DB, publ
 	return checkStreamsInPublication(publication, pubTables, streams)
 }
 
-// validateToastStreams fails a stream that cannot recover unchanged TOAST values. They are read
-// back through the destination's table index, which append mode and eq do not keep.
-func validateToastStreams(streams []types.StreamInterface) error {
+// ValidateCDCStreams fails CDC streams that cannot recover unchanged TOAST values with preserve_toast_values
+// on, so the user learns it before the sync: values are read back through an Iceberg row index, which
+// only pos and dv keep, and never in append mode.
+func (p *Postgres) ValidateCDCStreams(streams []types.StreamInterface, destinationType types.DestinationType) error {
+	if !p.cdcConfig.PreserveToastValues || len(streams) == 0 {
+		return nil
+	}
+	if destinationType != types.Iceberg {
+		return errs.Precondition(errs.ConfigInvalid, codeDestinationWithoutIndex,
+			fmt.Errorf("preserve_toast_values supports only Iceberg destinations, got %s", destinationType))
+	}
 	for _, stream := range streams {
 		if stream.AppendModeEnabled() {
 			return errs.Precondition(errs.ConfigInvalid, codeAppendModeWithToast,
@@ -159,12 +167,6 @@ func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {
 }
 
 func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
-	if p.cdcConfig.PreserveToastValues {
-		if err := validateToastStreams(streams); err != nil {
-			return err
-		}
-	}
-
 	if err := validatePublicationContainsStreams(ctx, p.client, p.cdcConfig.Publication, streams); err != nil {
 		return fmt.Errorf("publication validation failed: %w", err)
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/datazip-inc/olake/utils/errs"
 )
 
-func TestValidateToastStreams(t *testing.T) {
+func TestValidateCDCStreams(t *testing.T) {
 	stream := func(updateType string, appendMode bool) types.StreamInterface {
 		return &types.ConfiguredStream{
 			Stream:         &types.Stream{Name: "users", Namespace: "public"},
@@ -19,18 +19,28 @@ func TestValidateToastStreams(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		stream   types.StreamInterface
-		wantCode string
+		name        string
+		preserve    bool
+		destination types.DestinationType
+		stream      types.StreamInterface
+		wantCode    string
 	}{
-		{name: "pos keeps the index", stream: stream("pos", false)},
-		{name: "eq keeps no index", stream: stream("eq", false), wantCode: codeUpdateTypeWithoutIndex},
-		{name: "append mode keeps no index", stream: stream("pos", true), wantCode: codeAppendModeWithToast},
+		{name: "pos keeps the index", preserve: true, destination: types.Iceberg, stream: stream("pos", false)},
+		{name: "eq keeps no index", preserve: true, destination: types.Iceberg, stream: stream("eq", false), wantCode: codeUpdateTypeWithoutIndex},
+		{name: "append mode keeps no index", preserve: true, destination: types.Iceberg, stream: stream("pos", true), wantCode: codeAppendModeWithToast},
+		{name: "parquet keeps no index", preserve: true, destination: types.Parquet, stream: stream("", true), wantCode: codeDestinationWithoutIndex},
+		{name: "parquet without cdc streams is not checked", preserve: true, destination: types.Parquet},
+		{name: "option off is not checked", destination: types.Parquet, stream: stream("", true)},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateToastStreams([]types.StreamInterface{tc.stream})
+			p := &Postgres{cdcConfig: CDC{PreserveToastValues: tc.preserve}}
+			var streams []types.StreamInterface
+			if tc.stream != nil {
+				streams = append(streams, tc.stream)
+			}
+			err := p.ValidateCDCStreams(streams, tc.destination)
 			if tc.wantCode == "" {
 				require.NoError(t, err)
 				return

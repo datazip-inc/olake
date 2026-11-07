@@ -342,7 +342,7 @@ public class IcebergTableOperator {
    */
   public void closeOpenDataFiles(Set<String> paths) throws IOException {
     if (writer instanceof PositionalDeltaWriter delta && delta.closeOpen(paths)) {
-      LOGGER.info("closed open data files, without committing, to read rows written to them");
+      LOGGER.debug("closed open data files, without committing, to read rows written to them");
     }
   }
 

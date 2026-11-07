@@ -758,9 +758,12 @@ func (x *MigrateEqualityDeletesResponse) GetPositionalDeletesWritten() int64 {
 }
 
 type ReadRowsRequest struct {
-	state         protoimpl.MessageState      `protogen:"open.v1"`
-	ThreadId      string                      `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	Files         []*ReadRowsRequest_FileRows `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
+	state    protoimpl.MessageState      `protogen:"open.v1"`
+	ThreadId string                      `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	Files    []*ReadRowsRequest_FileRows `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
+	// Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
+	// the stream normally; the rows left are read by a later call. 0 means no limit.
+	MaxBytes      int64 `protobuf:"varint,3,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -807,6 +810,13 @@ func (x *ReadRowsRequest) GetFiles() []*ReadRowsRequest_FileRows {
 		return x.Files
 	}
 	return nil
+}
+
+func (x *ReadRowsRequest) GetMaxBytes() int64 {
+	if x != nil {
+		return x.MaxBytes
+	}
+	return 0
 }
 
 type ReadRowsBatch struct {
@@ -2054,8 +2064,9 @@ type ReadRowsBatch_Row struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	FilePath string                 `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
 	Position int64                  `protobuf:"varint,2,opt,name=position,proto3" json:"position,omitempty"`
-	// The columns requested for this row, by name. A column the data file does not carry
-	// is left out; an unset value is a stored NULL.
+	// The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+	// or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+	// with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
 	Values        map[string]*IcebergPayload_IceRecord_FieldValue `protobuf:"bytes,3,rep,name=values,proto3" json:"values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2274,10 +2285,11 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\vsnapshot_id\x18\x01 \x01(\x03R\n" +
 	"snapshotId\x124\n" +
 	"\x16rewritten_delete_files\x18\x02 \x01(\x03R\x14rewrittenDeleteFiles\x12<\n" +
-	"\x1apositional_deletes_written\x18\x03 \x01(\x03R\x18positionalDeletesWritten\"\x99\x02\n" +
+	"\x1apositional_deletes_written\x18\x03 \x01(\x03R\x18positionalDeletesWritten\"\xb6\x02\n" +
 	"\x0fReadRowsRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12D\n" +
-	"\x05files\x18\x02 \x03(\v2..io.olake.iceberg.rpc.ReadRowsRequest.FileRowsR\x05files\x1a;\n" +
+	"\x05files\x18\x02 \x03(\v2..io.olake.iceberg.rpc.ReadRowsRequest.FileRowsR\x05files\x12\x1b\n" +
+	"\tmax_bytes\x18\x03 \x01(\x03R\bmaxBytes\x1a;\n" +
 	"\x03Row\x12\x1a\n" +
 	"\bposition\x18\x01 \x01(\x03R\bposition\x12\x18\n" +
 	"\acolumns\x18\x02 \x03(\tR\acolumns\x1af\n" +

@@ -58,3 +58,10 @@ type DriverInterface interface {
 type UpdateTypeRestricter interface {
 	SupportedUpdateTypes() []types.UpdateType
 }
+
+// CDCStreamValidator is implemented by a driver whose CDC streams need something only some destinations
+// give, e.g. Postgres preserve_toast_values needs an Iceberg row index. Sync calls it after Setup,
+// before anything is read.
+type CDCStreamValidator interface {
+	ValidateCDCStreams(streams []types.StreamInterface, destinationType types.DestinationType) error
+}

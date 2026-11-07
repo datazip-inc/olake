@@ -189,10 +189,9 @@ public final class TableIndexServiceGrpc {
 
     /**
      * <pre>
-     * ReadRows streams the requested columns of rows addressed by data file and position,
-     * the locations the index holds. Used to refill values a CDC change could not carry
-     * (Postgres unchanged TOAST). A data file the thread's writer still holds open is
-     * closed first, without committing, so rows written earlier in the sync are readable.
+     * ReadRows streams the requested columns of rows found by data file and position (as the index
+     * stores them). It refills values a CDC change could not send (Postgres unchanged TOAST). A data
+     * file the thread's writer still has open is closed first, without committing, so it can be read.
      * </pre>
      */
     public void readRows(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest request,
@@ -271,10 +270,9 @@ public final class TableIndexServiceGrpc {
 
     /**
      * <pre>
-     * ReadRows streams the requested columns of rows addressed by data file and position,
-     * the locations the index holds. Used to refill values a CDC change could not carry
-     * (Postgres unchanged TOAST). A data file the thread's writer still holds open is
-     * closed first, without committing, so rows written earlier in the sync are readable.
+     * ReadRows streams the requested columns of rows found by data file and position (as the index
+     * stores them). It refills values a CDC change could not send (Postgres unchanged TOAST). A data
+     * file the thread's writer still has open is closed first, without committing, so it can be read.
      * </pre>
      */
     public void readRows(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest request,
@@ -327,10 +325,9 @@ public final class TableIndexServiceGrpc {
 
     /**
      * <pre>
-     * ReadRows streams the requested columns of rows addressed by data file and position,
-     * the locations the index holds. Used to refill values a CDC change could not carry
-     * (Postgres unchanged TOAST). A data file the thread's writer still holds open is
-     * closed first, without committing, so rows written earlier in the sync are readable.
+     * ReadRows streams the requested columns of rows found by data file and position (as the index
+     * stores them). It refills values a CDC change could not send (Postgres unchanged TOAST). A data
+     * file the thread's writer still has open is closed first, without committing, so it can be read.
      * </pre>
      */
     public java.util.Iterator<io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch> readRows(

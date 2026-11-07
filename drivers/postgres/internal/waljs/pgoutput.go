@@ -121,7 +121,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
-		if _, relationVisited := p.relationIDToMsgMap[msg.RelationID]; !relationVisited && msg.ReplicaIdentity != 'f' {
+		if _, relationVisited := p.relationIDToMsgMap[msg.RelationID]; !relationVisited && msg.ReplicaIdentity != 'f' && !p.preserveToastValues {
 			logger.Warnf("table[%s.%s] replica identity is not FULL, unchanged TOAST column values may be lost during CDC UPDATE events; set REPLICA IDENTITY FULL to avoid data loss", msg.Namespace, msg.RelationName)
 		}
 		p.relationIDToMsgMap[msg.RelationID] = msg
@@ -144,9 +144,9 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-// tupleValuesToMap converts one row's tuple into column values. The returned columns are
-// this row's out-of-line values the UPDATE left unchanged, which Postgres did not send;
-// nil unless preserveToastValues is on.
+// tupleValuesToMap converts one row's tuple into column values. It also returns the large
+// (TOAST) columns an UPDATE left unchanged, which Postgres does not send; nil unless
+// preserveToastValues is on.
 func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, int64, []string, error) {
 	data := make(map[string]any)
 	if tuple == nil {

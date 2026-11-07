@@ -23621,6 +23621,17 @@ java.lang.String defaultValue) {
      */
     io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder getFilesOrBuilder(
         int index);
+
+    /**
+     * <pre>
+     * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
+     * the stream normally; the rows left are read by a later call. 0 means no limit.
+     * </pre>
+     *
+     * <code>int64 max_bytes = 3;</code>
+     * @return The maxBytes.
+     */
+    long getMaxBytes();
   }
   /**
    * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsRequest}
@@ -25540,6 +25551,22 @@ java.lang.String defaultValue) {
       return files_.get(index);
     }
 
+    public static final int MAX_BYTES_FIELD_NUMBER = 3;
+    private long maxBytes_ = 0L;
+    /**
+     * <pre>
+     * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
+     * the stream normally; the rows left are read by a later call. 0 means no limit.
+     * </pre>
+     *
+     * <code>int64 max_bytes = 3;</code>
+     * @return The maxBytes.
+     */
+    @java.lang.Override
+    public long getMaxBytes() {
+      return maxBytes_;
+    }
+
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -25560,6 +25587,9 @@ java.lang.String defaultValue) {
       for (int i = 0; i < files_.size(); i++) {
         output.writeMessage(2, files_.get(i));
       }
+      if (maxBytes_ != 0L) {
+        output.writeInt64(3, maxBytes_);
+      }
       getUnknownFields().writeTo(output);
     }
 
@@ -25575,6 +25605,10 @@ java.lang.String defaultValue) {
       for (int i = 0; i < files_.size(); i++) {
         size += com.google.protobuf.CodedOutputStream
           .computeMessageSize(2, files_.get(i));
+      }
+      if (maxBytes_ != 0L) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeInt64Size(3, maxBytes_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -25595,6 +25629,8 @@ java.lang.String defaultValue) {
           .equals(other.getThreadId())) return false;
       if (!getFilesList()
           .equals(other.getFilesList())) return false;
+      if (getMaxBytes()
+          != other.getMaxBytes()) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -25612,6 +25648,9 @@ java.lang.String defaultValue) {
         hash = (37 * hash) + FILES_FIELD_NUMBER;
         hash = (53 * hash) + getFilesList().hashCode();
       }
+      hash = (37 * hash) + MAX_BYTES_FIELD_NUMBER;
+      hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+          getMaxBytes());
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -25751,6 +25790,7 @@ java.lang.String defaultValue) {
           filesBuilder_.clear();
         }
         bitField0_ = (bitField0_ & ~0x00000002);
+        maxBytes_ = 0L;
         return this;
       }
 
@@ -25799,6 +25839,9 @@ java.lang.String defaultValue) {
         int from_bitField0_ = bitField0_;
         if (((from_bitField0_ & 0x00000001) != 0)) {
           result.threadId_ = threadId_;
+        }
+        if (((from_bitField0_ & 0x00000004) != 0)) {
+          result.maxBytes_ = maxBytes_;
         }
       }
 
@@ -25877,6 +25920,9 @@ java.lang.String defaultValue) {
             }
           }
         }
+        if (other.getMaxBytes() != 0L) {
+          setMaxBytes(other.getMaxBytes());
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -25921,6 +25967,11 @@ java.lang.String defaultValue) {
                 }
                 break;
               } // case 18
+              case 24: {
+                maxBytes_ = input.readInt64();
+                bitField0_ |= 0x00000004;
+                break;
+              } // case 24
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -26249,6 +26300,53 @@ java.lang.String defaultValue) {
         }
         return filesBuilder_;
       }
+
+      private long maxBytes_ ;
+      /**
+       * <pre>
+       * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
+       * the stream normally; the rows left are read by a later call. 0 means no limit.
+       * </pre>
+       *
+       * <code>int64 max_bytes = 3;</code>
+       * @return The maxBytes.
+       */
+      @java.lang.Override
+      public long getMaxBytes() {
+        return maxBytes_;
+      }
+      /**
+       * <pre>
+       * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
+       * the stream normally; the rows left are read by a later call. 0 means no limit.
+       * </pre>
+       *
+       * <code>int64 max_bytes = 3;</code>
+       * @param value The maxBytes to set.
+       * @return This builder for chaining.
+       */
+      public Builder setMaxBytes(long value) {
+
+        maxBytes_ = value;
+        bitField0_ |= 0x00000004;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
+       * the stream normally; the rows left are read by a later call. 0 means no limit.
+       * </pre>
+       *
+       * <code>int64 max_bytes = 3;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearMaxBytes() {
+        bitField0_ = (bitField0_ & ~0x00000004);
+        maxBytes_ = 0L;
+        onChanged();
+        return this;
+      }
       @java.lang.Override
       public final Builder setUnknownFields(
           final com.google.protobuf.UnknownFieldSet unknownFields) {
@@ -26401,8 +26499,9 @@ java.lang.String defaultValue) {
 
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -26410,8 +26509,9 @@ java.lang.String defaultValue) {
       int getValuesCount();
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -26426,8 +26526,9 @@ java.lang.String defaultValue) {
       getValues();
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -26436,8 +26537,9 @@ java.lang.String defaultValue) {
       getValuesMap();
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -26449,8 +26551,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue getValuesO
 io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultValue);
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -26584,8 +26687,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
       }
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -26606,8 +26710,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
       }
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -26618,8 +26723,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
       }
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -26637,8 +26743,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
       }
       /**
        * <pre>
-       * The columns requested for this row, by name. A column the data file does not carry
-       * is left out; an unset value is a stored NULL.
+       * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+       * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+       * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
        * </pre>
        *
        * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -27206,8 +27313,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
         }
         /**
          * <pre>
-         * The columns requested for this row, by name. A column the data file does not carry
-         * is left out; an unset value is a stored NULL.
+         * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+         * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+         * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
          * </pre>
          *
          * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -27228,8 +27336,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
         }
         /**
          * <pre>
-         * The columns requested for this row, by name. A column the data file does not carry
-         * is left out; an unset value is a stored NULL.
+         * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+         * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+         * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
          * </pre>
          *
          * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -27240,8 +27349,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
         }
         /**
          * <pre>
-         * The columns requested for this row, by name. A column the data file does not carry
-         * is left out; an unset value is a stored NULL.
+         * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+         * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+         * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
          * </pre>
          *
          * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -27258,8 +27368,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
         }
         /**
          * <pre>
-         * The columns requested for this row, by name. A column the data file does not carry
-         * is left out; an unset value is a stored NULL.
+         * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+         * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+         * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
          * </pre>
          *
          * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -27281,8 +27392,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
         }
         /**
          * <pre>
-         * The columns requested for this row, by name. A column the data file does not carry
-         * is left out; an unset value is a stored NULL.
+         * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+         * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+         * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
          * </pre>
          *
          * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -27305,8 +27417,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
         }
         /**
          * <pre>
-         * The columns requested for this row, by name. A column the data file does not carry
-         * is left out; an unset value is a stored NULL.
+         * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+         * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+         * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
          * </pre>
          *
          * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -27323,8 +27436,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
         }
         /**
          * <pre>
-         * The columns requested for this row, by name. A column the data file does not carry
-         * is left out; an unset value is a stored NULL.
+         * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+         * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+         * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
          * </pre>
          *
          * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -27343,8 +27457,9 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
         }
         /**
          * <pre>
-         * The columns requested for this row, by name. A column the data file does not carry
-         * is left out; an unset value is a stored NULL.
+         * The requested columns, by name. A column comes back unset when it is NULL, the file lacks it,
+         * or the row is soft-deleted (every column but _op_type). A row over 16 MB comes in parts, each
+         * with the same file and position and some of its columns. Text that is not UTF-8 is sent as bytes.
          * </pre>
          *
          * <code>map&lt;string, .io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue&gt; values = 3;</code>
@@ -28396,36 +28511,37 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
       "rpc.IcebergPayload.DeleteMode\"y\n\036Migrate" +
       "EqualityDeletesResponse\022\023\n\013snapshot_id\030\001" +
       " \001(\003\022\036\n\026rewritten_delete_files\030\002 \001(\003\022\"\n\032" +
-      "positional_deletes_written\030\003 \001(\003\"\345\001\n\017Rea" +
+      "positional_deletes_written\030\003 \001(\003\"\370\001\n\017Rea" +
       "dRowsRequest\022\021\n\tthread_id\030\001 \001(\t\022=\n\005files" +
       "\030\002 \003(\0132..io.olake.iceberg.rpc.ReadRowsRe" +
-      "quest.FileRows\032(\n\003Row\022\020\n\010position\030\001 \001(\003\022" +
-      "\017\n\007columns\030\002 \003(\t\032V\n\010FileRows\022\021\n\tfile_pat" +
-      "h\030\001 \001(\t\0227\n\004rows\030\002 \003(\0132).io.olake.iceberg" +
-      ".rpc.ReadRowsRequest.Row\"\242\002\n\rReadRowsBat" +
-      "ch\0225\n\004rows\030\001 \003(\0132\'.io.olake.iceberg.rpc." +
-      "ReadRowsBatch.Row\032\331\001\n\003Row\022\021\n\tfile_path\030\001" +
-      " \001(\t\022\020\n\010position\030\002 \001(\003\022C\n\006values\030\003 \003(\01323" +
-      ".io.olake.iceberg.rpc.ReadRowsBatch.Row." +
-      "ValuesEntry\032h\n\013ValuesEntry\022\013\n\003key\030\001 \001(\t\022" +
-      "H\n\005value\030\002 \001(\01329.io.olake.iceberg.rpc.Ic" +
-      "ebergPayload.IceRecord.FieldValue:\0028\0012v\n" +
-      "\023RecordIngestService\022_\n\013SendRecords\022$.io" +
-      ".olake.iceberg.rpc.IcebergPayload\032*.io.o" +
-      "lake.iceberg.rpc.RecordIngestResponse2q\n" +
-      "\022ArrowIngestService\022[\n\nIcebergAPI\022\".io.o" +
-      "lake.iceberg.rpc.ArrowPayload\032).io.olake" +
-      ".iceberg.rpc.ArrowIngestResponse2\345\002\n\021Tab" +
-      "leIndexService\022p\n\024ScanTableForIndexing\022+" +
-      ".io.olake.iceberg.rpc.TableIndexScanRequ" +
-      "est\032).io.olake.iceberg.rpc.TableIndexSca" +
-      "nBatch0\001\022\203\001\n\026MigrateEqualityDeletes\0223.io" +
-      ".olake.iceberg.rpc.MigrateEqualityDelete" +
-      "sRequest\0324.io.olake.iceberg.rpc.MigrateE" +
-      "qualityDeletesResponse\022X\n\010ReadRows\022%.io." +
-      "olake.iceberg.rpc.ReadRowsRequest\032#.io.o" +
-      "lake.iceberg.rpc.ReadRowsBatch0\001B\035B\014Reco" +
-      "rdIngestZ\riceberg/protob\006proto3"
+      "quest.FileRows\022\021\n\tmax_bytes\030\003 \001(\003\032(\n\003Row" +
+      "\022\020\n\010position\030\001 \001(\003\022\017\n\007columns\030\002 \003(\t\032V\n\010F" +
+      "ileRows\022\021\n\tfile_path\030\001 \001(\t\0227\n\004rows\030\002 \003(\013" +
+      "2).io.olake.iceberg.rpc.ReadRowsRequest." +
+      "Row\"\242\002\n\rReadRowsBatch\0225\n\004rows\030\001 \003(\0132\'.io" +
+      ".olake.iceberg.rpc.ReadRowsBatch.Row\032\331\001\n" +
+      "\003Row\022\021\n\tfile_path\030\001 \001(\t\022\020\n\010position\030\002 \001(" +
+      "\003\022C\n\006values\030\003 \003(\01323.io.olake.iceberg.rpc" +
+      ".ReadRowsBatch.Row.ValuesEntry\032h\n\013Values" +
+      "Entry\022\013\n\003key\030\001 \001(\t\022H\n\005value\030\002 \001(\01329.io.o" +
+      "lake.iceberg.rpc.IcebergPayload.IceRecor" +
+      "d.FieldValue:\0028\0012v\n\023RecordIngestService\022" +
+      "_\n\013SendRecords\022$.io.olake.iceberg.rpc.Ic" +
+      "ebergPayload\032*.io.olake.iceberg.rpc.Reco" +
+      "rdIngestResponse2q\n\022ArrowIngestService\022[" +
+      "\n\nIcebergAPI\022\".io.olake.iceberg.rpc.Arro" +
+      "wPayload\032).io.olake.iceberg.rpc.ArrowIng" +
+      "estResponse2\345\002\n\021TableIndexService\022p\n\024Sca" +
+      "nTableForIndexing\022+.io.olake.iceberg.rpc" +
+      ".TableIndexScanRequest\032).io.olake.iceber" +
+      "g.rpc.TableIndexScanBatch0\001\022\203\001\n\026MigrateE" +
+      "qualityDeletes\0223.io.olake.iceberg.rpc.Mi" +
+      "grateEqualityDeletesRequest\0324.io.olake.i" +
+      "ceberg.rpc.MigrateEqualityDeletesRespons" +
+      "e\022X\n\010ReadRows\022%.io.olake.iceberg.rpc.Rea" +
+      "dRowsRequest\032#.io.olake.iceberg.rpc.Read" +
+      "RowsBatch0\001B\035B\014RecordIngestZ\riceberg/pro" +
+      "tob\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -28574,7 +28690,7 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
     internal_static_io_olake_iceberg_rpc_ReadRowsRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor,
-        new java.lang.String[] { "ThreadId", "Files", });
+        new java.lang.String[] { "ThreadId", "Files", "MaxBytes", });
     internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_descriptor =
       internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor.getNestedTypes().get(0);
     internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_fieldAccessorTable = new

@@ -179,12 +179,14 @@ class RowReaderTest {
             assertEquals(filePath, read.get(position).getFilePath());
             assertEquals(position % 7 == 0 ? "d" : "u", values.get("_op_type").getStringValue(),
                     "_op_type of " + position);
+            assertEquals(2, values.size());
             if (position % 7 == 0) {
-                // a soft-deleted row sends only its _op_type, nothing to recover from it
-                assertEquals(1, values.size(), "values of deleted row " + position);
+                // a soft-deleted row has nothing to recover: its other column comes back unset
+                String other = position % 2 == 0 ? "payload" : "amt";
+                assertEquals(FieldValue.ValueCase.VALUE_NOT_SET, values.get(other).getValueCase(),
+                        "values of deleted row " + position);
                 continue;
             }
-            assertEquals(2, values.size());
             if (position % 2 == 1) {
                 assertEquals(position * 1.5, values.get("amt").getDoubleValue(), "amt of " + position);
             } else if (position % 13 == 0) {
@@ -199,8 +201,8 @@ class RowReaderTest {
 
     static Stream<Arguments> columnCases() {
         return Stream.of(
-                // added to the table after the file was written: left out, not read as a NULL
-                Arguments.of("a column the file was written without is left out", "later", null, null),
+                // added to the table after the file was written: unset, as a stored NULL
+                Arguments.of("a column the file was written without comes back unset", "later", null, null),
                 // Iceberg's writer escapes the space, so the file stores it as big_x20doc
                 Arguments.of("a column the file stores under an escaped name is read",
                         "big doc", "big_x20doc", "doc8"),
@@ -228,12 +230,13 @@ class RowReaderTest {
         }
 
         // Go always asks for _op_type too, so a row is read even when no other column is in the
-        // file; row 8 is live (every 7th row is soft-deleted and sends only its _op_type)
+        // file; row 8 is live (every 7th row is soft-deleted and sends its other columns unset)
         Map<String, FieldValue> values = read(List.of(ReadRowsRequest.Row.newBuilder()
                 .setPosition(8).addColumns("_op_type").addColumns(column).build())).get(8L).getValuesMap();
 
         if (expected == null) {
-            assertFalse(values.containsKey(column), "a column the file does not carry must be left out");
+            assertEquals(FieldValue.ValueCase.VALUE_NOT_SET, values.get(column).getValueCase(),
+                    "a column the file does not carry comes back unset");
         } else {
             assertEquals(expected, values.get(column).getStringValue());
         }
@@ -250,27 +253,43 @@ class RowReaderTest {
 
     // a row whose values add up past the 2 GB message limit must still reach Go, in parts it merges
     @Test
-    @DisplayName("a row past the part size is split by column, with _op_type in every part")
-    void splitsLargeRowsIntoParts() {
-        ReadRowsBatch.Row row = ReadRowsBatch.Row.newBuilder().setFilePath("f").setPosition(7)
-                .putValues("_op_type", text("u"))
-                .putValues("a", text("x".repeat(100)))
-                .putValues("b", text("y".repeat(100)))
-                .putValues("c", text("z".repeat(10)))
-                .build();
+    @DisplayName("a row past the part size is sent in parts, a soft-deleted one whole with its columns unset")
+    void splitsLargeRowsIntoParts() throws Exception {
+        String big = "x".repeat(10 * 1024 * 1024); // two of these pass the 16 MB part size
+        String path = dir.resolve("large.parquet").toString();
+        try (FileAppender<Record> appender = new GenericAppenderFactory(SCHEMA)
+                .setAll(Map.of(TableProperties.PARQUET_COMPRESSION, "gzip"))
+                .newAppender(table.io().newOutputFile(path), FileFormat.PARQUET)) {
+            for (String opType : List.of("u", "d")) {
+                GenericRecord record = GenericRecord.create(SCHEMA);
+                record.setField("_olake_id", opType);
+                record.setField("_op_type", opType);
+                record.setField("payload", big);
+                record.setField("big doc", big + "y");
+                record.setField("a.b", "dot");
+                appender.add(record);
+            }
+        }
 
-        assertEquals(List.of(row), RowReader.split(row, 1000));
+        List<ReadRowsBatch.Row> parts = new ArrayList<>();
+        List<String> columns = List.of("_op_type", "payload", "big doc", "a.b");
+        RowReader.read(table, path, List.of(
+                ReadRowsRequest.Row.newBuilder().setPosition(0).addAllColumns(columns).build(),
+                ReadRowsRequest.Row.newBuilder().setPosition(1).addAllColumns(columns).build()), parts::add);
 
-        List<ReadRowsBatch.Row> parts = RowReader.split(row, 150);
-        assertEquals(2, parts.size());
+        assertEquals(3, parts.size(), "two parts for the live row, one for the deleted row");
         Map<String, FieldValue> merged = new HashMap<>();
-        for (ReadRowsBatch.Row part : parts) {
-            assertEquals("f", part.getFilePath());
-            assertEquals(7, part.getPosition());
-            assertEquals(text("u"), part.getValuesOrThrow("_op_type"));
+        for (ReadRowsBatch.Row part : parts.subList(0, 2)) {
+            assertEquals(path, part.getFilePath());
+            assertEquals(0, part.getPosition());
             merged.putAll(part.getValuesMap());
         }
-        assertEquals(row.getValuesMap(), merged);
+        assertEquals(Map.of("_op_type", text("u"), "payload", text(big), "big doc", text(big + "y"), "a.b", text("dot")),
+                merged);
+        assertEquals(1, parts.get(2).getPosition());
+        FieldValue unset = FieldValue.getDefaultInstance();
+        assertEquals(Map.of("_op_type", text("d"), "payload", unset, "big doc", unset, "a.b", unset),
+                parts.get(2).getValuesMap());
     }
 
     private static FieldValue text(String value) {
