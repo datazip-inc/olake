@@ -192,11 +192,12 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 		}
 		testCases = []syncTestCase{
 			{
-				name:      "CDC - strict - insert",
-				operation: "",
-				useState:  false,
-				opSymbol:  "c",
-				expected:  th.ExpectedData,
+				name:             "CDC - strict - insert",
+				operation:        "",
+				useState:         false,
+				opSymbol:         "c",
+				expected:         th.ExpectedData,
+				expectedRowCount: 1,
 			},
 			{
 				name:      "CDC - strict - update",
@@ -239,6 +240,7 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 				tc.opSymbol,
 				tc.expected,
 				tc.name != "Full-Refresh",
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -330,11 +332,12 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 		}
 		testCases = []syncTestCase{
 			{
-				name:      "CDC - strict - insert",
-				operation: "",
-				useState:  false,
-				opSymbol:  "u",
-				expected:  th.ExpectedData,
+				name:             "CDC - strict - insert",
+				operation:        "",
+				useState:         false,
+				opSymbol:         "u",
+				expected:         th.ExpectedData,
+				expectedRowCount: 1,
 			},
 			{
 				name:      "CDC - strict - update",
@@ -380,6 +383,7 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 				tc.opSymbol,
 				tc.expected,
 				tc.name != "Full-Refresh",
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -459,6 +463,7 @@ func (th *TestHandler) IcebergFullLoadAndIncremental(
 				tc.opSymbol,
 				tc.expected,
 				false,
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -548,6 +553,7 @@ func (th *TestHandler) ParquetFullLoadAndIncremental(
 				tc.opSymbol,
 				tc.expected,
 				false,
+				tc.expectedRowCount,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}

@@ -105,6 +105,7 @@ func TestMySQLBinarySync(t *testing.T) {
                     ]
                 }`
 				cfg.ExpectedData = ExpectedFilteredData
+				cfg.RowCounts.FullLoad = 1
 			},
 		},
 		{

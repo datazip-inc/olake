@@ -102,6 +102,9 @@ func kafkaAvroBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *inte
 		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationAvroSchema,
 		TypeMapping:                      KafkaTypeMapping,
 		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
+		RowCounts: integration.RowCountContract{
+			FullLoad: 1,
+		},
 	}
 }
 
