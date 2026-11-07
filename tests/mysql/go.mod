@@ -7,13 +7,14 @@ require (
 	github.com/datazip-inc/olake/tests/testutils v0.0.0-00010101000000-000000000000
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/jmoiron/sqlx v1.4.0
+	github.com/minio/minio-go/v7 v7.0.34
 )
 
 require (
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
-	github.com/parquet-go/parquet-go v0.29.0 // indirect
+	github.com/parquet-go/parquet-go v0.29.0
 	github.com/twpayne/go-geom v1.6.1 // indirect
 )
 
@@ -34,7 +35,6 @@ require (
 	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/minio/minio-go/v7 v7.0.34 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
