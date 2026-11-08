@@ -75,7 +75,7 @@ func TestBinlog_ValidateServerUUID(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			require.ErrorIs(t, err, constants.ErrNonRetryable)
+			require.ErrorIs(t, err, constants.ErrManualIntervention)
 			require.Equal(t, errs.CDCPositionLost, errs.From(err).Category)
 			require.Equal(t, "mysql.server_uuid_mismatch", errs.From(err).Code)
 			require.ErrorContains(t, err, "mysql-bin.000001")
@@ -92,7 +92,7 @@ func TestConnection_StreamMessages(t *testing.T) {
 		t.Cleanup(conn.Cleanup)
 
 		err = conn.StreamMessages(context.Background(), nil, Binlog{Position: state.Position}, nil)
-		require.ErrorIs(t, err, constants.ErrNonRetryable)
+		require.ErrorIs(t, err, constants.ErrManualIntervention)
 		require.Equal(t, errs.CDCPositionLost, errs.From(err).Category)
 		require.Equal(t, "mysql.gtid_disabled", errs.From(err).Code)
 	})
@@ -130,7 +130,7 @@ func TestConnection_StreamMessages(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(conn.Cleanup)
 			err = conn.StreamMessages(context.Background(), sqlx.NewDb(db, "sqlmock"), target, nil)
-			require.ErrorIs(t, err, constants.ErrNonRetryable)
+			require.ErrorIs(t, err, constants.ErrManualIntervention)
 			require.Equal(t, "mysql.server_uuid_mismatch", errs.From(err).Code)
 			require.Equal(t, "server-a", conn.ServerUUID)
 		})
@@ -143,7 +143,7 @@ func TestConnection_StreamMessages(t *testing.T) {
 		t.Cleanup(conn.Cleanup)
 		target := Binlog{Position: mysql.Position{Name: state.Position.Name, Pos: 300}, ServerUUID: "server-b"}
 		err = conn.StreamMessages(context.Background(), nil, target, nil)
-		require.ErrorIs(t, err, constants.ErrNonRetryable)
+		require.ErrorIs(t, err, constants.ErrManualIntervention)
 		require.Equal(t, "mysql.server_uuid_mismatch", errs.From(err).Code)
 		require.Equal(t, state.ServerUUID, conn.ServerUUID)
 	})
@@ -177,7 +177,7 @@ func TestConnection_ValidateReplicationServer(t *testing.T) {
 			conn := Connection{ServerUUID: "server-a", gtidSet: tt.saved, targetGTIDSet: tt.target}
 			err = conn.validateReplicationServer(peer)
 			if tt.wantError != "" {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				require.ErrorIs(t, err, constants.ErrManualIntervention)
 				require.Equal(t, tt.wantError, errs.From(err).Code)
 			} else {
 				require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestConnection_HandleStreamError(t *testing.T) {
 				return
 			}
 			require.ErrorContains(t, err, tt.want)
-			require.ErrorIs(t, err, constants.ErrNonRetryable)
+			require.ErrorIs(t, err, constants.ErrManualIntervention)
 			require.ErrorIs(t, err, tt.cause)
 		})
 	}

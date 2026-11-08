@@ -33,7 +33,7 @@ func TestBinlog_Compare(t *testing.T) {
 			right := Binlog{GTIDSet: &tt.right, ServerUUID: "b", Position: mysql.Position{Name: "bin.000001", Pos: 10}}
 			got, err := left.Compare(right)
 			if tt.invalid {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				require.ErrorIs(t, err, constants.ErrManualIntervention)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.want, got)
@@ -67,7 +67,7 @@ func TestBinlog_Compare(t *testing.T) {
 				file := Binlog{Position: mysql.Position{Name: "bin.000010", Pos: tt.position}, ServerUUID: tt.owner}
 				got, err := checkpoint.Compare(file)
 				if tt.invalid {
-					require.ErrorIs(t, err, constants.ErrNonRetryable)
+					require.ErrorIs(t, err, constants.ErrManualIntervention)
 					return
 				}
 				require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestValidateGTIDHistory(t *testing.T) {
 			if tt.wantError == "" {
 				require.NoError(t, err)
 			} else {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				require.ErrorIs(t, err, constants.ErrManualIntervention)
 				require.ErrorContains(t, err, tt.wantError)
 			}
 		})
@@ -152,7 +152,7 @@ func TestGTIDTransaction_Consume(t *testing.T) {
 			t.Run(eventType.String(), func(t *testing.T) {
 				var transaction gtidTransaction
 				_, err := transaction.consume(&replication.BinlogEvent{Header: &replication.EventHeader{EventType: eventType}})
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				require.ErrorIs(t, err, constants.ErrManualIntervention)
 			})
 		}
 	})

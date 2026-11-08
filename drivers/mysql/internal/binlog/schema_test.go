@@ -209,7 +209,7 @@ func testSchemaCacheGetGTIDAnchor(t *testing.T) {
 			meta, err := c.get(context.Background(), "shop", "orders", 7, []byte{mysql.MYSQL_TYPE_LONG})
 			if tt.wantError {
 				require.ErrorContains(t, err, "MySQL server changed while loading column metadata")
-				assert.NotErrorIs(t, err, constants.ErrNonRetryable)
+				assert.NotErrorIs(t, err, constants.ErrManualIntervention)
 				assert.Nil(t, meta)
 				assert.Empty(t, c.tables, "a foreign anchor must not enter the cache or extend the target")
 				return
