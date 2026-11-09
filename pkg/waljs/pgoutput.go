@@ -44,6 +44,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 
 	cdcStartTime := time.Now()
 	messageReceived := false
+	anyMessageReceived := false
 	// transactionCompleted default true
 	p.transactionCompleted = true
 
@@ -68,7 +69,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
 					// nothing ever received: wait time too short (manual fix); silence after messages: connection lost (restart)
-					if !messageReceived {
+					if !anyMessageReceived {
 						return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrManualIntervention)
 					}
 					return fmt.Errorf("%w: no WAL message received for %s, replication connection may be lost: %w", constants.ErrRestartRequired, p.socket.initialWaitTime, err)
@@ -84,6 +85,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			if !ok {
 				return fmt.Errorf("pgoutput unexpected message type: %T", msg)
 			}
+			anyMessageReceived = true
 
 			switch copyData.Data[0] {
 			case pglogrepl.XLogDataByteID:
