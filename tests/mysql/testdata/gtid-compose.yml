@@ -1,0 +1,21 @@
+# Private source nodes for the failover suite; the other integration tests keep their own MySQL.
+x-mysql: &mysql
+  image: mysql:8.0
+  environment:
+    MYSQL_DATABASE: olake_mysql_test
+    MYSQL_ROOT_PASSWORD: root1234
+    MYSQL_ROOT_HOST: '%'
+  ports: ["3306"]
+  healthcheck:
+    test: ["CMD", "mysql", "-h127.0.0.1", "-uroot", "-proot1234", "-e", "SELECT 1"]
+    interval: 1s
+    timeout: 5s
+    retries: 90
+
+services:
+  primary:
+    <<: *mysql
+    command: ["--server-id=1", "--log-bin=primary-bin", "--enforce-gtid-consistency=ON", "--gtid-mode=OFF"]
+  replica:
+    <<: *mysql
+    command: ["--server-id=2", "--log-bin=replica-bin", "--enforce-gtid-consistency=ON", "--gtid-mode=OFF", "--log-replica-updates=ON"]
