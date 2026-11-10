@@ -432,11 +432,42 @@ func TestDiscover(t *testing.T) {
 	}
 }
 
+// TestDiscoverSchemaErrorFailsFast pins that a ProduceSchema failure ends discover on the first
+// attempt: retrying would wait DefaultRetryTimeout per attempt, past the discover timeout.
+func TestDiscoverSchemaErrorFailsFast(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	calls := &atomic.Int32{}
+	driver := NewAbstractDriver(ctx, stubDriver{
+		typ:         "postgres",
+		streamNames: []types.StreamID{{Namespace: "public", Name: "orders"}},
+		schemaErr:   networkReset(),
+		maxRetries:  3,
+		schemaCalls: calls,
+	})
+
+	streams, err := driver.Discover(ctx, 0, false)
+
+	require.Error(t, err)
+	assert.Nil(t, streams)
+	assert.Equal(t, int32(1), calls.Load(), "ProduceSchema attempts")
+
+	// the cause survives the discover wrappers, so a timeout here would show as a different category
+	got := errs.From(errs.Classify(err))
+	assert.Equal(t, errs.NetworkUnreachable, got.Category, "category")
+	assert.Equal(t, "connection_reset", got.Code, "code")
+}
+
 // stubDriver is a DriverInterface that returns zero values except where a test sets a field.
 type stubDriver struct {
 	typ            string
 	cdcSupported   bool
+	streamNames    []types.StreamID
 	streamNamesErr error
+	schemaErr      error
+	maxRetries     int
+	schemaCalls    *atomic.Int32
 }
 
 func (s stubDriver) GetConfigRef() Config { return nil }
@@ -447,11 +478,17 @@ func (s stubDriver) Setup(context.Context) error {
 }
 func (s stubDriver) SetupState(*types.State) {}
 func (s stubDriver) MaxConnections() int     { return 0 }
-func (s stubDriver) MaxRetries() int         { return 0 }
+func (s stubDriver) MaxRetries() int         { return s.maxRetries }
 func (s stubDriver) GetStreamNames(context.Context) ([]types.StreamID, error) {
-	return nil, s.streamNamesErr
+	return s.streamNames, s.streamNamesErr
 }
 func (s stubDriver) ProduceSchema(context.Context, types.StreamID) (*types.Stream, error) {
+	if s.schemaCalls != nil {
+		s.schemaCalls.Add(1)
+	}
+	if s.schemaErr != nil {
+		return nil, s.schemaErr
+	}
 	return &types.Stream{}, nil
 }
 func (s stubDriver) GetOrSplitChunks(context.Context, *destination.WriterPool, types.StreamInterface) (*types.Set[types.Chunk], error) {
