@@ -293,7 +293,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "evolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT, ADD COLUMN includedColumn INTEGER`, integrationTestTable)
+		// col_decimal widens its precision, which iceberg promotes in place, its identity partitions included
+		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT, ALTER COLUMN col_decimal TYPE NUMERIC(20,4), ADD COLUMN includedColumn INTEGER`, integrationTestTable)
 
 	case "rolling_seed":
 		// bulk-load incompressible random payloads into col_text so the parquet output far
@@ -510,7 +511,7 @@ var UpdatedPostgresToDestinationSchema = map[string]string{
 	"col_character_varying": "varchar",
 	"col_date":              "date",
 	"col_cursor_decimal":    "numeric(20,4)",
-	"col_decimal":           "numeric(18,4)",
+	"col_decimal":           "numeric(20,4)",
 	"col_double_precision":  "double precision",
 	"col_float4":            "double",
 	"col_int":               "bigint",

@@ -80,8 +80,8 @@ func TestPostgresSync(t *testing.T) {
 	postgresSyncConfig(t).TestSync(t)
 }
 
-// TestPostgresDecimalSync partitions and filters on a NUMERIC(18,4) column. The filter cases use the decimal
-// cursor so incremental reads the filtered insert row too; the 18 digit filter value is a string.
+// TestPostgresDecimalSync partitions and filters on a NUMERIC(18,4) column that evolve-schema widens to NUMERIC(20,4).
+// The filter cases use the decimal cursor so incremental reads the filtered insert row too; the 18 digit filter value is a string.
 func TestPostgresDecimalSync(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
