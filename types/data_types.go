@@ -132,7 +132,8 @@ var destinationTypes = destinationTypesMap{
 	Array:          {"string", plainNode(parquet.String)},
 	Binary:         {"binary", leafNode(parquet.ByteArrayType)},
 	FixedBinary:    {"fixed[%d]", fixedBinaryNode}, // the pattern is a registry key; only an instance renders
-	Decimal:        {"decimal(%d, %d)", decimalNode},
+	// the space is intentional: iceberg prints decimal(P, S), unlike the DataType's decimal(%d,%d)
+	Decimal: {"decimal(%d, %d)", decimalNode},
 }
 
 type icebergToDataTypeMap map[string]DataType
