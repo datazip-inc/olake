@@ -3,9 +3,11 @@ package driver
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -39,10 +41,22 @@ func (s *S3) FetchMaxCursorValues(_ context.Context, stream types.StreamInterfac
 	return maxLastModified, nil, nil
 }
 
+// KeysAtCursor returns the keys of the discovered files stamped with the given cursor value.
+// LastModified has whole-second precision, so a new file can share the cursor's value.
+func (s *S3) KeysAtCursor(stream types.StreamInterface, cursor any) []string {
+	var keys []string
+	for _, file := range s.discoveredFiles[stream.Name()] {
+		if file.LastModified == cursor {
+			keys = append(keys, file.FileKey)
+		}
+	}
+	return keys
+}
+
 // StreamIncrementalChanges processes files that were added/modified after backfill completed
 // This follows olake's incremental sync architecture:
 //  1. Backfill phase processes all discovered files
-//  2. This method processes only files added/modified AFTER the cursor (LastModified > cursor)
+//  2. This method processes files newer than the cursor, plus unread files at the cursor's second
 //  3. Processes files sequentially (no chunking/parallelization for simplicity)
 func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
 	streamName := stream.Name()
@@ -75,7 +89,13 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 		return nil
 	}
 
-	logger.Infof("Stream %s: processing incremental changes (files with LastModified > %s)",
+	// The state file reloads this as []any, the abstract layer keeps it as []string
+	var seenKeys []string
+	if err := utils.Unmarshal(s.state.GetCursor(configuredStream, types.SeenKeysKey), &seenKeys); err != nil {
+		return fmt.Errorf("failed to read seen keys from state: %w", err)
+	}
+
+	logger.Infof("Stream %s: processing incremental changes (files with LastModified >= %s)",
 		streamName, cursor)
 
 	// Get all discovered files for this stream
@@ -85,11 +105,11 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 		return nil
 	}
 
-	// Filter files to only include those modified AFTER the cursor
-	incrementalFiles := s.filterFilesByCursor(files, cursor)
+	// Filter files to only include those not read yet
+	incrementalFiles := s.filterFilesByCursor(files, cursor, seenKeys)
 
 	if len(incrementalFiles) == 0 {
-		logger.Infof("Stream %s: no new files to process (all files <= cursor)", streamName)
+		logger.Infof("Stream %s: no new files to process (all files already read)", streamName)
 		return nil
 	}
 
@@ -123,18 +143,21 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 }
 
 // filterFilesByCursor filters files based on LastModified timestamp cursor
-// Returns only files where LastModified > cursor
+// Returns files where LastModified > cursor, plus files at the cursor's second that are not in seenKeys.
+// nil seenKeys means state from before keys were tracked: which files at the cursor's second were
+// read is unknown, so they are skipped rather than risk duplicates.
 // The cursor timestamp is in ISO 8601 format (2006-01-02T15:04:05Z) and uses
 // string comparison which works correctly for this format.
-func (s *S3) filterFilesByCursor(files []FileObject, cursorTimestamp string) []FileObject {
+func (s *S3) filterFilesByCursor(files []FileObject, cursorTimestamp string, seenKeys []string) []FileObject {
 	var filteredFiles []FileObject
 	for _, file := range files {
-		if file.LastModified > cursorTimestamp {
+		if file.LastModified > cursorTimestamp ||
+			(seenKeys != nil && file.LastModified == cursorTimestamp && !slices.Contains(seenKeys, file.FileKey)) {
 			filteredFiles = append(filteredFiles, file)
-			logger.Debugf("File %s will be processed (modified: %s > cursor: %s)",
+			logger.Debugf("File %s will be processed (modified: %s, cursor: %s)",
 				file.FileKey, file.LastModified, cursorTimestamp)
 		} else {
-			logger.Debugf("File %s skipped (modified: %s <= cursor: %s)",
+			logger.Debugf("File %s skipped (modified: %s, cursor: %s)",
 				file.FileKey, file.LastModified, cursorTimestamp)
 		}
 	}

@@ -714,27 +714,27 @@ func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.TestHandler) fu
 		case "add":
 			// One plain file and, where the variant allows it, one gzipped: a single stream
 			// mixing both proves compression is detected per file rather than per stream.
-			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false, false, excluded)
-			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped, false, excluded)
+			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false, excluded)
+			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped, excluded)
 
 		case "insert":
-			// A file the incremental cursor has not seen: it is stamped after the previous
-			// sync, so only its rows are re-read.
-			variant.putFile(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false, true, excluded)
+			// A file the incremental cursor has not seen: it is stamped at or after the previous
+			// sync's cursor, so only its rows are re-read.
+			variant.putFile(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false, excluded)
 
 		case "update":
 			// Object stores have no in-place update: changed data arrives as another file.
-			variant.putFile(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false, true, excluded)
+			variant.putFile(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false, excluded)
 
 		case "evolve-schema":
 			// An object store's ALTER TABLE: a file whose rows carry a column discover has
-			// never seen. It is stamped after the previous sync like the "update" file, so
+			// never seen. It is stamped at or after the previous sync like the "update" file, so
 			// the update sync reads both and must evolve the destination to fit this one.
 			// The rows carry updatedValues because that sync asserts every row against
 			// ExpectedUpdatedData; evolvedColumn itself is asserted through the schema, not
 			// per row, since the "update" file's rows sync a null there.
 			if variant.BuildEvolvedFile != nil {
-				variant.putFile(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false, true, excluded)
+				variant.putFile(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false, excluded)
 			}
 
 		default:
@@ -746,7 +746,7 @@ func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.TestHandler) fu
 // putFile renders one file with build and uploads it under prefix. Gzipped files get a
 // ".gz" suffix, which is what both the driver's file matcher and its reader use to detect
 // compression.
-func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped, wait bool, excluded []string) {
+func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped bool, excluded []string) {
 	t.Helper()
 
 	data := build(t, startID, vals, excluded)
@@ -757,13 +757,6 @@ func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, 
 	}
 
 	key := prefix + name + ext
-
-	// TODO: the driver should handle same-second arrivals itself (`>=` plus tracking the file keys
-	// already synced at the cursor's second); this guard papers over real, silent data loss.
-	if wait {
-		t.Logf("waiting before putting file to avoid s3 driver skipping the new file...")
-		time.Sleep(1 * time.Second)
-	}
 
 	_, err := src.client.PutObject(ctx, src.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
 	require.NoError(t, err, "failed to upload %s", key)
