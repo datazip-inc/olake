@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/datazip-inc/olake/utils/errs"
@@ -17,6 +18,9 @@ const (
 	SSLModeDisable    = "disable"
 	SSLModeVerifyCA   = "verify-ca"
 	SSLModeVerifyFull = "verify-full"
+
+	SSLCertSourceInline = "inline"
+	SSLCertSourcePath   = "path"
 
 	Unknown = ""
 )
@@ -35,13 +39,75 @@ type SSLConfig struct {
 	ServerCA   string `mapstructure:"server_ca,omitempty" json:"server_ca,omitempty" yaml:"server_ca,omitempty"`
 	ClientCert string `mapstructure:"client_cert,omitempty" json:"client_cert,omitempty" yaml:"client_cert,omitempty"`
 	ClientKey  string `mapstructure:"client_key,omitempty" json:"client_key,omitempty" yaml:"client_key,omitempty"`
+
+	// CertSource is "inline" (default) to use the PEM content fields above, or "path"
+	// to read them from the files at ServerCAPath, ClientCertPath and ClientKeyPath.
+	CertSource     string `mapstructure:"cert_source,omitempty" json:"cert_source,omitempty" yaml:"cert_source,omitempty"`
+	ServerCAPath   string `mapstructure:"server_ca_path,omitempty" json:"server_ca_path,omitempty" yaml:"server_ca_path,omitempty"`
+	ClientCertPath string `mapstructure:"client_cert_path,omitempty" json:"client_cert_path,omitempty" yaml:"client_cert_path,omitempty"`
+	ClientKeyPath  string `mapstructure:"client_key_path,omitempty" json:"client_key_path,omitempty" yaml:"client_key_path,omitempty"`
+}
+
+// ValidateCertSource rejects any CertSource other than "", "inline" or "path".
+// Callers must run it before LoadCertFiles.
+func (sc *SSLConfig) ValidateCertSource() error {
+	if sc == nil {
+		return nil
+	}
+	switch sc.CertSource {
+	case Unknown, SSLCertSourceInline, SSLCertSourcePath:
+		return nil
+	}
+	return errs.Precondition(errs.ConfigInvalid, codeSSLCertSourceInvalid,
+		fmt.Errorf("'ssl.cert_source' must be '%s' or '%s', got '%s'", SSLCertSourceInline, SSLCertSourcePath, sc.CertSource))
+}
+
+// LoadCertFiles reads the files at ServerCAPath, ClientCertPath and ClientKeyPath into
+// ServerCA, ClientCert and ClientKey when CertSource is "path". It is a no-op otherwise,
+// so all later code works on PEM content only. It does not validate CertSource; call
+// ValidateCertSource first.
+func (sc *SSLConfig) LoadCertFiles() error {
+	if sc == nil || sc.CertSource != SSLCertSourcePath {
+		return nil
+	}
+	for _, cert := range []struct {
+		filePath  string  // file to read
+		pemField  *string // receives the PEM content read from filePath
+		configKey string  // path config key named in errors
+		inlineKey string  // inline config key replaced by the file content
+	}{
+		{sc.ServerCAPath, &sc.ServerCA, "ssl.server_ca_path", "server_ca"},
+		{sc.ClientCertPath, &sc.ClientCert, "ssl.client_cert_path", "client_cert"},
+		{sc.ClientKeyPath, &sc.ClientKey, "ssl.client_key_path", "client_key"},
+	} {
+		if strings.TrimSpace(cert.filePath) == "" {
+			continue
+		}
+		data, err := os.ReadFile(strings.TrimSpace(cert.filePath))
+		if err != nil {
+			return errs.Precondition(errs.ConfigInvalid, codeSSLFileUnreadable,
+				fmt.Errorf("'%s': failed to read file: %w", cert.configKey, err))
+		}
+
+		if inline := strings.TrimSpace(*cert.pemField); inline != "" && inline != strings.TrimSpace(string(data)) {
+			return errs.Precondition(errs.ConfigInvalid, codeSSLCertSourceConflict,
+				fmt.Errorf("'ssl.%s' and '%s' are both set while ssl.cert_source is 'path'; remove 'ssl.%s'", cert.inlineKey, cert.configKey, cert.inlineKey))
+		}
+		*cert.pemField = string(data)
+	}
+	return nil
 }
 
 const (
 	// The ssl block itself is missing a field.
-	codeSSLMissing         = "config.ssl_missing"
-	codeSSLModeMissing     = "config.ssl_mode_missing"
-	codeSSLServerCAMissing = "config.ssl_server_ca_missing"
+	codeSSLMissing            = "config.ssl_missing"
+	codeSSLModeMissing        = "config.ssl_mode_missing"
+	codeSSLServerCAMissing    = "config.ssl_server_ca_missing"
+	codeSSLCertSourceInvalid  = "config.ssl_cert_source_invalid"
+	codeSSLCertSourceConflict = "config.ssl_cert_source_conflict"
+
+	// Certificate file could not be read from disk.
+	codeSSLFileUnreadable = "config.ssl_file_unreadable"
 
 	// The PEM material the user supplied is unusable; nothing was sent to a server yet.
 	codeSSLMaterialMissing        = "config.ssl_material_missing"
@@ -71,10 +137,19 @@ func (sc *SSLConfig) Validate() error {
 			errors.New("'ssl.mode' is required parameter"))
 	}
 
+	if err := sc.ValidateCertSource(); err != nil {
+		return err
+	}
+
+	// Cert files are read only for modes that consume them; a stale path must not
+	// reject a config whose mode ignores the certificates.
 	if sc.Mode == SSLModeVerifyCA || sc.Mode == SSLModeVerifyFull {
+		if err := sc.LoadCertFiles(); err != nil {
+			return err
+		}
 		if sc.ServerCA == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLServerCAMissing,
-				errors.New("'ssl.server_ca' is required parameter"))
+				errors.New("server CA certificate is required: provide 'ssl.server_ca', or set 'ssl.cert_source' to 'path' with a non-empty file at 'ssl.server_ca_path'"))
 		}
 	}
 

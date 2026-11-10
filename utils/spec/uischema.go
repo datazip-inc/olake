@@ -56,11 +56,17 @@ const MongoDBUISchema = `{
         },
         "ui:grid": [
             { "mode": 24 },
-            { "server_ca": 24 },
-            { "client_cert": 12, "client_key": 12 }
+            { "cert_source": 24 },
+            { "server_ca": 24, "server_ca_path": 24 },
+            { "client_cert": 12, "client_key": 12 },
+            { "client_cert_path": 12, "client_key_path": 12 }
         ],
         "mode": {
             "ui:widget": "select"
+        },
+        "cert_source": {
+            "ui:widget": "radio",
+            "ui:docLink": "https://olake.io/docs/connectors/mongodb/#connection-details"
         },
         "server_ca": {
             "ui:widget": "textarea",
@@ -75,6 +81,24 @@ const MongoDBUISchema = `{
             }
         },
         "client_key": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "server_ca_path": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_cert_path": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_key_path": {
             "ui:widget": "textarea",
             "ui:options": {
                 "rows": 1
@@ -130,11 +154,17 @@ const PostgresUISchema = `{
         },
         "ui:grid": [
           { "mode": 24 },
-          { "server_ca": 24 },
-          { "client_cert": 12, "client_key": 12 }
+          { "cert_source": 24 },
+          { "server_ca": 24, "server_ca_path": 24 },
+          { "client_cert": 12, "client_key": 12 },
+          { "client_cert_path": 12, "client_key_path": 12 }
         ],
         "mode": {
           "ui:widget": "select"
+        },
+        "cert_source": {
+          "ui:widget": "radio",
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/#connection-details"
         },
         "server_ca": {
           "ui:widget": "textarea",
@@ -149,6 +179,24 @@ const PostgresUISchema = `{
           }
         },
         "client_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "server_ca_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_cert_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_key_path": {
           "ui:widget": "textarea",
           "ui:options": {
             "rows": 1
@@ -212,11 +260,17 @@ const MySQLUISchema = `{
     "ui:options": { "description": false, "label": false },
     "ui:grid": [
       { "mode": 24 },
-      { "server_ca": 24 },
-      { "client_cert": 12, "client_key": 12 }
+      { "cert_source": 24 },
+      { "server_ca": 24, "server_ca_path": 24 },
+      { "client_cert": 12, "client_key": 12 },
+      { "client_cert_path": 12, "client_key_path": 12 }
     ],
     "mode": {
       "ui:widget": "select"
+    },
+    "cert_source": {
+      "ui:widget": "radio",
+      "ui:docLink": "https://olake.io/docs/connectors/mysql/#connection-details"
     },
     "server_ca": {
       "ui:widget": "textarea",
@@ -227,6 +281,18 @@ const MySQLUISchema = `{
       "ui:options": { "rows": 1 }
     },
     "client_key": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "server_ca_path": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_cert_path": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_key_path": {
       "ui:widget": "textarea",
       "ui:options": { "rows": 1 }
     }
@@ -480,9 +546,14 @@ const KafkaUISchema = `{
         "description": false
       },
       "ui:grid": [
-        { "server_ca": 12, "client_cert": 12 },
-        { "client_key": 12 }
+        { "cert_source": 24 },
+        { "server_ca": 12, "client_cert": 12, "server_ca_path": 12, "client_cert_path": 12 },
+        { "client_key": 12, "client_key_path": 12 }
       ],
+      "cert_source": {
+        "ui:widget": "radio",
+        "ui:docLink": "https://olake.io/docs/connectors/kafka/#connection-details"
+      },
       "server_ca": {
         "ui:widget": "textarea",
         "ui:options": {
@@ -496,6 +567,24 @@ const KafkaUISchema = `{
         }
       },
       "client_key": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "server_ca_path": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "client_cert_path": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "client_key_path": {
         "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
