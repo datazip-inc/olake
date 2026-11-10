@@ -91,10 +91,10 @@ func (a *AbstractDriver) SupportedUpdateTypes() []types.UpdateType {
 	return nil
 }
 
-// ValidateCDCStreams fails a CDC stream the destination cannot serve for this source; nil when the source has no such need.
-func (a *AbstractDriver) ValidateCDCStreams(streams []types.StreamInterface, destinationType types.DestinationType) error {
-	if validator, ok := a.driver.(CDCStreamValidator); ok {
-		return validator.ValidateCDCStreams(streams, destinationType)
+// SupportedWriteModes returns the write modes the source allows, nil when it has no restriction.
+func (a *AbstractDriver) SupportedWriteModes() []types.WriteMode {
+	if restricter, ok := a.driver.(WriteModeRestricter); ok {
+		return restricter.SupportedWriteModes()
 	}
 
 	return nil

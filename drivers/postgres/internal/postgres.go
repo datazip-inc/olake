@@ -200,11 +200,21 @@ func (p *Postgres) Spec() any {
 // SupportedUpdateTypes excludes equality when preserve_toast_values is on: unchanged TOAST values
 // are read back through the destination's table index, which only pos and dv maintain.
 func (p *Postgres) SupportedUpdateTypes() []types.UpdateType {
+	// p.cdcConfig is filled in Setup, which discover runs after this, so parse the raw config
 	cdc := &CDC{}
 	if err := utils.Unmarshal(p.config.UpdateMethod, cdc); err != nil || !cdc.PreserveToastValues {
-		return nil
+		return nil // no restriction: every update type is supported
 	}
 	return []types.UpdateType{types.UpdateTypePosition, types.UpdateTypeDeletionVector}
+}
+
+// SupportedWriteModes excludes append when preserve_toast_values is on: unchanged TOAST values are
+// copied from the row an upsert replaces, and an append replaces none.
+func (p *Postgres) SupportedWriteModes() []types.WriteMode {
+	if !p.cdcConfig.PreserveToastValues {
+		return nil // no restriction: every write mode is supported
+	}
+	return []types.WriteMode{types.WriteModeUpsert}
 }
 
 func (p *Postgres) CloseConnection() {

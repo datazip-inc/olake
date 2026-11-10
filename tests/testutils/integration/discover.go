@@ -47,7 +47,7 @@ func (th *TestHandler) TestDiscover(t *testing.T) {
 
 	verifyDiscoveredStreams(t, expectedCatalog, th.Catalog())
 
-	// 4. With preserve_toast_values on, only the update types that keep a row index (pos, dv) are offered
+	// 4. With preserve_toast_values on, only upsert and the update types that keep a row index (pos, dv) are offered
 	if th.TestConfig.Driver == string(constants.Postgres) {
 		require.NoError(t, enablePreserveToastValues(th.TestConfig), "failed enabling preserve_toast_values")
 		require.NoError(t, expectedCatalog.Edit(offerIndexUpdateTypesOnly),
@@ -61,13 +61,14 @@ func (th *TestHandler) TestDiscover(t *testing.T) {
 }
 
 // offerIndexUpdateTypesOnly turns the expected catalog into what discover writes with preserve_toast_values
-// on: only pos and dv (the update types that keep a table index) are offered, and pos is the default.
+// on: only upsert and pos and dv (the update types that keep a table index) are offered, and pos is the default.
 // Under streams v2 selected_streams has no update_type, so only one set explicitly (streams v1) is changed.
 func offerIndexUpdateTypesOnly(doc map[string]interface{}) error {
 	entries, _ := doc["streams"].([]interface{})
 	for _, raw := range entries {
 		stream, _ := raw.(map[string]interface{})["stream"].(map[string]interface{})
 		stream["available_update_types"] = []interface{}{"pos", "dv"}
+		stream["available_write_modes"] = []interface{}{"upsert"}
 		if defaults, ok := stream["default_stream_properties"].(map[string]interface{}); ok {
 			defaults["update_type"] = "pos"
 		}

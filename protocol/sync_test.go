@@ -33,6 +33,7 @@ type stream struct {
 	filter        *types.FilterConfig // only read when normalized, so it can be made invalid
 	updateType    string              // selected_streams update_type; blank as legacy catalogs leave it
 	available     []types.UpdateType  // stream's available_update_types; empty on legacy catalogs
+	writeModes    []types.WriteMode   // stream's available_write_modes; nil on legacy catalogs
 }
 
 // catalogOf builds the two halves classifyStreams reads: the configured streams and the
@@ -42,7 +43,7 @@ func catalogOf(streams ...stream) *types.Catalog {
 	for _, s := range streams {
 		if !s.schemaMissing {
 			catalog.Streams = append(catalog.Streams, &types.ConfiguredStream{
-				Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode, AvailableUpdateTypes: s.available},
+				Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode, AvailableUpdateTypes: s.available, AvailableWriteModes: s.writeModes},
 			})
 		}
 		if s.unselected {
@@ -156,6 +157,16 @@ func TestClassifyStreamsMix(t *testing.T) {
 				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
 			},
 			expectedCode: codeUpdateTypeInvalid,
+		},
+		// preserve_toast_values allows only upsert and parquet only appends, so the run fails
+		{
+			name: "a write mode the stream does not offer fails the run",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC, writeModes: []types.WriteMode{types.WriteModeUpsert}},
+			},
+			destinationType: types.Parquet,
+			expectedCode:    "catalog.write_mode_not_available",
 		},
 		// parquet writes no deletes, so the same streams are all synced there
 		{

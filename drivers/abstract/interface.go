@@ -59,9 +59,8 @@ type UpdateTypeRestricter interface {
 	SupportedUpdateTypes() []types.UpdateType
 }
 
-// CDCStreamValidator is implemented by a driver whose CDC streams need something only some destinations
-// give, e.g. Postgres preserve_toast_values needs an Iceberg row index. Sync calls it after Setup,
-// before anything is read.
-type CDCStreamValidator interface {
-	ValidateCDCStreams(streams []types.StreamInterface, destinationType types.DestinationType) error
+// WriteModeRestricter is implemented by a driver that allows only some write modes, e.g. Postgres
+// preserve_toast_values allows only upsert.
+type WriteModeRestricter interface {
+	SupportedWriteModes() []types.WriteMode
 }

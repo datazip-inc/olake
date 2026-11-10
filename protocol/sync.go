@@ -113,9 +113,6 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
-		if err := connector.ValidateCDCStreams(selectedStreamsMetadata.CDCStreams, destinationConfig.Type); err != nil {
-			return err
-		}
 
 		if streams == nil {
 			state.Streams = selectedStreamsMetadata.NewStreamsState
@@ -251,6 +248,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		if err := elem.ValidateUpdateType(destinationType); err != nil {
 			failure = errs.Precondition(errs.ConfigInvalid, codeUpdateTypeInvalid,
 				fmt.Errorf("stream %s has an invalid update type: %w", elem.ID(), err))
+			return true
+		}
+		if err := elem.ValidateWriteMode(destinationType); err != nil {
+			// ValidateWriteMode classifies each failure with its own code
+			failure = fmt.Errorf("stream %s has an invalid write mode: %w", elem.ID(), err)
 			return true
 		}
 
