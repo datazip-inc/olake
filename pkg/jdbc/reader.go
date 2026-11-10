@@ -79,9 +79,12 @@ func getColumnMetadata(rows *sql.Rows) ([]string, []*sql.ColumnType, error) {
 var decimalTypeNames = []string{"NUMERIC", "DECIMAL", "NUMBER"}
 
 // normalizeDataTypeAndConvert normalizes the datatype and converts the raw value using the converter function
-func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter func(value interface{}, columnType string) (interface{}, error)) (any, error) {
+func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, unsignedDecimal bool, converter func(value interface{}, columnType string) (interface{}, error)) (any, error) {
 	datatype := colType.DatabaseTypeName()
 	precision, scale, hasPrecisionScale := colType.DecimalSize()
+	if unsignedDecimal {
+		precision++ // go-sql-driver counts a sign digit mysql leaves out of an UNSIGNED DECIMAL
+	}
 	switch {
 	case datatype == "NUMBER" && hasPrecisionScale && scale == 0:
 		datatype = utils.Ternary(precision > 9, "int64", "int32").(string)
@@ -105,8 +108,9 @@ func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter
 // MapScan scans the current row into dest and returns the row's source-DB byte
 // size. columnSizer maps a SQL column type to a function that sizes one raw
 // (pre-conversion) value of that column; the size is summed inline in the scan
-// loop. NULL values carry no data and are skipped (0 bytes).
-func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), columnSizer func(colType *sql.ColumnType) func(v any) int64) (int64, error) {
+// loop. NULL values carry no data and are skipped (0 bytes). unsignedDecimals
+// names mysql UNSIGNED DECIMAL columns, whose precision go-sql-driver reports a digit short.
+func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), columnSizer func(colType *sql.ColumnType) func(v any) int64, unsignedDecimals ...string) (int64, error) {
 	columns, colTypes, err := getColumnMetadata(rows)
 	if err != nil {
 		return 0, err
@@ -129,7 +133,7 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 			rowBytes += columnSizer(colTypes[i])(rawData)
 		}
 		if converter != nil {
-			conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
+			conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], slices.Contains(unsignedDecimals, col), converter)
 			if err != nil {
 				return 0, err
 			}
@@ -147,7 +151,8 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 // (pre-conversion) value of that column. Since column types are constant for the
 // whole result set, the per-column sizers are built once (in the consumer goroutine)
 // and reused for every row; the size is summed inline in the conversion loop.
-func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, columnSizer func(colType *sql.ColumnType) func(v any) int64) error {
+// unsignedDecimals is as for MapScan.
+func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, columnSizer func(colType *sql.ColumnType) func(v any) int64, unsignedDecimals ...string) error {
 	valuesCh := make(chan []any)
 
 	var (
@@ -220,7 +225,7 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 					continue
 				}
 
-				conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
+				conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], slices.Contains(unsignedDecimals, col), converter)
 				if err != nil {
 					return fmt.Errorf("failed to convert value for column %s: %w", col, err)
 				}

@@ -301,6 +301,28 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	return typeutils.ReformatValue(olakeType, value)
 }
 
+// unsignedDecimals returns the stream's UNSIGNED DECIMAL columns, from the column types the binlog schema cache
+// loads. That cache exists only while the binlog streams, and these are JDBC reads.
+func (m *MySQL) unsignedDecimals(ctx context.Context, stream types.StreamInterface) ([]string, error) {
+	rows, err := m.client.QueryContext(ctx, jdbc.MySQLCDCColumnMetadataQuery(), stream.Namespace(), stream.Name())
+	if err != nil {
+		return nil, fmt.Errorf("failed to load column types of %s: %w", stream.ID(), err)
+	}
+	defer rows.Close()
+
+	var columns []string
+	for rows.Next() {
+		var name, columnType, collation string
+		if err := rows.Scan(&name, &columnType, &collation); err != nil {
+			return nil, fmt.Errorf("failed to scan column types of %s: %w", stream.ID(), err)
+		}
+		if lowered := strings.ToLower(columnType); strings.HasPrefix(lowered, "decimal") && strings.Contains(lowered, "unsigned") {
+			columns = append(columns, name)
+		}
+	}
+	return columns, rows.Err()
+}
+
 // Close ensures proper cleanup
 func (m *MySQL) Close() error {
 	if m.client != nil {
