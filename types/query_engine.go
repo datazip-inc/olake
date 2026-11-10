@@ -73,7 +73,7 @@ func QueryEngineCatalog() map[string]interface{} {
 }
 
 // ParseQueryEngines normalizes raw values and rejects unknown names: a typo that silently
-// dropped an engine would widen AvailableUpdateTypes and let an unreadable format through.
+// dropped an engine would widen the available formats and let an unreadable one through.
 func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 	engines := make([]QueryEngine, 0, len(values))
 	for _, value := range values {
@@ -92,12 +92,32 @@ func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 	return engines, nil
 }
 
-// AvailableUpdateTypes returns the writable delete formats every engine can read, cheapest
-// first. No engines means the choice is unconstrained.
-func AvailableUpdateTypes(engines []QueryEngine) []UpdateType {
+// AvailableUpdateTypes is the single place that decides a stream's delete formats: those the source
+// can feed, every target engine can read and the destination can apply, cheapest first. A nil
+// sourceSupported means the source has no restriction. A destination that writes no delete files
+// (Parquet) gets none; no engines and no catalog leave every writable format.
+func AvailableUpdateTypes(engines []QueryEngine, destination *WriterConfig, sourceSupported []UpdateType) ([]UpdateType, error) {
+	if destination != nil && !UpsertSupported(destination.Type) {
+		return []UpdateType{}, nil
+	}
+
+	catalogType, err := CatalogTypeFromConfig(destination)
+	if err != nil {
+		return nil, err
+	}
+
+	available := availableUpdateTypes(engines, catalogType)
+	if sourceSupported != nil {
+		available = slices.DeleteFunc(available, func(u UpdateType) bool { return !slices.Contains(sourceSupported, u) })
+	}
+
+	return available, nil
+}
+
+func availableUpdateTypes(engines []QueryEngine, catalogType string) []UpdateType {
 	available := make([]UpdateType, 0, len(writableUpdateTypes))
 	for _, updateType := range writableUpdateTypes {
-		if readableByAll(engines, updateType) {
+		if readableByAll(engines, updateType) && supportedByCatalog(catalogType, updateType) {
 			available = append(available, updateType)
 		}
 	}

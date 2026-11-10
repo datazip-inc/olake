@@ -63,6 +63,13 @@ func (k *Kafka) Type() string {
 	return string(constants.Kafka)
 }
 
+// SupportedUpdateTypes excludes equality: an upsert on dedup_keys cannot tell an insert from an
+// update, so the writer looks the row up in the table index, which only pos and dv maintain
+// (see types.ConfiguredStream.GetUpdateType).
+func (k *Kafka) SupportedUpdateTypes() []types.UpdateType {
+	return []types.UpdateType{types.UpdateTypePosition, types.UpdateTypeDeletionVector}
+}
+
 func (k *Kafka) MaxConnections() int {
 	// return number of readers if available else default
 	if k.readerManager != nil {
