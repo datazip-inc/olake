@@ -92,7 +92,7 @@ func TestSSLCertSource(t *testing.T) {
 		},
 		{
 			name: "invalid cert_source via ValidateCertSource",
-			cfg: func(t *testing.T) *SSLConfig {
+			cfg: func(_ *testing.T) *SSLConfig {
 				return &SSLConfig{CertSource: "bogus"}
 			},
 			run:      func(sc *SSLConfig) error { return sc.ValidateCertSource() },
