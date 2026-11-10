@@ -42,6 +42,7 @@ jobs:
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-checks-changed: ${{ steps.go-checks.outputs.changed }}
+      apt-warmed: ${{ steps.apt-cache.outputs.cache-hit }}
       base-image-misses: ${{ steps.base-images.outputs.misses }}
     steps:
       - name: Checkout code
@@ -149,6 +150,14 @@ jobs:
         with:
           mode: lookup
 
+      - name: Look up base docker layer marker
+        id: apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .apt-warmed
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
+          lookup-only: true
+
   build-jar:
     name: Build Iceberg writer jar
     needs: preflight
@@ -177,7 +186,7 @@ jobs:
   apt-warm:
     name: Warm base docker layers
     needs: preflight
-    if: needs.preflight.outputs.drivers != '[]'
+    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.apt-warmed != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -191,7 +200,15 @@ jobs:
         run: |
           docker buildx build --target runtime-base \
             --cache-to type=gha,mode=max,scope=olake-base --cache-from type=gha,scope=olake-base . \
+            && echo "$GITHUB_SHA" > .apt-warmed \
             || echo "::warning::base layer warm failed (non-fatal)"
+
+      - name: Save base layer marker
+        if: hashFiles('.apt-warmed') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .apt-warmed
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
 
   go-cache:
     name: Go checks + cache
