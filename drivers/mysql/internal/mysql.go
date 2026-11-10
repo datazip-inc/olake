@@ -320,7 +320,10 @@ func (m *MySQL) unsignedDecimals(ctx context.Context, stream types.StreamInterfa
 			columns = append(columns, name)
 		}
 	}
-	return columns, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read column types of %s: %w", stream.ID(), err)
+	}
+	return columns, nil
 }
 
 // Close ensures proper cleanup
