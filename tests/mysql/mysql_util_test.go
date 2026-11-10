@@ -67,6 +67,8 @@ var seedColumns = []seedColumn{
 	{name: "id_int_unsigned_max", datatype: "INT UNSIGNED", value: "4294967295", filtered: "0", updated: "4294967294"},
 	{name: "price_decimal", datatype: "DECIMAL(18,4)", value: "123.45", filtered: "50.123", updated: "12345678901234.5678"},
 	{name: "amount_decimal_9_2", datatype: "DECIMAL(9,2)", value: "5330197.27", filtered: "50.12", updated: "1234567.89"},
+	// every digit of an UNSIGNED DECIMAL, which go-sql-driver reports a digit short on JDBC reads
+	{name: "amount_decimal_unsigned", datatype: "DECIMAL(10,2) UNSIGNED", value: "99999999.99", filtered: "0", updated: "12345678.90"},
 	{name: "price_double", datatype: "DOUBLE", value: "123.456", filtered: "50.123", updated: "654.321"},
 	{name: "price_double_precision", datatype: "DOUBLE", value: "123.456", filtered: "50.123", updated: "654.321"},
 	{name: "price_float", datatype: "FLOAT", value: "123.45", filtered: "50.0", updated: "543.21"},
@@ -561,6 +563,7 @@ var ExpectedMySQLData = map[string]interface{}{
 	"id_bigint_unsigned_max":        int64(-1),            // should be 18446744073709551615 (2^64-1)
 	"price_decimal":                 testutils.Decimal("123.4500"),
 	"amount_decimal_9_2":            testutils.Decimal("5330197.27"),
+	"amount_decimal_unsigned":       testutils.Decimal("99999999.99"),
 	"price_double":                  float64(123.456),
 	"price_double_precision":        float64(123.456),
 	"price_float":                   float32(123.45),
@@ -615,6 +618,7 @@ var ExpectedFilteredData = map[string]interface{}{
 	"id_bigint_unsigned":            int64(0),
 	"id_bigint_unsigned_signbit":    int64(0),
 	"id_bigint_unsigned_max":        int64(0),
+	"amount_decimal_unsigned":       testutils.Decimal("0.00"),
 	"name_char":                     "x",
 	"name_varchar":                  "filtered_val",
 	"name_text":                     "filtered text",
@@ -666,6 +670,7 @@ func ExpectedUpdatedData() map[string]interface{} {
 		"id_bigint_unsigned_max":        int64(-2),                // should be 18446744073709551614 (2^64-2)
 		"price_decimal":                 testutils.Decimal("12345678901234.5678"),
 		"amount_decimal_9_2":            testutils.Decimal("1234567.89"),
+		"amount_decimal_unsigned":       testutils.Decimal("12345678.90"),
 		"price_double":                  float64(654.321),
 		"price_double_precision":        float64(654.321),
 		"price_float":                   float64(543.21),
@@ -727,6 +732,7 @@ var MySQLToDestinationSchema = map[string]string{
 	"id_bigint_unsigned_max":        "bigint",
 	"price_decimal":                 "decimal(18,4)",
 	"amount_decimal_9_2":            "decimal(9,2)",
+	"amount_decimal_unsigned":       "decimal(10,2)",
 	"price_double":                  "double",
 	"price_double_precision":        "double",
 	"price_float":                   "float",
@@ -786,6 +792,7 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"id_bigint_unsigned_max":        "bigint",
 	"price_decimal":                 "decimal(18,4)",
 	"amount_decimal_9_2":            "decimal(9,2)",
+	"amount_decimal_unsigned":       "decimal(10,2)",
 	"price_double":                  "double",
 	"price_double_precision":        "double",
 	"price_float":                   "double",
