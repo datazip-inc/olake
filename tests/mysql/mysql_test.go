@@ -145,8 +145,8 @@ func TestMySQLBinarySync(t *testing.T) {
 	}
 }
 
-// TestMySQLDecimalSync partitions and filters on a DECIMAL(18,4) column. The filter cases use the decimal
-// cursor so incremental reads the filtered insert row too; the 18 digit filter value is a string.
+// TestMySQLDecimalSync partitions and filters on a DECIMAL(18,4) column that evolve-schema widens to DECIMAL(20,4).
+// The filter cases use the decimal cursor so incremental reads the filtered insert row too; the 18 digit filter value is a string.
 func TestMySQLDecimalSync(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {

@@ -308,7 +308,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "evolve-schema":
-		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
+		// price_decimal widens its precision, which iceberg promotes in place, its identity partitions included
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, MODIFY COLUMN price_decimal DECIMAL(20,4), ADD COLUMN includedColumn INT;", integrationTestTable)
 
 	case "ddl-create", "ddl-drop":
 		for _, table := range ddlTables {
@@ -790,7 +791,7 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"id_bigint_unsigned":            "bigint",
 	"id_bigint_unsigned_signbit":    "bigint",
 	"id_bigint_unsigned_max":        "bigint",
-	"price_decimal":                 "decimal(18,4)",
+	"price_decimal":                 "decimal(20,4)",
 	"amount_decimal_9_2":            "decimal(9,2)",
 	"amount_decimal_unsigned":       "decimal(10,2)",
 	"price_double":                  "double",
