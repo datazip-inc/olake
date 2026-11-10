@@ -107,6 +107,12 @@ func TestDecimalText(t *testing.T) {
 			want:     "0.05",
 		},
 		{
+			name:     "negative below one",
+			unscaled: "-5",
+			scale:    2,
+			want:     "-0.05",
+		},
+		{
 			name:     "zero keeps its scale",
 			unscaled: "0",
 			scale:    2,
