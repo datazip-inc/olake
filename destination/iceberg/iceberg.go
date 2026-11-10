@@ -531,8 +531,7 @@ func isValidTypeForColumn(columnType, valueType string) bool {
 	return getCommonAncestorType(columnType, valueType) == columnType
 }
 
-// isPromotionRequired checks if promotion is needed using lookup table. Iceberg widens a decimal's
-// precision, never its scale.
+// isPromotionRequired checks if promotion is needed using lookup table
 func isPromotionRequired(oldType, newType string) bool {
 	if transitions, ok := promotionTransitions[oldType]; ok {
 		return transitions[newType]
@@ -542,6 +541,7 @@ func isPromotionRequired(oldType, newType string) bool {
 	case types.IsIcebergDecimal(oldType) && types.IsIcebergDecimal(newType):
 		oldPrecision, oldScale, _ := types.IcebergDecimalParams(oldType)
 		newPrecision, newScale, _ := types.IcebergDecimalParams(newType)
+		// an iceberg spec rule in every format version: decimal(P,S) promotes only to decimal(P',S) with P' > P
 		return oldScale == newScale && newPrecision > oldPrecision
 	}
 
