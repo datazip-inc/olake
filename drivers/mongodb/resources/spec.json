@@ -118,7 +118,7 @@
                                 "cert_source": {
                                     "type": "string",
                                     "title": "Certificate Input",
-                                    "description": "Choose how to provide certificates: paste the PEM content, or give the file path of each certificate on the OLake host. See the linked guide to configure certificates.",
+                                    "description": "Choose how to provide certificates: paste the PEM content, or give the file path of each certificate inside the connector container. See the linked guide to configure certificates.",
                                     "default": "inline",
                                     "oneOf": [
                                         {
@@ -197,7 +197,7 @@
                                 "cert_source": {
                                     "type": "string",
                                     "title": "Certificate Input",
-                                    "description": "Choose how to provide certificates: paste the PEM content, or give the file path of each certificate on the OLake host. See the linked guide to configure certificates.",
+                                    "description": "Choose how to provide certificates: paste the PEM content, or give the file path of each certificate inside the connector container. See the linked guide to configure certificates.",
                                     "default": "inline",
                                     "oneOf": [
                                         {
