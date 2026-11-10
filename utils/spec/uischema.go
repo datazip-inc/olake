@@ -66,7 +66,7 @@ const MongoDBUISchema = `{
         },
         "cert_source": {
             "ui:widget": "radio",
-            "ui:docLink": "https://olake.io/docs/connectors/ssl-certificates"
+            "ui:docLink": "https://olake.io/docs/connectors/mongodb/#connection-details"
         },
         "server_ca": {
             "ui:widget": "textarea",
@@ -164,7 +164,7 @@ const PostgresUISchema = `{
         },
         "cert_source": {
           "ui:widget": "radio",
-          "ui:docLink": "https://olake.io/docs/connectors/ssl-certificates"
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/#connection-details"
         },
         "server_ca": {
           "ui:widget": "textarea",
@@ -267,7 +267,7 @@ const MySQLUISchema = `{
     },
     "cert_source": {
       "ui:widget": "radio",
-      "ui:docLink": "https://olake.io/docs/connectors/ssl-certificates"
+      "ui:docLink": "https://olake.io/docs/connectors/mysql/#connection-details"
     },
     "server_ca": {
       "ui:widget": "textarea",
@@ -549,7 +549,7 @@ const KafkaUISchema = `{
       ],
       "cert_source": {
         "ui:widget": "radio",
-        "ui:docLink": "https://olake.io/docs/connectors/ssl-certificates"
+        "ui:docLink": "https://olake.io/docs/connectors/kafka/#connection-details"
       },
       "server_ca": {
         "ui:widget": "textarea",
