@@ -52,12 +52,17 @@ func TestMSSQLDiscover(t *testing.T) {
 	mssqlBaseConfig(t).TestDiscover(t)
 }
 
-func TestMSSQLSync(t *testing.T) {
-	t.Parallel()
-	cfg := mssqlBaseConfig(t)
+// mssqlSyncConfig adds to mssqlBaseConfig what the sync suites verify after the update sync.
+func mssqlSyncConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	cfg := mssqlBaseConfig(t, opts...)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedMSSQLData
 	cfg.UpdatedDestinationDataTypeSchema = MSSQLToDestinationSchema
-	cfg.TestSync(t)
+	return cfg
+}
+
+func TestMSSQLSync(t *testing.T) {
+	t.Parallel()
+	mssqlSyncConfig(t).TestSync(t)
 }
 
 func TestMSSQL2PC(t *testing.T) {

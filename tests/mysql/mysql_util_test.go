@@ -22,6 +22,18 @@ import (
 // performance.TestHandler config and the perf operations below.
 var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
 
+// ddlNoise is the writer ddl-noise-start runs on a table no stream captures, until ddl-noise-stop.
+// stop is nil once stopped, so a second ddl-noise-stop (the deferred one) does nothing.
+var ddlNoise struct {
+	stop, done chan struct{}
+}
+
+// ddlTables are every table the DDL suite creates, shadow and scratch tables included.
+var ddlTables = []string{
+	integration.DDLBacklogTable, integration.DDLSwapTable, "_ddl_swap_gho", "_ddl_swap_del",
+	"ddl_other", "ddl_geo", "ddl_noise",
+}
+
 type seedColumn struct {
 	name     string
 	datatype string
@@ -294,6 +306,112 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	case "evolve-schema":
 		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
+
+	case "ddl-create", "ddl-drop":
+		for _, table := range ddlTables {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
+			require.NoError(t, err, "failed to drop %s", table)
+		}
+		if operation == "ddl-drop" {
+			return
+		}
+		for _, stmt := range []string{
+			fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, a INT, b INT, status ENUM('new', 'paid'))", integration.DDLBacklogTable),
+			fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, a INT, b INT, status ENUM('new', 'paid'))", integration.DDLSwapTable),
+			"CREATE TABLE ddl_other (x INT)",
+			"CREATE TABLE ddl_noise (id INT AUTO_INCREMENT PRIMARY KEY, v INT)",
+		} {
+			_, err = db.ExecContext(ctx, stmt)
+			require.NoError(t, err, "failed to run %q", stmt)
+		}
+		return
+
+	case "ddl-seed":
+		for _, table := range []string{integration.DDLBacklogTable, integration.DDLSwapTable} {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s VALUES (100, 0, 0, 'new')", table))
+			require.NoError(t, err, "failed to seed %s", table)
+		}
+		return
+
+	case "ddl-noise-start":
+		// Its own connection: db closes when this call returns, the writer outlives it.
+		noise, err := sqlx.ConnectContext(ctx, "mysql", connStr)
+		require.NoError(t, err, "failed to connect the noise writer")
+		ddlNoise.stop, ddlNoise.done = make(chan struct{}), make(chan struct{})
+		go func(stop, done chan struct{}) {
+			defer close(done)
+			defer noise.Close()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-time.After(5 * time.Millisecond):
+					_, _ = noise.ExecContext(context.Background(), "INSERT INTO ddl_noise (v) VALUES (1)")
+				}
+			}
+		}(ddlNoise.stop, ddlNoise.done)
+		return
+
+	case "ddl-noise-stop":
+		if ddlNoise.stop != nil {
+			close(ddlNoise.stop)
+			<-ddlNoise.done
+			ddlNoise.stop = nil
+		}
+		return
+
+	case "ddl-backlog":
+		// Rows between DDL, so each row decodes right only if every DDL before it, and none after
+		// it, reached the saved column metadata. Each statement runs as written, so the binlog
+		// gets the leading "--" comment too (the mysql client would strip it).
+		backlog, swap := integration.DDLBacklogTable, integration.DDLSwapTable
+		for _, stmt := range []string{
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (1, 10, 20, 'paid')", backlog),
+			fmt.Sprintf("ALTER TABLE %s MODIFY a INT AFTER b", backlog),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (2, 11, 21, 'paid')", backlog),
+			fmt.Sprintf("-- migration 42\nALTER TABLE %s MODIFY status ENUM('refunded', 'new', 'paid')", backlog),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (3, 12, 22, 'refunded')", backlog),
+			fmt.Sprintf("ALTER TABLE %s ADD COLUMN note VARCHAR(20)", backlog),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status, note) VALUES (4, 13, 23, 'new', 'n4')", backlog),
+			// DDL that must leave the backlog table's metadata alone.
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", backlog),
+			fmt.Sprintf("CREATE TRIGGER ddl_backlog_trg BEFORE INSERT ON %s FOR EACH ROW SET NEW.b = NEW.b", backlog),
+			"ALTER TABLE ddl_other ADD COLUMN y INT FIRST",
+			"DROP TABLE IF EXISTS ddl_not_there",
+			"CREATE TABLE ddl_geo (id INT PRIMARY KEY, g POINT NOT NULL)", // the parser cannot read POINT
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status, note) VALUES (5, 14, 24, 'paid', 'n5')", backlog),
+			"DROP TRIGGER ddl_backlog_trg",
+			fmt.Sprintf("ALTER TABLE %s MODIFY a INT AFTER id", backlog),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status, note) VALUES (6, 15, 25, 'refunded', 'n6')", backlog),
+
+			// gh-ost: the shadow table gets the new layout, a row lands in the original during
+			// the copy, then the names swap.
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (1, 10, 20, 'paid')", swap),
+			fmt.Sprintf("CREATE TABLE _ddl_swap_gho LIKE %s", swap),
+			"ALTER TABLE _ddl_swap_gho MODIFY a INT AFTER b",
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (2, 11, 21, 'paid')", swap),
+			fmt.Sprintf("INSERT INTO _ddl_swap_gho (id, a, b, status) SELECT id, a, b, status FROM %s", swap),
+			fmt.Sprintf("RENAME TABLE %s TO _ddl_swap_del, _ddl_swap_gho TO %s", swap, swap),
+			"DROP TABLE _ddl_swap_del",
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (3, 12, 22, 'new')", swap),
+
+			// A clause the parser cannot apply forgets ddl_swap's metadata, so ddl_backlog is the only
+			// cached table when it is dropped and created again with a VARCHAR that names no charset.
+			fmt.Sprintf("ALTER TABLE %s CONVERT TO CHARACTER SET DEFAULT", swap),
+			fmt.Sprintf("DROP TABLE %s", backlog),
+			fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, b INT, a INT, status ENUM('refunded', 'new', 'paid'), note VARCHAR(20))", backlog),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status, note) VALUES (7, 16, 26, 'paid', 'n7')", backlog),
+			fmt.Sprintf("ALTER TABLE %s MODIFY a INT AFTER id", backlog),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status, note) VALUES (8, 17, 27, 'new', 'n8')", backlog),
+			// An app's startup CREATE with ddl_swap's layout before the cutover: MySQL logs it, though
+			// ddl_swap exists and nothing changes.
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, a INT, b INT, status ENUM('new', 'paid'))", swap),
+			fmt.Sprintf("INSERT INTO %s (id, a, b, status) VALUES (4, 13, 23, 'paid')", swap),
+		} {
+			_, err = db.ExecContext(ctx, stmt)
+			require.NoError(t, err, "failed to run %q", stmt)
+		}
+		return
 
 	case "dv-create":
 		for _, table := range []string{integration.DVUnpartTable, integration.DVPartTable} {

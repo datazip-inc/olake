@@ -24,13 +24,13 @@ func (th *TestHandler) RunUpsertIceberg(t *testing.T, seedOp string, steps []Ups
 	testTable := th.GetTableName()
 
 	if err := th.IsolateDestinationDB(); err != nil {
-		t.Fatalf("failed to isolate the destination database in streams.json: %s", err)
+		t.Fatalf("failed to isolate the destination database in the catalog: %s", err)
 	}
 	if err := setStreamUpsert(th.TestConfig, th.Namespace, testTable, th.DedupKeys); err != nil {
 		t.Fatalf("failed to set stream upsert: %s", err)
 	}
 	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}); err != nil {
-		t.Fatalf("failed to update streams.json: %s", err)
+		t.Fatalf("failed to update the catalog: %s", err)
 	}
 
 	if err := th.IcebergWriter(ctx, t, testTable, true, func(ctx context.Context, t *testing.T, testTable string) error {
@@ -60,13 +60,13 @@ func (th *TestHandler) RunUpsertIcebergExpectFail(t *testing.T, seedOp, wantErr 
 	testTable := th.GetTableName()
 
 	if err := th.IsolateDestinationDB(); err != nil {
-		t.Fatalf("failed to isolate the destination database in streams.json: %s", err)
+		t.Fatalf("failed to isolate the destination database in the catalog: %s", err)
 	}
 	if err := setStreamUpsert(th.TestConfig, th.Namespace, testTable, th.DedupKeys); err != nil {
 		t.Fatalf("failed to set stream upsert: %s", err)
 	}
 	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}); err != nil {
-		t.Fatalf("failed to update streams.json: %s", err)
+		t.Fatalf("failed to update the catalog: %s", err)
 	}
 
 	if err := th.IcebergWriter(ctx, t, testTable, true, func(ctx context.Context, t *testing.T, testTable string) error {
@@ -93,26 +93,8 @@ func setStreamUpsert(cfg *testutils.TestConfig, namespace, table string, dedupKe
 	for _, k := range dedupKeys {
 		keys = append(keys, k)
 	}
-	return testutils.EditJSONFile(cfg.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
-		selected, _ := doc["selected_streams"].(map[string]interface{})
-		namespaceStreams, ok := selected[namespace].([]interface{})
-		if !ok {
-			return fmt.Errorf("namespace %q missing in selected streams", namespace)
-		}
-		matched := false
-		tableName := testutils.NormalizeStreamName(cfg.Driver, table)
-		for _, raw := range namespaceStreams {
-			s, ok := raw.(map[string]interface{})
-			if !ok || fmt.Sprint(s["stream_name"]) != tableName {
-				continue
-			}
-			s["append_mode"] = false
-			s["dedup_keys"] = keys
-			matched = true
-		}
-		if !matched {
-			return fmt.Errorf("stream %q not found in namespace %q", table, namespace)
-		}
-		return nil
+	return editSelectedStream(cfg, namespace, table, func(entry map[string]interface{}) {
+		entry["append_mode"] = false
+		entry["dedup_keys"] = keys
 	})
 }

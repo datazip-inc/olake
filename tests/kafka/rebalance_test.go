@@ -28,7 +28,7 @@ func testRebalance(t *testing.T, cfg *integration.TestHandler) {
 		if err := testutils.UpdateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{testTable}, []string{cfg.ColumnToExclude}); err != nil {
 			t.Fatalf("failed to enable normalization and partition regex in the catalog: %s", err)
 		}
-		t.Logf("Enabled normalization and added partition regex in %s", cfg.GetFilePath("streams.json"))
+		t.Logf("Enabled normalization and added partition regex in %s", cfg.Catalog())
 
 		// 3. Run the recovery test against the legacy Iceberg writer
 		recoverFn := func(ctx context.Context, t *testing.T, testTable string) error {

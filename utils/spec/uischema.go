@@ -56,11 +56,17 @@ const MongoDBUISchema = `{
         },
         "ui:grid": [
             { "mode": 24 },
-            { "server_ca": 24 },
-            { "client_cert": 12, "client_key": 12 }
+            { "cert_source": 24 },
+            { "server_ca": 24, "server_ca_path": 24 },
+            { "client_cert": 12, "client_key": 12 },
+            { "client_cert_path": 12, "client_key_path": 12 }
         ],
         "mode": {
             "ui:widget": "select"
+        },
+        "cert_source": {
+            "ui:widget": "radio",
+            "ui:docLink": "https://olake.io/docs/connectors/mongodb/#connection-details"
         },
         "server_ca": {
             "ui:widget": "textarea",
@@ -75,6 +81,24 @@ const MongoDBUISchema = `{
             }
         },
         "client_key": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "server_ca_path": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_cert_path": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_key_path": {
             "ui:widget": "textarea",
             "ui:options": {
                 "rows": 1
@@ -130,11 +154,17 @@ const PostgresUISchema = `{
         },
         "ui:grid": [
           { "mode": 24 },
-          { "server_ca": 24 },
-          { "client_cert": 12, "client_key": 12 }
+          { "cert_source": 24 },
+          { "server_ca": 24, "server_ca_path": 24 },
+          { "client_cert": 12, "client_key": 12 },
+          { "client_cert_path": 12, "client_key_path": 12 }
         ],
         "mode": {
           "ui:widget": "select"
+        },
+        "cert_source": {
+          "ui:widget": "radio",
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/#connection-details"
         },
         "server_ca": {
           "ui:widget": "textarea",
@@ -149,6 +179,24 @@ const PostgresUISchema = `{
           }
         },
         "client_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "server_ca_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_cert_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_key_path": {
           "ui:widget": "textarea",
           "ui:options": {
             "rows": 1
@@ -209,11 +257,17 @@ const MySQLUISchema = `{
     "ui:options": { "description": false, "label": false },
     "ui:grid": [
       { "mode": 24 },
-      { "server_ca": 24 },
-      { "client_cert": 12, "client_key": 12 }
+      { "cert_source": 24 },
+      { "server_ca": 24, "server_ca_path": 24 },
+      { "client_cert": 12, "client_key": 12 },
+      { "client_cert_path": 12, "client_key_path": 12 }
     ],
     "mode": {
       "ui:widget": "select"
+    },
+    "cert_source": {
+      "ui:widget": "radio",
+      "ui:docLink": "https://olake.io/docs/connectors/mysql/#connection-details"
     },
     "server_ca": {
       "ui:widget": "textarea",
@@ -224,6 +278,18 @@ const MySQLUISchema = `{
       "ui:options": { "rows": 1 }
     },
     "client_key": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "server_ca_path": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_cert_path": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_key_path": {
       "ui:widget": "textarea",
       "ui:options": { "rows": 1 }
     }
@@ -477,9 +543,14 @@ const KafkaUISchema = `{
         "description": false
       },
       "ui:grid": [
-        { "server_ca": 12, "client_cert": 12 },
-        { "client_key": 12 }
+        { "cert_source": 24 },
+        { "server_ca": 12, "client_cert": 12, "server_ca_path": 12, "client_cert_path": 12 },
+        { "client_key": 12, "client_key_path": 12 }
       ],
+      "cert_source": {
+        "ui:widget": "radio",
+        "ui:docLink": "https://olake.io/docs/connectors/kafka/#connection-details"
+      },
       "server_ca": {
         "ui:widget": "textarea",
         "ui:options": {
@@ -493,6 +564,24 @@ const KafkaUISchema = `{
         }
       },
       "client_key": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "server_ca_path": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "client_cert_path": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "client_key_path": {
         "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
@@ -533,11 +622,37 @@ const ParquetUISchema = `{
   },
   "writer": {
     "ui:grid": [
+      { "storage_type": 12, "azure_auth_type": 12 },
       { "s3_bucket": 12, "s3_region": 12 },
       { "s3_endpoint": 12, "s3_access_key": 12 },
       { "s3_secret_key": 12, "s3_path": 12 },
+      { "azure_storage_account_name": 12, "azure_container_name": 12 },
+      { "azure_path": 12, "azure_endpoint": 12 },
+      { "azure_storage_account_key": 12, "azure_sas_token": 12 },
+      { "azure_connection_string": 12, "azure_client_id": 12 },
       { "max_file_size_mb": 12 }
     ],
+    "azure_auth_type": {
+      "ui:enumNames": [
+        "Shared Key",
+        "SAS Token",
+        "Connection String",
+        "Managed Identity/Workload Identity"
+      ]
+    },
+    "azure_storage_account_key": {
+      "ui:widget": "password"
+    },
+    "azure_sas_token": {
+      "ui:widget": "password"
+    },
+    "azure_connection_string": {
+      "ui:widget": "password",
+      "ui:help": "This string needs AccountName or BlobEndpoint, and AccountKey or SharedAccessSignature. UseDevelopmentStorage=true is not supported."
+    },
+    "azure_client_id": {
+      "ui:help": "Overrides the AKS ServiceAccount annotation and the VM identity. It does not fall back."
+    },
     "ui:options": {
       "label": false
     }
@@ -559,7 +674,6 @@ const IcebergUISchema = `{
       { "iceberg_s3_path": 12, "s3_endpoint": 12},
       { "credential": 12, "oauth2_uri": 12 },
       { "scope": 12, "token": 12 },
-      { "snowflake_workload_identity_provider": 24 },
       { "no_identifier_fields": 24 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
       { "aws_region": 12, "s3_path_style": 12 },

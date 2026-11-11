@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Lints only the half that changed: any change under tests/ runs test.lint, 
-# .go changes anywhere else run olake.lint.
+# .go, go.mod, go.sum, go.work or go.work.sum changes anywhere else run olake.lint.
 
 changed=$(git diff --name-only HEAD)
 if [ -z "$changed" ]; then
@@ -9,7 +9,7 @@ if [ -z "$changed" ]; then
 	exit 0
 fi
 
-product=$(printf '%s\n' "$changed" | grep -v '^tests/' | grep '\.go$')
+product=$(printf '%s\n' "$changed" | grep -v '^tests/' | grep -E '(\.go|go\.mod|go\.sum|go\.work|go\.work\.sum)$')
 tests=$(printf '%s\n' "$changed" | grep '^tests/')
 
 status=0
@@ -17,7 +17,7 @@ if [ -n "$product" ]; then
 	echo "Running lint..."
 	make olake.lint || status=1
 else
-	echo "⏭️  no .go changes outside tests/, skipping olake.lint"
+	echo "⏭️  no .go, go.mod, go.sum, go.work or go.work.sum changes outside tests/, skipping olake.lint"
 fi
 if [ -n "$tests" ]; then
 	echo "Running lint on tests modules..."

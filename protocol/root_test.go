@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,6 +96,136 @@ func TestSignalAwareRootContextCancelsOnSignal(t *testing.T) {
 			if output, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("signal helper failed: %v\n%s", err, output)
 			}
+		})
+	}
+}
+
+// resetCatalogFlags clears the package-level catalog flag vars validateCatalogFlags reads,
+// restoring them after the test.
+func resetCatalogFlags(t *testing.T) {
+	t.Helper()
+	prevStreams, prevAvailable, prevSelected := streamsPath, availableStreamsPath, selectedStreamsPath
+	streamsPath, availableStreamsPath, selectedStreamsPath = "", "", ""
+	t.Cleanup(func() {
+		streamsPath, availableStreamsPath, selectedStreamsPath = prevStreams, prevAvailable, prevSelected
+	})
+}
+
+// TestValidateCatalogFlags covers the shared precondition checks discover, sync, and
+// clear-destination all apply to the --streams / --available-streams / --selected-streams flags.
+func TestValidateCatalogFlags(t *testing.T) {
+	testCases := []struct {
+		name         string
+		streams      string
+		available    string
+		selected     string
+		required     bool
+		expectErr    bool
+		expectedCode string
+	}{
+		{name: "legacy only, required", streams: "streams.json", required: true, expectErr: false},
+		{name: "new format pair, required", available: "available_streams.json", selected: "selected_streams.json", required: true, expectErr: false},
+		{name: "nothing passed, required", required: true, expectErr: true, expectedCode: codeFlagMissing},
+		{name: "nothing passed, not required (discover)", required: false, expectErr: false},
+		{name: "legacy and new format together", streams: "streams.json", available: "available_streams.json", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeConflictingCatalogFlags},
+		{name: "legacy and available only", streams: "streams.json", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeIncompleteCatalogFlagPair},
+		{name: "available without selected", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeIncompleteCatalogFlagPair},
+		{name: "selected without available", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeIncompleteCatalogFlagPair},
+		{name: "selected without available, not required (discover)", selected: "selected_streams.json", required: false, expectErr: true, expectedCode: codeIncompleteCatalogFlagPair},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetCatalogFlags(t)
+			streamsPath, availableStreamsPath, selectedStreamsPath = tc.streams, tc.available, tc.selected
+
+			err := validateCatalogFlags(tc.required)
+			if !tc.expectErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			got := errs.From(errs.Classify(err))
+			assert.Equal(t, tc.expectedCode, got.Code)
+		})
+	}
+}
+
+// TestValidateDifferenceFlags covers the --difference / --difference-available-streams /
+// --difference-selected-streams checks discover applies before a stream difference.
+func TestValidateDifferenceFlags(t *testing.T) {
+	testCases := []struct {
+		name         string
+		difference   string
+		available    string
+		selected     string
+		expectErr    bool
+		expectedCode string
+	}{
+		{name: "nothing passed", expectErr: false},
+		{name: "legacy only", difference: "new_streams.json", expectErr: false},
+		{name: "new format pair", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: false},
+		{name: "available without selected", available: "new_available_streams.json", expectErr: true, expectedCode: codeIncompleteDifferenceFlagPair},
+		{name: "selected without available", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeIncompleteDifferenceFlagPair},
+		{name: "legacy and selected only", difference: "new_streams.json", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeConflictingDifferenceFlags},
+		{name: "legacy and new format together", difference: "new_streams.json", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeConflictingDifferenceFlags},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			prevDifference, prevAvailable, prevSelected := differencePath, differenceAvailableStreamsPath, differenceSelectedStreamsPath
+			t.Cleanup(func() {
+				differencePath, differenceAvailableStreamsPath, differenceSelectedStreamsPath = prevDifference, prevAvailable, prevSelected
+			})
+			differencePath, differenceAvailableStreamsPath, differenceSelectedStreamsPath = tc.difference, tc.available, tc.selected
+
+			err := validateDifferenceFlags()
+			if !tc.expectErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			got := errs.From(errs.Classify(err))
+			assert.Equal(t, tc.expectedCode, got.Code)
+		})
+	}
+}
+
+// --destination is optional for discover, so an absent flag must leave an empty config (its
+// empty type compares every field) rather than fail; sync and clear-destination check
+// destinationPassed themselves.
+func TestLoadDestinationConfig(t *testing.T) {
+	validPath := filepath.Join(t.TempDir(), "destination.json")
+	require.NoError(t, os.WriteFile(validPath, []byte(`{"type":"PARQUET","writer":{}}`), 0o600))
+
+	testCases := []struct {
+		name         string
+		path         string
+		passed       bool
+		expectedType types.DestinationType
+		expectErr    bool
+	}{
+		{name: "flag default", path: "not-set"},
+		{name: "empty path", path: ""},
+		{name: "valid config", path: validPath, passed: true, expectedType: types.Parquet},
+		{name: "missing file", path: filepath.Join(t.TempDir(), "missing.json"), passed: true, expectErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			prevPath, prevConfig := destinationConfigPath, destinationConfig
+			t.Cleanup(func() { destinationConfigPath, destinationConfig = prevPath, prevConfig })
+			destinationConfigPath = tc.path
+
+			assert.Equal(t, tc.passed, destinationPassed())
+			err := loadDestinationConfig()
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, destinationConfig)
+			assert.Equal(t, tc.expectedType, destinationConfig.Type)
 		})
 	}
 }

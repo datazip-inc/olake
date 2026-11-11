@@ -234,14 +234,10 @@ func ContainerPath(fileName string) string {
 	return filepath.Join(containerTestDataDir, fileName)
 }
 
-// SyncArgs builds the `olake sync ...` argument vector run against the driver image.
-func SyncArgs(useState bool, destinationFile string, flags ...string) []string {
-	args := []string{
-		"sync",
-		"--config", ContainerPath("source.json"),
-		"--catalog", ContainerPath("streams.json"),
-		"--destination", ContainerPath(destinationFile),
-	}
+// SyncArgs builds the `olake sync ...` argument vector run against the driver image, reading cfg's working catalog.
+func SyncArgs(cfg *TestConfig, useState bool, destinationFile string, flags ...string) []string {
+	args := append([]string{"sync", "--config", ContainerPath("source.json")}, cfg.CatalogArgs()...)
+	args = append(args, "--destination", ContainerPath(destinationFile))
 
 	if useState {
 		args = append(args, "--state", ContainerPath("state.json"))
@@ -258,7 +254,7 @@ func DiscoverArgs(flags ...string) []string {
 // RunSync runs one sync of cfg against destinationFile under the suite's own destination prefix
 // and renders a failed run as one error.
 func RunSync(ctx context.Context, t *testing.T, cfg *TestConfig, destinationFile string, useState bool) error {
-	args := SyncArgs(useState, destinationFile, "--destination-database-prefix", cfg.UniqueID())
+	args := SyncArgs(cfg, useState, destinationFile, "--destination-database-prefix", cfg.UniqueID())
 	code, out, err := RunOlake(ctx, t, cfg, args...)
 	if err != nil || code != 0 {
 		return RenderOlakeFailure(code, err, out)

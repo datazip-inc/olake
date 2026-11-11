@@ -511,6 +511,21 @@ func MySQLMasterStatusQueryNew() string {
 	return "SHOW BINARY LOG STATUS"
 }
 
+// MySQLServerUUIDQuery returns the query to fetch the MySQL server UUID.
+func MySQLServerUUIDQuery() string {
+	return "SELECT @@server_uuid"
+}
+
+// MySQLGTIDModeQuery returns the query to fetch the server UUID and GTID mode.
+func MySQLGTIDModeQuery() string {
+	return "SELECT @@server_uuid, @@gtid_mode"
+}
+
+// MySQLGTIDStateQuery returns the query to fetch server identity and GTID history.
+func MySQLGTIDStateQuery() string {
+	return "SELECT @@server_uuid, @@gtid_mode, @@global.gtid_executed, @@global.gtid_purged"
+}
+
 // MySQLLogBinQuery returns the query to fetch the log_bin variable in MySQL
 func MySQLLogBinQuery() string {
 	return "SHOW GLOBAL VARIABLES LIKE 'log_bin'"
@@ -535,6 +550,12 @@ func MySQLBinlogRowImageQuery() string {
 // PostgresWalLevelQuery returns the query to fetch the wal_level setting
 func PostgresWalLevelQuery() string {
 	return "SHOW wal_level"
+}
+
+// PostgresWalSenderTimeoutQuery returns wal_sender_timeout in milliseconds; pg_settings gives the
+// raw value, so there is no unit string ("1min") to parse.
+func PostgresWalSenderTimeoutQuery() string {
+	return "SELECT setting::bigint FROM pg_settings WHERE name = 'wal_sender_timeout'"
 }
 
 // PostgresReplicationAttrQuery reports whether the current role can open replication connections
@@ -577,6 +598,32 @@ func MySQLCDCColumnMetadataQuery() string {
 	`
 }
 
+// MySQLCDCTableCollationQuery returns the query for a table's default collation, which a
+// column added later without a charset or collation takes.
+func MySQLCDCTableCollationQuery() string {
+	return `
+		SELECT COALESCE(TABLE_COLLATION, '')
+		FROM INFORMATION_SCHEMA.TABLES
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+	`
+}
+
+// MySQLCDCSchemaCollationQuery returns the query for a database's default collation, which a table
+// created later without a charset or collation takes.
+func MySQLCDCSchemaCollationQuery() string {
+	return `
+		SELECT COALESCE(DEFAULT_COLLATION_NAME, '')
+		FROM INFORMATION_SCHEMA.SCHEMATA
+		WHERE SCHEMA_NAME = ?
+	`
+}
+
+// MySQLLowerCaseTableNamesQuery returns the query for lower_case_table_names: 0 compares table
+// names case-sensitively, 1 and 2 case-insensitively.
+func MySQLLowerCaseTableNamesQuery() string {
+	return `SELECT @@lower_case_table_names`
+}
+
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
 func MySQLTableColumnsQuery() string {
 	return `
@@ -594,9 +641,9 @@ func MySQLTimeZoneQuery() string {
 
 // MySQLVersion returns the version of the MySQL server
 // It returns the flavor, major and minor version of the MySQL server
-func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error) {
+func MySQLVersion(ctx context.Context, client sqlx.QueryerContext) (string, int, int, error) {
 	var version string
-	err := client.QueryRowContext(ctx, "SELECT @@version").Scan(&version)
+	err := client.QueryRowxContext(ctx, "SELECT @@version").Scan(&version)
 	if err != nil {
 		return "", 0, 0, fmt.Errorf("failed to get MySQL version: %w", err)
 	}

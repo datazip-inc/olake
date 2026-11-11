@@ -51,6 +51,13 @@ ifneq ($(OVERLAY_DIR),)
 # so the runtime image also needs the dir on the ldconfig search path.
 	@mkdir -p $(OVERLAY_DIR)/etc/ld.so.conf.d
 	@echo $(CLIDRIVER_RUNTIME_DIR)/lib > $(OVERLAY_DIR)/etc/ld.so.conf.d/db2-clidriver.conf
+else
+# libdb2 needs libxml2.so.2 by name only (it binds no symbol from it) and Ubuntu 25.10+ ships
+# just libxml2.so.16, so an empty library of that name beside libdb2 satisfies the loader.
+	@if LD_LIBRARY_PATH="$(CLIDRIVER_DIR)/lib" ldd "$(CLIDRIVER_DIR)/lib/libdb2.so" 2>/dev/null | grep -q 'libxml2.so.2 => not found'; then \
+		echo "Stubbing libxml2.so.2 in $(CLIDRIVER_DIR)/lib (this host no longer ships it)"; \
+		$(CC) -shared -Wl,-soname,libxml2.so.2 -o "$(CLIDRIVER_DIR)/lib/libxml2.so.2" -x c /dev/null; \
+	fi
 endif
 
 # cgo env for every go command that touches drivers/db2, exported on the
@@ -60,3 +67,6 @@ endif
 # it off for everything else). Deliberately no DYLD_LIBRARY_PATH: it cannot
 # survive SIP (see prepare.db2's install-name fix, which makes it unnecessary).
 GO_ENV.db2 = export CGO_ENABLED=1 IBM_DB_HOME="$(CLIDRIVER_DIR)" CGO_CFLAGS="-I$(CLIDRIVER_DIR)/include" CGO_LDFLAGS="-L$(CLIDRIVER_DIR)/lib -Wl,-rpath,$(CLIDRIVER_RUNTIME_DIR)/lib" LD_LIBRARY_PATH="$(CLIDRIVER_DIR)/lib";
+
+# cgo against IBM's x86-64 clidriver can't cross-compile, so db2's image compiles on its target platform.
+DOCKER_BUILD_ARGS.db2 := --build-arg GO_BUILD=target

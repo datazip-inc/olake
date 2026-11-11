@@ -56,6 +56,12 @@ func (c *Config) URI() string {
 
 	if c.ReplicaSet != "" {
 		query.Set("replicaSet", c.ReplicaSet)
+	}
+
+	// read_preference is valid without a replica set name: SRV and seed lists
+	// discover the set themselves. Default secondaryPreferred only for replica-set
+	// and SRV so a standalone mongodb:// URI stays on the driver default (primary).
+	if c.ReadPreference != "" || c.ReplicaSet != "" || c.Srv {
 		if c.ReadPreference == "" {
 			c.ReadPreference = constants.DefaultReadPreference
 		}

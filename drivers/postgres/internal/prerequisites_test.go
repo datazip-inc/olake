@@ -51,6 +51,7 @@ func TestPostgresPrerequisiteChecks(t *testing.T) {
 				"replication_privilege": true,
 				"replication_slot":      true,
 				"publication":           true,
+				"wal_sender_timeout":    false, // advisory
 			},
 		},
 		{
@@ -60,6 +61,7 @@ func TestPostgresPrerequisiteChecks(t *testing.T) {
 				"wal_level":             true,
 				"replication_privilege": true,
 				"replication_slot":      true,
+				"wal_sender_timeout":    false,
 			},
 		},
 	}
@@ -73,6 +75,43 @@ func TestPostgresPrerequisiteChecks(t *testing.T) {
 				assert.NotNil(t, c.Check, c.Name)
 			}
 			assert.Equal(t, tc.wantRequired, required)
+		})
+	}
+}
+
+func TestPostgresCheckWalSenderTimeout(t *testing.T) {
+	tests := []struct {
+		name        string
+		timeoutMs   int64
+		queryErr    error
+		wantCurrent string
+		wantOK      bool
+		wantErr     bool
+	}{
+		{name: "disabled", timeoutMs: 0, wantCurrent: "0 (disabled)", wantOK: true},
+		{name: "postgres default", timeoutMs: 60000, wantCurrent: "1 minute", wantOK: false},
+		{name: "longer timeout", timeoutMs: 600000, wantCurrent: "10 minutes", wantOK: false},
+		{name: "query error", queryErr: errors.New("boom"), wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p, mock := newMockPostgres(t)
+			q := mock.ExpectQuery(jdbc.PostgresWalSenderTimeoutQuery())
+			if tc.queryErr != nil {
+				q.WillReturnError(tc.queryErr)
+			} else {
+				q.WillReturnRows(sqlmock.NewRows([]string{"setting"}).AddRow(tc.timeoutMs))
+			}
+
+			current, ok, err := p.checkWalSenderTimeout(context.Background())
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.False(t, ok)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantCurrent, current)
+			assert.Equal(t, tc.wantOK, ok)
 		})
 	}
 }

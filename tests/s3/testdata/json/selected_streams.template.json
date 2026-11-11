@@ -1,0 +1,1 @@
+{"selected_streams":{"s3":[{"partition_regex":"","stream_name":"test_table_olake_${suite}","sync_mode":"incremental","cursor_field":"_last_modified_time"}]}}

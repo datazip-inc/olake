@@ -52,13 +52,18 @@ func TestMySQLDiscover(t *testing.T) {
 	mysqlBaseConfig(t).TestDiscover(t)
 }
 
-func TestMySQLSync(t *testing.T) {
-	t.Parallel()
-	cfg := mysqlBaseConfig(t)
+// mysqlSyncConfig adds to mysqlBaseConfig what the sync suites verify after the update sync.
+func mysqlSyncConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	cfg := mysqlBaseConfig(t, opts...)
 	cfg.CursorField = "id_cursor_binary:id_smallint"
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData()
 	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
-	cfg.TestSync(t)
+	return cfg
+}
+
+func TestMySQLSync(t *testing.T) {
+	t.Parallel()
+	mysqlSyncConfig(t).TestSync(t)
 }
 
 // TestMySQLBinarySync keys, partitions and filters on binary columns. The filter cases use the binary cursor so
@@ -148,6 +153,11 @@ func TestMySQL2PC(t *testing.T) {
 func TestMySQLIcebergDV(t *testing.T) {
 	t.Parallel()
 	mysqlBaseConfig(t).TestIcebergDV(t)
+}
+
+func TestMySQLDDL(t *testing.T) {
+	t.Parallel()
+	mysqlBaseConfig(t).TestDDL(t)
 }
 
 func TestMySQLPerformance(t *testing.T) {

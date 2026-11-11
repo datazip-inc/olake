@@ -36,7 +36,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 	backfillCompletionChannel := make(chan string, len(streams))
 	defer close(backfillCompletionChannel)
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		isStrictCDC := stream.GetStream().SyncMode == types.STRICTCDC
+		isStrictCDC := stream.GetSyncMode() == types.STRICTCDC
 		if a.state.HasCompletedBackfill(stream.Self()) || isStrictCDC {
 			logger.Infof("backfill %s for stream[%s], skipping", utils.Ternary(isStrictCDC, "not enabled", "completed").(string), stream.ID())
 			backfillCompletionChannel <- stream.ID()
@@ -58,7 +58,9 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		if isConcurrentMode {
 			a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
 				streamIndex, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				return a.streamChanges(connGroupCtx, pool, streamIndex, streams)
+				// a concurrent change stream reads only its own stream, so it gets only that stream's writer;
+				// writers for the other streams would commit this stream's position into their tables
+				return a.streamChanges(connGroupCtx, pool, streamIndex, streams[streamIndex:streamIndex+1])
 			})
 		} else {
 			// In sequential/parallel modes, track completion but don't start CDC yet

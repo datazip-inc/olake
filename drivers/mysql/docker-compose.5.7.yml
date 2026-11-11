@@ -6,7 +6,7 @@
 #
 # 5.7 predates binlog_row_metadata (MySQL 8.0.1), so its binlog carries no column names,
 # ENUM/SET members, charsets or signedness. That is the point of this file: it is the only
-# stack that exercises the information_schema fallback in pkg/binlog. Do not add the flag
+# stack that exercises the information_schema fallback in internal/binlog. Do not add the flag
 # here to "fix" a failure -- the server would reject it, and a passing run would prove
 # nothing the 8.0 stack does not already cover.
 #

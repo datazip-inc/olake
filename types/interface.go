@@ -13,6 +13,7 @@ type StreamInterface interface {
 	Cursor() (string, string)
 	Validate(source *Stream) error
 	NormalizationEnabled() bool
+	AppendModeEnabled() bool
 	GetDestinationDatabase(icebergDB *string) string
 	GetDestinationTable() string
 	GetPartitionRegex() string
