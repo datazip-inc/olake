@@ -36,13 +36,16 @@ type unavailableValuesResolver struct {
 	threadID string
 	stream   types.StreamInterface
 
-	tracked    map[string]struct{}  // synced columns seen marked in this thread
+	tracked map[string]struct{} // synced columns seen marked in this thread
+	// carry's budget is maxCarryBytes (128 MB) / threads carrying: all of it when alone, 128 MB / N
+	// with N, no minimum. Past it, trim drops the oldest rows down to half.
 	carry      map[string]*carryRow // olake id -> values this thread wrote
 	carryBytes int64
 	writes     int64 // counts carry writes, to tell recently written rows from old ones
 
-	// fetched holds the values read from the destination for rows whose record is not filled
-	// yet, the placeholder where the stored row has none. Its bytes count against Resolve's limit.
+	// fetched holds values read from the destination (the placeholder if the row has none) until
+	// fill uses them, then they move to carry. trim never drops this if it isn't read. This goes
+	// max upto 1GB per thread, but goes over by at most one row.
 	fetched      map[string]map[string]any // olake id -> column -> value
 	fetchedBytes int64
 
@@ -85,7 +88,7 @@ type carryRow struct {
 
 // size is the memory the row counts for in carry: its id, a fixed cost per row for its carry
 // entry, carryRow and values map (carryEntryOverhead), its values' bytes (dataSize) and a fixed
-// cost per value (carryValueOverhead). remember counts the same parts as it stores values.
+// cost per value (carryValueOverhead).
 func (row *carryRow) size(olakeID string) int64 {
 	return int64(len(olakeID)) + carryEntryOverhead + dataSize(row.values) + int64(len(row.values))*carryValueOverhead
 }
@@ -133,22 +136,21 @@ func (r *unavailableValuesResolver) Resolve(ctx context.Context, records []types
 	size, read := int64(0), false
 	for idx := range records {
 		record := &records[idx]
-		missing := len(r.missing(record)) > 0
-		if missing && !read {
+		if !read && len(r.missing(record)) > 0 {
+			read = true
 			if err := r.readAhead(ctx, records[idx:], limit-size-r.fetchedBytes); err != nil {
 				return 0, err
 			}
-			read, missing = true, len(r.missing(record)) > 0
-		}
-		// the first record is read alone, whatever its size, so each call moves on
-		if missing && idx == 0 {
-			if err := r.readAhead(ctx, records[:1], math.MaxInt64); err != nil {
-				return 0, err
+			// the first record is read alone, whatever its size, so each call moves on
+			if idx == 0 && len(r.missing(record)) > 0 {
+				if err := r.readAhead(ctx, records[:1], math.MaxInt64); err != nil {
+					return 0, err
+				}
 			}
 		}
 
 		recordSize := r.filledSize(record)
-		if idx > 0 && (missing || size+recordSize > limit) {
+		if idx > 0 && (len(r.missing(record)) > 0 || size+recordSize > limit) {
 			return idx, nil // the next call goes on from this record
 		}
 		r.fill(record)
@@ -209,11 +211,7 @@ func (r *unavailableValuesResolver) fill(record *types.RawRecord) {
 
 	// The placeholder is remembered too: the destination has nothing better for the row, so its
 	// next change must not read it again.
-	for column := range r.tracked {
-		if value, present := record.Data[column]; present {
-			r.remember(olakeID, column, value)
-		}
-	}
+	r.remember(olakeID, record.Data)
 }
 
 // missing lists the record's unavailable columns that neither carry nor a read answers yet.
@@ -462,25 +460,25 @@ func (r *unavailableValuesResolver) release(olakeID string) {
 	delete(r.fetched, olakeID)
 }
 
-// remember stores the newest value this thread wrote for a row's column.
-func (r *unavailableValuesResolver) remember(olakeID, column string, value any) {
+// remember stores the tracked columns this thread wrote for a row.
+func (r *unavailableValuesResolver) remember(olakeID string, data map[string]any) {
 	row := r.carry[olakeID]
-	if row == nil {
-		r.carryBytes += int64(len(olakeID)) + carryEntryOverhead // a deleted row's entry is counted already
+	if row != nil {
+		r.carryBytes -= row.size(olakeID)
 	}
 	if row == nil || row.deleted {
 		row = &carryRow{values: make(map[string]any, len(r.tracked))}
 		r.carry[olakeID] = row
 	}
 
-	previous, found := row.values[column]
-	r.carryBytes += valueSize(value) - valueSize(previous)
-	if !found {
-		r.carryBytes += carryValueOverhead
+	for column := range r.tracked {
+		if value, present := data[column]; present {
+			row.values[column] = value
+		}
 	}
-	row.values[column] = value
 	r.writes++
 	row.written = r.writes
+	r.carryBytes += row.size(olakeID)
 }
 
 // tombstone marks a row deleted and releases the values it carried.
@@ -498,6 +496,7 @@ func (r *unavailableValuesResolver) tombstone(olakeID string) {
 // A dropped row is read back on its next change; old rows go first as they sit in closed files,
 // while a recent one may sit in a file still open. Halving keeps trims rare.
 func (r *unavailableValuesResolver) trim() {
+	// the budget is split equally among the threads carrying values; this thread is one, so never zero
 	share := maxCarryBytes / carriers.Load()
 	if r.carryBytes <= share {
 		return
@@ -506,6 +505,7 @@ func (r *unavailableValuesResolver) trim() {
 	olakeIDs := slices.SortedFunc(maps.Keys(r.carry), func(a, b string) int {
 		return cmp.Compare(r.carry[a].written, r.carry[b].written)
 	})
+	// dropping to half , as trimming is expensive, so delaying next trim to a longer period.
 	for _, olakeID := range olakeIDs {
 		if r.carryBytes <= share/2 {
 			break

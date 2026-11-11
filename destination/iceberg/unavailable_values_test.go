@@ -738,10 +738,13 @@ func TestResolveReadRequest(t *testing.T) {
 		"2": {FilePath: "a.parquet", Position: 9},
 		"3": {FilePath: "a.parquet", Position: 2},
 	}
-	marked := []types.RawRecord{
-		testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
-		testRecord("2", "u", map[string]any{"id": 2, "payload": placeholder, "doc": placeholder}, "payload", "doc"),
-		testRecord("3", "u", map[string]any{"id": 3, "doc": placeholder}, "doc"),
+	// a function, as Resolve fills the records it is given
+	marked := func() []types.RawRecord {
+		return []types.RawRecord{
+			testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
+			testRecord("2", "u", map[string]any{"id": 2, "payload": placeholder, "doc": placeholder}, "payload", "doc"),
+			testRecord("3", "u", map[string]any{"id": 3, "doc": placeholder}, "doc"),
+		}
 	}
 
 	testCases := []struct {
@@ -757,7 +760,7 @@ func TestResolveReadRequest(t *testing.T) {
 		{
 			name:      "each row reads only the columns it is missing",
 			locations: locations,
-			records:   marked,
+			records:   marked(),
 			expectedRows: map[string]map[int64][]string{
 				"a.parquet": {9: {constants.OpType, "payload", "doc"}, 2: {constants.OpType, "doc"}},
 				"b.parquet": {5: {constants.OpType, "payload"}},
@@ -774,7 +777,7 @@ func TestResolveReadRequest(t *testing.T) {
 				{"a.parquet", 9, constants.StringifiedData}: `{"id":2}`,
 				{"b.parquet", 5, constants.StringifiedData}: `{"id":1}`,
 			},
-			records: marked,
+			records: marked(),
 			expectedRows: map[string]map[int64][]string{
 				"a.parquet": {9: {constants.OpType, constants.StringifiedData}, 2: {constants.OpType, constants.StringifiedData}},
 				"b.parquet": {5: {constants.OpType, constants.StringifiedData}},
