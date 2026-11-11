@@ -58,3 +58,11 @@ type DriverInterface interface {
 type UpdateTypeRestricter interface {
 	SupportedUpdateTypes() []types.UpdateType
 }
+
+// NormalizationDefaulter is implemented by a driver that decides the normalization default of its
+// discovered streams from its own config, e.g. S3 turns it on for CSV and Parquet whose columns are
+// known at discover time. Without it, discover falls back to the relational-source default. Discover
+// calls it after the config is loaded, so it may read config but must not need a connection.
+type NormalizationDefaulter interface {
+	DefaultNormalization() bool
+}
