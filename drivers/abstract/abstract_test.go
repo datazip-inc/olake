@@ -432,9 +432,13 @@ func TestDiscover(t *testing.T) {
 	}
 }
 
-// TestDiscoverSchemaErrorFailsFast pins that a ProduceSchema failure ends discover on the first
-// attempt: retrying would wait DefaultRetryTimeout per attempt, past the discover timeout.
-func TestDiscoverSchemaErrorFailsFast(t *testing.T) {
+// TestDiscoverRetriesTransientSchemaError pins that a transient ProduceSchema failure is retried
+// retry_count times, and that the cause survives the retry and discover wrappers.
+func TestDiscoverRetriesTransientSchemaError(t *testing.T) {
+	prev := discoverRetryBackoff
+	discoverRetryBackoff = time.Millisecond
+	t.Cleanup(func() { discoverRetryBackoff = prev })
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -451,12 +455,34 @@ func TestDiscoverSchemaErrorFailsFast(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Nil(t, streams)
-	assert.Equal(t, int32(1), calls.Load(), "ProduceSchema attempts")
+	assert.Equal(t, int32(4), calls.Load(), "ProduceSchema attempts")
 
-	// the cause survives the discover wrappers, so a timeout here would show as a different category
 	got := errs.From(errs.Classify(err))
 	assert.Equal(t, errs.NetworkUnreachable, got.Category, "category")
 	assert.Equal(t, "connection_reset", got.Code, "code")
+}
+
+// TestDiscoverPermanentSchemaErrorFailsFast pins that a permanent ProduceSchema failure ends
+// discover on the first attempt, since retrying cannot change the outcome.
+func TestDiscoverPermanentSchemaErrorFailsFast(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	calls := &atomic.Int32{}
+	driver := NewAbstractDriver(ctx, stubDriver{
+		typ:         "postgres",
+		streamNames: []types.StreamID{{Namespace: "public", Name: "orders"}},
+		schemaErr:   errs.Precondition(errs.AuthFailed, "postgres.auth_failed", errors.New("bad password")),
+		maxRetries:  3,
+		schemaCalls: calls,
+	})
+
+	streams, err := driver.Discover(ctx, 0, false)
+
+	require.Error(t, err)
+	assert.Nil(t, streams)
+	assert.Equal(t, int32(1), calls.Load(), "ProduceSchema attempts")
+	assert.Equal(t, errs.AuthFailed, errs.From(errs.Classify(err)).Category, "category")
 }
 
 // stubDriver is a DriverInterface that returns zero values except where a test sets a field.

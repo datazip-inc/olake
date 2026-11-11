@@ -372,3 +372,18 @@ func rootType(err error) string {
 	// Nothing anywhere names the failure, so report the type they all share.
 	return genericErrorType
 }
+
+// IsTransient reports whether err may succeed if retried unchanged after a short wait: a dropped
+// connection, a timeout, contention or exhausted capacity. Configuration, rights and existence
+// failures are not, and neither is an unclassified error, so an unknown cause still fails fast.
+func IsTransient(err error) bool {
+	f := From(Classify(err))
+	switch f.Category {
+	case NetworkUnreachable, Timeout, ConcurrencyConflict, ResourceExhausted:
+		return true
+	case DNSResolutionFailed:
+		// a resolver that timed out is infrastructure; a name that does not exist is a typo
+		return f.Code == "resolver_timeout"
+	}
+	return false
+}
