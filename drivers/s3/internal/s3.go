@@ -48,6 +48,18 @@ func (s *S3) Type() string {
 	return "s3"
 }
 
+// DefaultNormalization starts CSV and Parquet streams with normalization on, because their columns
+// are known at discover time: discover reads one typed column per CSV header, and Parquet files carry
+// their own schema. JSON and XML keep it off, since their records have no fixed column set until read.
+func (s *S3) DefaultNormalization() bool {
+	switch s.config.FileFormat {
+	case FormatCSV, FormatParquet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Setup initializes the S3 client and validates the configuration
 func (s *S3) Setup(ctx context.Context) error {
 	// Validate configuration

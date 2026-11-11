@@ -280,6 +280,25 @@ func TestConfigPathPrefixNormalization(t *testing.T) {
 	}
 }
 
+func TestDefaultNormalization(t *testing.T) {
+	tests := []struct {
+		format FileFormat
+		want   bool
+	}{
+		{FormatCSV, true},
+		{FormatParquet, true},
+		{FormatJSON, false},
+		{FormatXML, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.format), func(t *testing.T) {
+			s := &S3{config: &Config{FileFormat: tt.format}}
+			assert.Equal(t, tt.want, s.DefaultNormalization())
+		})
+	}
+}
+
 func TestConfigAllFileFormats(t *testing.T) {
 	formats := supportedFileFormats
 
