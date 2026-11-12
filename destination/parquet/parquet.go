@@ -274,7 +274,7 @@ func (p *Parquet) encodeDecimals(data map[string]any) error {
 		if _, isDecimal := value.(typeutils.Decimal); !isDecimal || p.schema[column] == nil {
 			continue
 		}
-		precision, scale, ok := types.DecimalParams(p.schema[column].Type())
+		ok, precision, scale := types.IsDecimal(p.schema[column].Type())
 		if !ok {
 			continue
 		}

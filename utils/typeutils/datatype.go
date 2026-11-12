@@ -214,7 +214,7 @@ func detectTimestampPrecision(t time.Time) types.DataType {
 
 func ExtractAndMapColumnType(columnType string, typeMapping map[string]types.DataType) types.DataType {
 	// a reader names a decimal column by its precision and scale (DecimalColumnType)
-	if precision, scale, isDecimal := types.DecimalParams(types.DataType(columnType)); isDecimal {
+	if isDecimal, precision, scale := types.IsDecimal(types.DataType(columnType)); isDecimal {
 		return types.NumericOf(int64(precision), int64(scale))
 	}
 	// extracts the base type (e.g., varchar(50) -> varchar)

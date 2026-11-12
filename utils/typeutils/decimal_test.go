@@ -13,7 +13,7 @@ import (
 
 // newDecimal builds a Decimal straight from its unscaled digits, so expectations skip the parser.
 func newDecimal(dataType types.DataType, unscaled string) Decimal {
-	_, scale, _ := types.DecimalParams(dataType)
+	_, _, scale := types.IsDecimal(dataType)
 	return Decimal{unscaled: unscaledNum(unscaled), scale: scale, dataType: dataType}
 }
 

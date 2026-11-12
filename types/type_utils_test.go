@@ -434,7 +434,7 @@ func TestNumericOf(t *testing.T) {
 	}
 }
 
-func TestDecimalParams(t *testing.T) {
+func TestIsDecimal(t *testing.T) {
 	testCases := []struct {
 		name             string
 		dataType         DataType
@@ -479,7 +479,7 @@ func TestDecimalParams(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			precision, scale, ok := DecimalParams(tc.dataType)
+			ok, precision, scale := IsDecimal(tc.dataType)
 			require.Equal(t, tc.ok, ok)
 			require.Equal(t, tc.precision, precision)
 			require.Equal(t, tc.scale, scale)

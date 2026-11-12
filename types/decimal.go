@@ -15,7 +15,7 @@ const MaxDecimalPrecision = 38
 // scale sit after the point.
 var decimalFamily = newTypeFamily(Decimal, validDecimal[int])
 
-// validDecimal also checks the int32 parameters DecimalParams scans, the type arrow takes them in, and the
+// validDecimal also checks the int32 parameters IsDecimal scans, the type arrow takes them in, and the
 // int64 ones database/sql reports.
 func validDecimal[N int | int32 | int64](p []N) bool {
 	return len(p) == 2 && p[0] >= 1 && p[0] <= MaxDecimalPrecision && p[1] <= p[0]
@@ -53,13 +53,13 @@ func DecimalOf(precision, scale int) DataType {
 	return Decimal.Of(precision, scale)
 }
 
-// DecimalParams returns the precision and scale of a decimal(p,s) DataType without allocating.
-func DecimalParams(d DataType) (precision, scale int32, ok bool) {
+// IsDecimal reports whether d is a decimal(p,s) DataType, with its precision and scale, without allocating.
+func IsDecimal(d DataType) (isDecimal bool, precision, scale int32) {
 	var params [2]int32
 	if !utils.ScanType(d, Decimal, params[:]) || !validDecimal(params[:]) {
-		return 0, 0, false
+		return false, 0, 0
 	}
-	return params[0], params[1], true
+	return true, params[0], params[1]
 }
 
 // IsIcebergDecimal reports whether an iceberg type is a decimal(p, s).
@@ -91,8 +91,8 @@ func DecimalBytes(precision int32) int32 {
 
 // widerDecimal returns the narrowest decimal holding every value of two decimals, when one exists.
 func widerDecimal(t1, t2 DataType) (DataType, bool) {
-	p1, s1, ok1 := DecimalParams(t1)
-	p2, s2, ok2 := DecimalParams(t2)
+	ok1, p1, s1 := IsDecimal(t1)
+	ok2, p2, s2 := IsDecimal(t2)
 	if !ok1 || !ok2 {
 		return "", false
 	}

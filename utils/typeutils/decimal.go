@@ -82,7 +82,7 @@ func ReformatDecimal(dataType types.DataType, v any) (Decimal, error) {
 	if d, isDecimal := v.(Decimal); isDecimal && d.dataType == dataType {
 		return d, nil
 	}
-	precision, scale, isDecimal := types.DecimalParams(dataType)
+	isDecimal, precision, scale := types.IsDecimal(dataType)
 	if !isDecimal {
 		return Decimal{}, fmt.Errorf("%s is not a decimal type", dataType)
 	}
