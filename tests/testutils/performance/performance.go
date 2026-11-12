@@ -277,7 +277,15 @@ func summarizeMemory(samples []float64) memoryUsage {
 	if len(samples) == 0 {
 		return memoryUsage{}
 	}
+	// TEMP: remove before merge. Raw reads in time order, to study the memory profile.
+	fmt.Printf("memory samples MiB (1 per second, in time order) n=%d:\n%.0f\n", len(samples), samples)
 	slices.Sort(samples)
+	// TEMP: remove before merge.
+	fmt.Println("memory percentiles MiB:")
+	for _, p := range []int{50, 60, 70, 75, 80, 85, 90, 95, 99} {
+		fmt.Printf("  p%d = %.0f\n", p, samples[(p*len(samples)+99)/100-1])
+	}
+	fmt.Printf("  peak = %.0f\n", samples[len(samples)-1])
 	return memoryUsage{
 		PeakMiB: samples[len(samples)-1],
 		P95MiB:  samples[int(math.Ceil(0.95*float64(len(samples))))-1],
