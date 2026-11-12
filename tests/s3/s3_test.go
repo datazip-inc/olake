@@ -27,12 +27,21 @@ func s3TestConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestCon
 // s3BaseConfig is s3TestConfig with the integration suites' expected data.
 func s3BaseConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestConfigOption) *integration.TestHandler {
 	config := s3TestConfig(t, variant, opts...)
+	updateRows := 3
+	if variant.BuildEvolvedFile != nil && !config.SkipSchemaEvolution {
+		updateRows = 6
+	}
 	cfg := &integration.TestHandler{
 		TestConfig:                config,
 		ExpectedData:              variant.ExpectedRowData(seedValues),
 		ExpectedUpdatedData:       variant.ExpectedRowData(updatedValues),
 		DestinationDataTypeSchema: variant.DestinationSchema,
 		TypeMapping:               S3TypeMapping,
+		RowCounts: integration.RowCountContract{
+			FullLoad: 6,
+			Insert:   3,
+			Update:   updateRows,
+		},
 	}
 	// The factory refreshes this handler's writer expectations, so it is rebuilt once the handler exists.
 	config.SetExecuteQuery(ExecuteQueryFactory(variant, cfg))
