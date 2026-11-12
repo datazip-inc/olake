@@ -3,6 +3,7 @@ package parquet
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -268,7 +269,7 @@ func (p *Parquet) checkFixedWidths(data map[string]any) error {
 }
 
 // encodeDecimals replaces each decimal value with what its column stores: the unscaled integer as an
-// int32 up to 9 digits or an int64 up to 18, else the exact text.
+// int32 up to 9 digits, an int64 up to 18, else its fixed width of big-endian two's complement bytes.
 func (p *Parquet) encodeDecimals(data map[string]any) error {
 	for column, value := range data {
 		if _, isDecimal := value.(typeutils.Decimal); !isDecimal || p.schema[column] == nil {
@@ -288,13 +289,22 @@ func (p *Parquet) encodeDecimals(data map[string]any) error {
 		case precision <= 18:
 			data[column], err = unscaledInt64(unscaled)
 		default:
-			data[column] = typeutils.DecimalText(unscaled, scale)
+			data[column] = unscaledBytes(unscaled, types.DecimalBytes(precision))
 		}
 		if err != nil {
 			return fmt.Errorf("field[%s]: %w", column, err)
 		}
 	}
 	return nil
+}
+
+// unscaledBytes is an unscaled decimal as the width big-endian two's complement bytes a FIXED_LEN_BYTE_ARRAY
+// decimal stores. The value fits its precision's width, so the bytes left off only repeat its sign.
+func unscaledBytes(unscaled decimal128.Num, width int32) []byte {
+	var b [16]byte
+	_, _ = binary.Encode(b[:8], binary.BigEndian, unscaled.HighBits()) // writes the int64's own bits; 8 bytes always fit
+	binary.BigEndian.PutUint64(b[8:], unscaled.LowBits())
+	return b[16-width:]
 }
 
 // unscaledInt64 is an unscaled decimal as an int64, failing when it needs more than 63 bits.

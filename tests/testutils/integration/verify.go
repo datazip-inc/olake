@@ -363,7 +363,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 
 		expectedType, mapped := typeMapping[dbType]
 		require.Truef(t, mapped, "column %s is declared as %q, which the %s suite's TypeMapping does not define; the declared types and the mapping must agree", col, dbType, driver)
-		require.Equal(t, parquetSparkTypeOf(expectedType), pqType,
+		require.Equal(t, sparkTypeOf(expectedType), pqType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
 	}
 	t.Logf("Verified datatypes in Parquet after sync")
@@ -445,31 +445,17 @@ func sparkTypeOf(expected string) string {
 	return expected
 }
 
-// parquetSparkTypeOf is the type Spark reports for an expected type in the parquet destination, which keeps a
-// decimal past 18 digits as its exact text.
-func parquetSparkTypeOf(expected string) string {
-	var precision, scale int
-	if n, _ := fmt.Sscanf(expected, "decimal(%d,%d)", &precision, &scale); n == 2 && precision > 18 {
-		return "string"
-	}
-	return sparkTypeOf(expected)
-}
-
 // sparkValueOf is a destination value in the form its expectation states it. A Decimal expectation is exact
-// text at the column's scale; Spark returns a decimal as its unscaled integer, or as text for parquet past 18 digits.
+// text at the column's scale; Spark returns a decimal as its unscaled integer.
 func sparkValueOf(expected, actual any) any {
 	if _, isDecimal := expected.(testutils.Decimal); !isDecimal {
 		return actual
 	}
-	switch v := actual.(type) {
-	case decimal128.Num:
+	if v, isNum := actual.(decimal128.Num); isNum {
 		_, fraction, _ := strings.Cut(string(expected.(testutils.Decimal)), ".")
 		return testutils.Decimal(decimalText(v, len(fraction)))
-	case string:
-		return testutils.Decimal(v)
-	default:
-		return actual
 	}
+	return actual
 }
 
 // decimalText prints an unscaled integer at scale exactly, with every digit of the scale.

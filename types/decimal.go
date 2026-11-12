@@ -30,8 +30,8 @@ func NumericOf(precision, scale int64) DataType {
 	return Decimal.Of(precision, scale)
 }
 
-// decimalNode stores the unscaled value in an int32 up to 9 digits and an int64 up to 18. parquet-go
-// bounds fixed bytes unsigned, mis-pruning negatives (parquet-go#595), so wider ones stay exact text.
+// decimalNode stores the unscaled value in an int32 up to 9 digits, an int64 up to 18 and, past that, the
+// fewest bytes of big-endian two's complement that hold it, as iceberg does.
 func decimalNode(params ...any) parquet.Node {
 	precision, scale := params[0].(int), params[1].(int)
 	switch {
@@ -40,7 +40,8 @@ func decimalNode(params ...any) parquet.Node {
 	case precision <= 18:
 		return parquet.Decimal(scale, precision, parquet.Int64Type)
 	default:
-		return parquet.String()
+		fixed := parquet.Decimal(scale, precision, parquet.FixedLenByteArrayType(DecimalBytes(precision)))
+		return parquet.Leaf(signedDecimal{fixed.Type()})
 	}
 }
 
@@ -81,8 +82,8 @@ func IcebergDecimalParams(icebergType string) (precision, scale int32, ok bool) 
 }
 
 // DecimalBytes is the fewest bytes that hold every two's complement unscaled value of precision.
-func DecimalBytes(precision int32) int32 {
-	n := int32(1)
+func DecimalBytes[N int | int32](precision N) N {
+	n := N(1)
 	for math.Pow(2, float64(8*n-1)) < math.Pow10(int(precision)) {
 		n++
 	}

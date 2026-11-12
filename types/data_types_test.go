@@ -69,8 +69,8 @@ func TestToNewParquet(t *testing.T) {
 		{FixedBinaryOf(16), parquet.Leaf(parquet.FixedLenByteArrayType(16))},
 		{DecimalOf(9, 2), parquet.Decimal(2, 9, parquet.Int32Type)},
 		{DecimalOf(18, 2), parquet.Decimal(2, 18, parquet.Int64Type)},
-		{DecimalOf(19, 0), parquet.String()},
-		{DecimalOf(38, 10), parquet.String()},
+		{DecimalOf(19, 0), parquet.Decimal(0, 19, parquet.FixedLenByteArrayType(9))},
+		{DecimalOf(38, 10), parquet.Decimal(10, 38, parquet.FixedLenByteArrayType(16))},
 		{DataType("undeclared_type"), parquet.Leaf(parquet.ByteArrayType)},
 	}
 
