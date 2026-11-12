@@ -124,6 +124,8 @@ func (th *TestHandler) runBackfill(ctx context.Context, t *testing.T) error {
 
 	defer testutils.TrackPhaseTiming(t, th.Driver, "backfill sync")()
 	out, usage, err := th.timedSync(ctx, usePreChunkedState)
+	// Logged before the error check, so a sync that fails, an OOM kill among them, still reports its memory.
+	t.Logf("%s backfill: peak memory %.0f MiB, p95 memory %.0f MiB", th.Driver, usage.PeakMiB, usage.P95MiB)
 	if err != nil {
 		return fmt.Errorf("backfill sync failed: %s\n%s", err, out)
 	}
@@ -148,6 +150,8 @@ func (th *TestHandler) runCDC(ctx context.Context, t *testing.T) error {
 
 	defer testutils.TrackPhaseTiming(t, th.Driver, "cdc sync")()
 	out, usage, err := th.timedSync(ctx, true)
+	// Logged before the error check, so a sync that fails, an OOM kill among them, still reports its memory.
+	t.Logf("%s cdc: peak memory %.0f MiB, p95 memory %.0f MiB", th.Driver, usage.PeakMiB, usage.P95MiB)
 	if err != nil {
 		return fmt.Errorf("cdc sync failed: %s\n%s", err, out)
 	}
@@ -326,10 +330,9 @@ func (th *TestHandler) recordBenchmark(t *testing.T, isBackfill bool, usage memo
 	averageRPS := testutils.Average(past.RPS)
 	mode := testutils.Ternary(isBackfill, "backfill", "cdc").(string)
 	t.Logf("%s %s: currentRPS %.2f, averageRPS %.2f, observations %d", th.Driver, mode, rps, averageRPS, len(past.RPS))
-	// Logged before either gate, so a run that fails one still reports the other.
 	averagePeakMiB, averageP95MiB := testutils.Average(past.PeakMemoryMiB), testutils.Average(past.P95MemoryMiB)
-	t.Logf("%s %s: peak memory %.0f MiB (average %.0f), p95 memory %.0f MiB (average %.0f), observations %d",
-		th.Driver, mode, usage.PeakMiB, averagePeakMiB, usage.P95MiB, averageP95MiB, len(past.PeakMemoryMiB))
+	t.Logf("%s %s: peak memory history %.0f MiB (average %.0f), p95 memory history %.0f MiB (average %.0f)",
+		th.Driver, mode, past.PeakMemoryMiB, averagePeakMiB, past.P95MemoryMiB, averageP95MiB)
 
 	if len(past.RPS) == 0 {
 		t.Logf("no benchmarks recorded for %s %s yet, seeding the history with this run", th.Driver, mode)
