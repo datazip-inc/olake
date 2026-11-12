@@ -2841,3 +2841,11 @@ func TestReformatTimeValue(t *testing.T) {
 		})
 	}
 }
+
+func TestReformatDateNonDatePattern(t *testing.T) {
+	// Values like 505-10-02527A should not pass startsWithDatePattern (not YYYY-MM-DD)
+	_, err := ReformatDate("505-10-02527A", false)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "string does not start with date pattern")
+}
+

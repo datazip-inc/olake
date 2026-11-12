@@ -255,3 +255,24 @@ func assertChunksEqual(t *testing.T, chunks *types.Set[types.Chunk], expected []
 func validNullInt64(value int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: value, Valid: true}
 }
+
+func TestIsNumericAndEvenDistributedWithByteSlice(t *testing.T) {
+	typeMapping := map[string]types.DataType{
+		"int": types.Int64,
+	}
+
+	// [56 50 51 50] is ASCII "8232"
+	minVal := []byte("8232")
+	maxVal := []byte("11439")
+	bounds := isNumericAndEvenDistributed(minVal, maxVal, 3208, 1000, "int", typeMapping)
+	if bounds == nil {
+		t.Fatal("expected bounds to be non-nil for byte-slice numeric values")
+	}
+	if bounds.MinBoundary != 8232 {
+		t.Fatalf("expected minBoundary 8232, got %d", bounds.MinBoundary)
+	}
+	if bounds.MaxBoundary != 11439 {
+		t.Fatalf("expected maxBoundary 11439, got %d", bounds.MaxBoundary)
+	}
+}
+
