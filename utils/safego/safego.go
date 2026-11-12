@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -79,7 +80,7 @@ func Recovery(exit bool) {
 	}
 	if exit {
 		logger.Infof("Time of execution %v", time.Since(startTime).String())
-		os.Exit(1)
+		os.Exit(constants.ExitCodeFailure)
 	}
 }
 

@@ -128,7 +128,7 @@ func (m *Mongo) CDCSupported() bool {
 
 func (m *Mongo) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
+		return fmt.Errorf("%w: failed to validate config: %w", constants.ErrManualIntervention, err)
 	}
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {

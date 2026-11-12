@@ -14,7 +14,7 @@ func parseGTIDSet(value string) (mysql.GTIDSet, error) {
 	set, err := mysql.ParseGTIDSet("mysql", value)
 	if err != nil {
 		return nil, errs.Precondition(errs.StateInvalid, "mysql.gtid_invalid",
-			fmt.Errorf("%w: unsupported or invalid MySQL GTID set: %w", constants.ErrNonRetryable, err))
+			fmt.Errorf("%w: unsupported or invalid MySQL GTID set: %w", constants.ErrManualIntervention, err))
 	}
 	return set, nil
 }
@@ -47,14 +47,14 @@ func (b Binlog) Compare(other Binlog) (int, error) {
 		return -1, nil
 	default:
 		return 0, errs.Precondition(errs.StateInvalid, "mysql.gtid_incomparable",
-			fmt.Errorf("%w: MySQL checkpoints contain different transaction histories", constants.ErrNonRetryable))
+			fmt.Errorf("%w: MySQL checkpoints contain different transaction histories", constants.ErrManualIntervention))
 	}
 }
 
 func validateGTIDHistory(saved, target mysql.GTIDSet, mode, executed, purged string) error {
 	if mode != "ON" {
 		return errs.Precondition(errs.CDCPositionLost, "mysql.gtid_disabled",
-			fmt.Errorf("%w: a GTID checkpoint requires gtid_mode=ON on the source", constants.ErrNonRetryable))
+			fmt.Errorf("%w: a GTID checkpoint requires gtid_mode=ON on the source", constants.ErrManualIntervention))
 	}
 	executedSet, err := parseGTIDSet(executed)
 	if err != nil {
@@ -66,11 +66,11 @@ func validateGTIDHistory(saved, target mysql.GTIDSet, mode, executed, purged str
 	}
 	if !executedSet.Contain(saved) || !executedSet.Contain(target) {
 		return errs.Precondition(errs.CDCPositionLost, "mysql.gtid_history_missing",
-			fmt.Errorf("%w: the source has not executed the saved checkpoint or sync target; reconnect to a source with the required transaction history", constants.ErrNonRetryable))
+			fmt.Errorf("%w: the source has not executed the saved checkpoint or sync target; reconnect to a source with the required transaction history", constants.ErrManualIntervention))
 	}
 	if !saved.Contain(purgedSet) {
 		return errs.Precondition(errs.CDCPositionLost, "mysql.gtid_purged",
-			fmt.Errorf("%w: transactions needed after the saved GTID checkpoint have been purged; restore the required binlogs or resync", constants.ErrNonRetryable))
+			fmt.Errorf("%w: transactions needed after the saved GTID checkpoint have been purged; restore the required binlogs or resync", constants.ErrManualIntervention))
 	}
 	return nil
 }
@@ -129,10 +129,10 @@ func rejectUnsupported(event *replication.BinlogEvent, operation string) error {
 	switch event.Header.EventType {
 	case replication.ANONYMOUS_GTID_EVENT, replication.GTID_TAGGED_LOG_EVENT,
 		replication.XA_PREPARE_LOG_EVENT, replication.TRANSACTION_PAYLOAD_EVENT:
-		return fmt.Errorf("%w: unsupported event %s %s", constants.ErrNonRetryable, event.Header.EventType, operation)
+		return fmt.Errorf("%w: unsupported event %s %s", constants.ErrManualIntervention, event.Header.EventType, operation)
 	}
 	if query, ok := event.Event.(*replication.QueryEvent); ok && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(string(query.Query))), "XA ") {
-		return fmt.Errorf("%w: XA transactions are not supported %s", constants.ErrNonRetryable, operation)
+		return fmt.Errorf("%w: XA transactions are not supported %s", constants.ErrManualIntervention, operation)
 	}
 	return nil
 }

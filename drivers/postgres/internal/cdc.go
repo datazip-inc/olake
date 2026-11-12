@@ -48,7 +48,7 @@ func checkStreamsInPublication(publication string, pubTables []pubTable, streams
 		return fmt.Errorf(
 			"%w: publication %q exists but contains no tables; "+
 				"add the required tables with: ALTER PUBLICATION %s ADD TABLE <schema>.<table>",
-			constants.ErrNonRetryable, publication, publication,
+			constants.ErrManualIntervention, publication, publication,
 		)
 	}
 
@@ -71,7 +71,7 @@ func checkStreamsInPublication(publication string, pubTables []pubTable, streams
 			"%w: the following tables are selected in streams.json but are NOT tracked by "+
 				"publication %q — add them before starting the sync:\n  %s\n"+
 				"Run: ALTER PUBLICATION %s ADD TABLE %s",
-			constants.ErrNonRetryable,
+			constants.ErrManualIntervention,
 			publication,
 			strings.Join(missing, "\n  "),
 			publication,
@@ -104,7 +104,7 @@ func validatePublicationContainsStreams(ctx context.Context, conn *sqlx.DB, publ
 		return fmt.Errorf(
 			"%w: publication %q does not exist; "+
 				"please create it with: CREATE PUBLICATION %s FOR TABLE <schema>.<table>",
-			constants.ErrNonRetryable, publication, publication,
+			constants.ErrManualIntervention, publication, publication,
 		)
 	}
 
@@ -118,7 +118,7 @@ func validatePublicationContainsStreams(ctx context.Context, conn *sqlx.DB, publ
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
 		return nil, errs.Precondition(errs.CDCPreconditionFailed, codeCDCNotConfigured,
-			fmt.Errorf("invalid call; %s not running in CDC mode", p.Type()))
+			fmt.Errorf("%w: invalid call; %s not running in CDC mode", constants.ErrManualIntervention, p.Type()))
 	}
 
 	tlsConfig, err := p.config.buildTLSConfig()
@@ -171,7 +171,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	rawGlobalState := p.state.GetGlobal()
 	if err := utils.Unmarshal(rawGlobalState.State, &postgresGlobalState); err != nil {
 		return nil, errs.Precondition(errs.StateInvalid, codeGlobalStateUnreadable,
-			fmt.Errorf("failed to unmarshal global state: %w", err))
+			fmt.Errorf("%w: failed to unmarshal global state: %w", constants.ErrManualIntervention, err))
 	}
 
 	var metadataCommittedLSN string
@@ -186,19 +186,19 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 			var mtState waljs.WALState
 			if err := json.Unmarshal([]byte(stMtState), &mtState); err != nil {
 				return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateUnreadable,
-					fmt.Errorf("failed to unmarshal metadata state: %w", err))
+					fmt.Errorf("%w: failed to unmarshal metadata state: %w", constants.ErrManualIntervention, err))
 			}
 
 			// Recovery is only needed when metadata is strictly AHEAD of state.
 			parsedMetaLSN, err := pglogrepl.ParseLSN(mtState.LSN)
 			if err != nil {
 				return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
-					fmt.Errorf("failed to parse metadata LSN %q: %w", mtState.LSN, err))
+					fmt.Errorf("%w: failed to parse metadata LSN %q: %w", constants.ErrManualIntervention, mtState.LSN, err))
 			}
 			parsedStateLSN, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
 				return nil, errs.Precondition(errs.StateInvalid, codeGlobalLSNUnparseable,
-					fmt.Errorf("failed to parse global state LSN %q: %w", postgresGlobalState.LSN, err))
+					fmt.Errorf("%w: failed to parse global state LSN %q: %w", constants.ErrManualIntervention, postgresGlobalState.LSN, err))
 			}
 			if parsedMetaLSN > parsedStateLSN {
 				// metadata ahead of state: genuine crash-recovery path
@@ -208,7 +208,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 			// state >= metadata: state is up to date, stream forward normally
 		} else {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateNotString,
-				fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState))
+				fmt.Errorf("%w: failed to typecast metadata state of type[%T] to string", constants.ErrManualIntervention, rawMtState))
 		}
 	}
 
@@ -222,7 +222,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		parsed, err := pglogrepl.ParseLSN(metadataCommittedLSN)
 		if err != nil {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
-				fmt.Errorf("failed to parse recovery LSN %q: %w", metadataCommittedLSN, err))
+				fmt.Errorf("%w: failed to parse recovery LSN %q: %w", constants.ErrManualIntervention, metadataCommittedLSN, err))
 		}
 		recoveryLSN = &parsed
 
@@ -263,7 +263,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	slotAtMetadataLSN := recoveryLSN != nil && slot.LSN == *recoveryLSN
 	if len(remainingStreams) > 0 && !slotAtMetadataLSN {
 		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
-			return nil, fmt.Errorf("%w: invalid global state: %w", constants.ErrNonRetryable, err)
+			return nil, fmt.Errorf("%w: invalid global state: %w", constants.ErrManualIntervention, err)
 		}
 	} else {
 		logger.Infof("all streams already committed in destination, skipping state LSN validation")

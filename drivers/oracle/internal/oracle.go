@@ -31,7 +31,7 @@ type Oracle struct {
 func (o *Oracle) Setup(ctx context.Context) error {
 	err := o.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
+		return fmt.Errorf("%w: failed to validate config: %w", constants.ErrManualIntervention, err)
 	}
 
 	if o.config.SSHConfig != nil && o.config.SSHConfig.Host != "" {

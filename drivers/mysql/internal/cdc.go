@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/drivers/mysql/internal/binlog"
 	"github.com/datazip-inc/olake/pkg/jdbc"
@@ -42,7 +43,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 	port := m.config.Port
 	if port <= 0 || port > math.MaxUint16 {
 		return nil, errs.Precondition(errs.ConfigInvalid, codePortInvalid,
-			fmt.Errorf("invalid mysql port: %d", port))
+			fmt.Errorf("%w: invalid mysql port: %d", constants.ErrManualIntervention, port))
 	}
 
 	config := &binlog.Config{
@@ -115,7 +116,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 	savedState := m.state.GetGlobal()
 	if savedState == nil || savedState.State == nil {
 		return nil, errs.Precondition(errs.StateInvalid, codeGlobalStateInvalid,
-			fmt.Errorf("invalid global state; state is missing"))
+			fmt.Errorf("%w: invalid global state; state is missing", constants.ErrManualIntervention))
 	}
 
 	var mySQLGlobalState MySQLGlobalState
@@ -126,7 +127,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 	// validate server id
 	if mySQLGlobalState.ServerID == 0 {
 		return nil, errs.Precondition(errs.StateInvalid, codeServerIDMissing,
-			fmt.Errorf("invalid global state; server_id is missing"))
+			fmt.Errorf("%w: invalid global state; server_id is missing", constants.ErrManualIntervention))
 	}
 
 	var finishedStreams []string
@@ -172,7 +173,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 			// state >= metadata: state is up to date, stream forward normally
 		} else {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
-				fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState))
+				fmt.Errorf("%w: failed to typecast raw metadata state of type[%T] to string", constants.ErrManualIntervention, rawMtState))
 		}
 	}
 

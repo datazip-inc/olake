@@ -248,7 +248,7 @@ func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterfa
 		parseErr = xmlParser.StreamRecords(ctx, reader, callback)
 	default:
 		return errs.Precondition(errs.ConfigInvalid, codeUnsupportedFileFormat,
-			fmt.Errorf("unsupported file format: %s", s.config.FileFormat))
+			fmt.Errorf("%w: unsupported file format: %s", constants.ErrManualIntervention, s.config.FileFormat))
 	}
 
 	if parseErr != nil {

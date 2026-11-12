@@ -39,7 +39,7 @@ func TestGTIDRebuild_Observe(t *testing.T) {
 			// Previously processed anonymous/XA history stays outside migration delivery checks.
 			deliver, err := rebuild.observe(event, resume, resume)
 			if tt.wantError != "" {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				require.ErrorIs(t, err, constants.ErrManualIntervention)
 				require.ErrorContains(t, err, tt.wantError)
 				return
 			}
@@ -79,7 +79,7 @@ func TestConnection_FinishMigration(t *testing.T) {
 			conn := &Connection{targetGTIDSet: target, changeFilter: NewChangeFilter(nil, Binlog{}, false, nil)}
 			err = conn.finishMigration(progress, tt.recovering)
 			if tt.invalid {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				require.ErrorIs(t, err, constants.ErrManualIntervention)
 				require.Nil(t, conn.gtidSet)
 				return
 			}
@@ -90,7 +90,7 @@ func TestConnection_FinishMigration(t *testing.T) {
 	t.Run("unfinished transaction", func(t *testing.T) {
 		progress.transaction.active = true
 		conn := &Connection{targetGTIDSet: progress.gtidSet}
-		require.ErrorIs(t, conn.finishMigration(progress, false), constants.ErrNonRetryable)
+		require.ErrorIs(t, conn.finishMigration(progress, false), constants.ErrManualIntervention)
 		require.Nil(t, conn.gtidSet)
 	})
 }
@@ -106,7 +106,7 @@ func TestConnection_PrepareMigration(t *testing.T) {
 			t.Cleanup(conn.Cleanup)
 			err = conn.prepareMigration(target)
 			if owner == "b" {
-				require.ErrorIs(t, err, constants.ErrNonRetryable)
+				require.ErrorIs(t, err, constants.ErrManualIntervention)
 				return
 			}
 			require.NoError(t, err)

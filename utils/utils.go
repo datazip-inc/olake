@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 
 	//nolint:gosec // G401: md5 used for non-crypto hashing
 	"crypto/md5"
@@ -588,6 +589,17 @@ func RetryWithSkip(ctx context.Context, maxRetries int, sleep time.Duration, sho
 	return err
 }
 
+// IsRestartRequired reports whether in-process retries must stop. It is true for both markers;
+// use IsManualIntervention to decide the exit code or whether a restart can help.
+func IsRestartRequired(err error) bool {
+	return err != nil && (errors.Is(err, constants.ErrRestartRequired) || errors.Is(err, constants.ErrManualIntervention))
+}
+
+// IsManualIntervention reports whether a person must fix the cause; a restart alone won't (exit 3).
+func IsManualIntervention(err error) bool {
+	return err != nil && errors.Is(err, constants.ErrManualIntervention)
+}
+
 // RetryOnBackoff invokes f once and retries it up to attempts times with a backoff
 // sleep between attempts (i.e. at most attempts+1 total invocations).
 func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
@@ -602,8 +614,8 @@ func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f fu
 			}
 		}
 
-		// check if error is non retryable
-		if strings.Contains(err.Error(), constants.ErrNonRetryable.Error()) {
+		// ErrRestartRequired and ErrManualIntervention both stop retries here
+		if IsRestartRequired(err) {
 			return err
 		}
 

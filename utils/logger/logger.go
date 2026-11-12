@@ -61,13 +61,13 @@ func Error(v ...interface{}) {
 // Fatal writes record into os.stdout with log level ERROR and exits
 func Fatal(v ...interface{}) {
 	logger.Fatal().Msgf("%s", v...)
-	os.Exit(1)
+	os.Exit(constants.ExitCodeFailure)
 }
 
 // Fatal writes record into os.stdout with log level ERROR
 func Fatalf(format string, v ...interface{}) {
 	logger.Fatal().Msgf(format, v...)
-	os.Exit(1)
+	os.Exit(constants.ExitCodeFailure)
 }
 
 // Error writes record into os.stdout with log level ERROR

@@ -310,7 +310,7 @@ func (c *Connection) prepareSyncTarget(ctx context.Context, client *sqlx.DB, lat
 		run.mode = gtidMode
 		if latestState.GTIDSet == nil {
 			return syncRun{}, errs.Precondition(errs.CDCPositionLost, "mysql.gtid_disabled",
-				fmt.Errorf("%w: a GTID checkpoint requires gtid_mode=ON on the source", constants.ErrNonRetryable))
+				fmt.Errorf("%w: a GTID checkpoint requires gtid_mode=ON on the source", constants.ErrManualIntervention))
 		}
 		var err error
 		c.targetGTIDSet, err = parseGTIDSet(*latestState.GTIDSet)
@@ -381,11 +381,11 @@ func (c *Connection) handleStreamError(ctx context.Context, run *syncRun, err er
 	}
 	if run.mode == gtidMode || (run.mode == migrationMode && run.recovering) {
 		return fmt.Errorf("%w: a committed GTID checkpoint cannot resume through anonymous transactions; restore the required GTID-only history or resync: %w",
-			constants.ErrNonRetryable, err)
+			constants.ErrManualIntervention, err)
 	}
 	if run.mode != migrationMode || c.CurrentPos.Compare(run.resumePos) > 0 {
 		return fmt.Errorf("%w: MySQL cannot stream the pending anonymous transactions with gtid_mode=ON; on the original server, sync through a GTID-only binlog in ON_PERMISSIVE before enabling ON; rotating logs alone does not advance the saved checkpoint: %w",
-			constants.ErrNonRetryable, err)
+			constants.ErrManualIntervention, err)
 	}
 
 	c.Cleanup()
@@ -538,5 +538,5 @@ func (b Binlog) ValidateServerUUID(serverUUID string) error {
 		return nil
 	}
 	return errs.Precondition(errs.CDCPositionLost, "mysql.server_uuid_mismatch",
-		fmt.Errorf("%w: MySQL server UUID changed from %q to %q; cannot resume binlog position %s on a different server; reconnect to the original server", constants.ErrNonRetryable, b.ServerUUID, serverUUID, b.Position))
+		fmt.Errorf("%w: MySQL server UUID changed from %q to %q; cannot resume binlog position %s on a different server; reconnect to the original server", constants.ErrManualIntervention, b.ServerUUID, serverUUID, b.Position))
 }

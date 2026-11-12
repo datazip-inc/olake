@@ -37,7 +37,7 @@ func TestMySQL_StreamChanges(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = m.StreamChanges(context.Background(), 0, map[string]any{"orders": string(metadata)}, nil)
-			if !errors.Is(err, constants.ErrNonRetryable) || !strings.Contains(err.Error(), "invalid metadata for stream[orders]") {
+			if !errors.Is(err, constants.ErrManualIntervention) || !strings.Contains(err.Error(), "invalid metadata for stream[orders]") {
 				t.Fatalf("expected rejection before opening a connection, got %v", err)
 			}
 			if got := m.state.GetGlobal().State; !reflect.DeepEqual(got, state) {
@@ -220,7 +220,7 @@ func TestMySQL_FileRecovery(t *testing.T) {
 			_, err = m.StreamChanges(context.Background(), 0, metadata, nil)
 			require.NotNil(t, m.BinlogConn)
 			t.Cleanup(m.BinlogConn.Cleanup)
-			require.ErrorIs(t, err, constants.ErrNonRetryable)
+			require.ErrorIs(t, err, constants.ErrManualIntervention)
 			require.ErrorContains(t, err, "server UUID changed")
 			require.Equal(t, want, m.state.GetGlobal().State)
 		})

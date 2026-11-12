@@ -180,7 +180,7 @@ func (c *schemaCache) get(ctx context.Context, schema, table string, tableID uin
 		state, err = GetCurrentBinlogState(ctx, c.client)
 		if err == nil {
 			if state.GTIDSet == nil {
-				return nil, fmt.Errorf("%w: GTID column metadata requires gtid_mode=ON", constants.ErrNonRetryable)
+				return nil, fmt.Errorf("%w: GTID column metadata requires gtid_mode=ON", constants.ErrManualIntervention)
 			}
 			meta.AnchoredAt = state.Position
 			meta.gtidAnchor, err = parseGTIDSet(*state.GTIDSet)

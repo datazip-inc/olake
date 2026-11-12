@@ -24,7 +24,7 @@ func (p *gtidRebuild) observe(event *replication.BinlogEvent, current, resume my
 		pos := event.Header.LogPos
 		if pos > resume.Pos && pos-event.Header.EventSize < resume.Pos {
 			return false, errs.Precondition(errs.StateInvalid, "mysql.gtid_migration_invalid",
-				fmt.Errorf("%w: legacy checkpoint is inside a binlog event", constants.ErrNonRetryable))
+				fmt.Errorf("%w: legacy checkpoint is inside a binlog event", constants.ErrManualIntervention))
 		}
 		withinTarget = pos > resume.Pos
 	}
@@ -64,7 +64,7 @@ func (c *Connection) finishMigration(progress gtidRebuild, recovering bool) erro
 	if progress.gtidSet == nil || progress.transaction.active || !progress.gtidSet.Contain(c.targetGTIDSet) ||
 		(recovering && !progress.gtidSet.Equal(c.targetGTIDSet)) {
 		return errs.Precondition(errs.StateInvalid, "mysql.gtid_migration_invalid",
-			fmt.Errorf("%w: binlog transactions do not match the GTID migration boundary", constants.ErrNonRetryable))
+			fmt.Errorf("%w: binlog transactions do not match the GTID migration boundary", constants.ErrManualIntervention))
 	}
 	// SHOW status reads GTIDs and position separately; the consumed binlog proves their mapping.
 	c.gtidSet = progress.gtidSet.Clone()
@@ -75,7 +75,7 @@ func (c *Connection) prepareMigration(target Binlog) error {
 	if target.ServerUUID == "" || target.Position.Name == "" || target.Position.Pos < 4 ||
 		c.CurrentPos.Name == "" || c.CurrentPos.Pos < 4 || c.CurrentPos.Compare(target.Position) > 0 {
 		return errs.Precondition(errs.StateInvalid, "mysql.gtid_migration_invalid",
-			fmt.Errorf("%w: invalid file range for GTID migration", constants.ErrNonRetryable))
+			fmt.Errorf("%w: invalid file range for GTID migration", constants.ErrManualIntervention))
 	}
 	if err := c.Checkpoint().ValidateServerUUID(target.ServerUUID); err != nil {
 		return err

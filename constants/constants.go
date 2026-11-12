@@ -113,8 +113,18 @@ var DefaultAppendModeDrivers = []DriverType{S3, Kafka}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
-var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
+
+// ErrRestartRequired stops in-process retries; the process exits 1 so a restart can recover.
+var ErrRestartRequired = fmt.Errorf("restart required")
+
+// ErrManualIntervention also stops retries; the process exits 3 because a restart cannot fix it.
+var ErrManualIntervention = fmt.Errorf("manual intervention required")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")
+
+const (
+	ExitCodeFailure            = 1 // a restart may fix it
+	ExitCodeManualIntervention = 3 // needs a manual fix first (2 is taken by Go panics)
+)
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}

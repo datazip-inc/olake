@@ -1,11 +1,13 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -299,6 +301,112 @@ func TestUpdateMethodType(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, UpdateMethodType(tc.in))
+		})
+	}
+}
+
+// TestRetryMarkers pins what IsRestartRequired and IsManualIntervention report for each shape an error can
+// take on its way from a driver to connector.go.
+func TestRetryMarkers(t *testing.T) {
+	restartRequired := fmt.Errorf("%w: kafka sync aborted due to partition loss", constants.ErrRestartRequired)
+	manualIntervention := fmt.Errorf("%w: publication %q does not exist", constants.ErrManualIntervention, "olake_pub")
+
+	testCases := []struct {
+		name                       string
+		err                        error
+		expectedRestartRequired    bool
+		expectedManualIntervention bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+		},
+		{
+			name: "plain error has no marker",
+			err:  errors.New("connection reset by peer"),
+		},
+		{
+			name:                    "ErrRestartRequired itself",
+			err:                     constants.ErrRestartRequired,
+			expectedRestartRequired: true,
+		},
+		{
+			name:                    "wrapped ErrRestartRequired",
+			err:                     restartRequired,
+			expectedRestartRequired: true,
+		},
+		// ErrManualIntervention also stops in-process retries
+		{
+			name:                       "ErrManualIntervention itself",
+			err:                        constants.ErrManualIntervention,
+			expectedRestartRequired:    true,
+			expectedManualIntervention: true,
+		},
+		{
+			name:                       "wrapped ErrManualIntervention",
+			err:                        manualIntervention,
+			expectedRestartRequired:    true,
+			expectedManualIntervention: true,
+		},
+		// every layer between the driver and connector.go wraps with %w
+		{
+			name:                       "ErrManualIntervention through several %w layers",
+			err:                        fmt.Errorf("error occurred while reading records: %w", fmt.Errorf("failed in pre cdc run for driver[postgres]: %w", manualIntervention)),
+			expectedRestartRequired:    true,
+			expectedManualIntervention: true,
+		},
+		{
+			name:                    "ErrRestartRequired through several %w layers",
+			err:                     fmt.Errorf("error occurred while waiting for connections: %w", fmt.Errorf("reader[0]: %w", restartRequired)),
+			expectedRestartRequired: true,
+		},
+		// the kafka and postgres state errors are wrapped in errs.Precondition
+		{
+			name:                       "ErrManualIntervention inside errs.Precondition",
+			err:                        errs.Precondition(errs.StateInvalid, "kafka.offset_mismatch", fmt.Errorf("%w: run clear destination and restart", constants.ErrManualIntervention)),
+			expectedRestartRequired:    true,
+			expectedManualIntervention: true,
+		},
+		{
+			name:                    "ErrRestartRequired inside errs.Precondition",
+			err:                     errs.Precondition(errs.StateInvalid, "kafka.partition_metadata_absent", fmt.Errorf("%w: partition missing", constants.ErrRestartRequired)),
+			expectedRestartRequired: true,
+		},
+		// writer cleanup and post cdc join errors
+		{
+			name:                       "ErrManualIntervention inside errors.Join",
+			err:                        errors.Join(errors.New("failed to close writer"), manualIntervention),
+			expectedRestartRequired:    true,
+			expectedManualIntervention: true,
+		},
+		{
+			name:                    "ErrRestartRequired inside errors.Join",
+			err:                     errors.Join(errors.New("failed to close writer"), restartRequired),
+			expectedRestartRequired: true,
+		},
+		// %s keeps only the text, so the marker is lost: every wrap on these paths must use %w
+		{
+			name: "ErrManualIntervention lost through %s",
+			err:  fmt.Errorf("outer: %s", manualIntervention),
+		},
+		{
+			name: "ErrRestartRequired lost through %s",
+			err:  fmt.Errorf("outer: %s", restartRequired),
+		},
+		{
+			name: "matching text without the marker",
+			err:  errors.New("manual intervention required"),
+		},
+		{
+			name: "ErrGlobalContextGroup is not a marker",
+			err:  fmt.Errorf("%w: x", constants.ErrGlobalContextGroup),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expectedRestartRequired, IsRestartRequired(tc.err), "IsRestartRequired")
+			assert.Equal(t, tc.expectedManualIntervention, IsManualIntervention(tc.err), "IsManualIntervention")
 		})
 	}
 }
