@@ -24,6 +24,8 @@ const (
 	MixedType StateType = "MIXED"
 	// constant key for chunks
 	ChunksKey = "chunks"
+	// constant key for the source keys already read at the primary cursor's value
+	SeenKeysKey = "seen_keys_at_cursor"
 )
 
 type GlobalState struct {
