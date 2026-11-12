@@ -26,9 +26,11 @@ import (
 // placeholder is what the source writes for a column it could not send.
 const placeholder = constants.UnavailableValue
 
-// testWriter stands in for the arrow writer and its stream index: it answers where a row
-// lives, records the files the resolver asks to make readable, and fails on demand.
+// testWriter stands in for the writer and its stream index: it answers where a row lives,
+// records the files the resolver asks to make readable, and fails on demand. The embedded
+// interface supplies the writer calls the resolver never makes.
 type testWriter struct {
+	Writer
 	locations map[string]types.RowLocation
 	lookupErr error
 	ensureErr error
@@ -189,14 +191,13 @@ func testResolver(t *testing.T, normalized bool, writer *testWriter, reader *tes
 	t.Helper()
 
 	resolver := &unavailableValuesResolver{
-		openFiles: writer,
-		index:     types.NewStreamIndexThread(testIndex{writer: writer}),
-		reader:    reader,
-		threadID:  "test-thread",
-		stream:    testConfiguredStream(normalized),
-		tracked:   make(map[string]struct{}),
-		carry:     make(map[string]*carryRow),
-		fetched:   make(map[string]map[string]any),
+		writer:   writer,
+		index:    types.NewStreamIndexThread(testIndex{writer: writer}),
+		reader:   reader,
+		threadID: "test-thread",
+		stream:   testConfiguredStream(normalized),
+		tracked:  make(map[string]struct{}),
+		known:    make(map[string]map[string]any),
 	}
 	t.Cleanup(resolver.Close)
 
@@ -214,13 +215,9 @@ func testRecord(olakeID, opType string, data map[string]any, unavailable ...stri
 	}
 }
 
-// testOverBudget makes so many threads share the carry budget that this thread's share holds
-// nothing, so the next Resolve has to drop what it carries.
-func testOverBudget(t *testing.T) {
-	t.Helper()
-
-	carriers.Add(maxCarryBytes)
-	t.Cleanup(func() { carriers.Add(-maxCarryBytes) })
+// testOverBudget fills known past its cap, so the next Resolve clears it.
+func testOverBudget(resolver *unavailableValuesResolver) {
+	resolver.knownBytes = maxKnownBytes + 1
 }
 
 // resolveAll resolves records as one prefix, as a batch under the byte limit is.
@@ -289,7 +286,7 @@ func TestResolve(t *testing.T) {
 			}},
 			expectedRecovered: 1,
 		},
-		// a value written after a queued read is newer; the read's answer must not replace it in carry
+		// a value written after a queued read is newer; the read's answer must not replace it
 		{
 			name:      "a read answer does not overwrite a newer value from the same batch",
 			locations: committed,
@@ -350,7 +347,7 @@ func TestResolve(t *testing.T) {
 			expectedFromTable: 1,
 			expectedRecovered: 2,
 		},
-		// batches without a marker still update the carry; skipping them would hand the
+		// batches without a marker still update known; skipping them would hand the
 		// third batch the value read in the first one
 		{
 			name:      "a change in a later batch without markers replaces the carried value",
@@ -613,7 +610,6 @@ func TestResolveColumnsSharingDestinationName(t *testing.T) {
 
 	assert.Equal(t, "big value", records[0].Data["Foo"])
 	assert.Equal(t, "big value", records[0].Data["foo"])
-	assert.Zero(t, resolver.fetchedBytes, "fetchedBytes")
 }
 
 // A batch whose recovered values pass the limit is resolved a prefix at a time: a prefix passes
@@ -637,9 +633,6 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 	}
 	reader := &testReader{table: table, reverse: true}
 	resolver := testResolver(t, true, writer, reader)
-	// carry is trimmed to nothing after every prefix; what was read ahead must survive that
-	testOverBudget(t)
-
 	for start := 0; start < len(records); {
 		n, err := resolver.Resolve(context.Background(), records[start:], limit)
 		require.NoError(t, err)
@@ -655,8 +648,6 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 		if n > 1 {
 			assert.LessOrEqual(t, size, int64(limit), "prefix at %d", start)
 		}
-		// a read stops after the row that passes the limit, of at most 259 bytes here
-		assert.LessOrEqual(t, resolver.fetchedBytes, int64(limit+259), "read ahead at %d", start)
 		start += n
 	}
 
@@ -666,8 +657,7 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 		assert.True(t, request.GetMaxBytes() <= limit || request.GetMaxBytes() == math.MaxInt64, "max_bytes %d", request.GetMaxBytes())
 	}
 	assert.Equal(t, int64(len(records)), resolver.recovered)
-	assert.Equal(t, int64(len(records)), resolver.fromTable, "no value is read twice")
-	assert.Zero(t, resolver.fetchedBytes)
+	assert.Equal(t, int64(len(records)), resolver.fromTable, "a value read ahead of its prefix is not read again")
 }
 
 // A read stopped by the limit in the middle of a row split in parts keeps the parts it got,
@@ -729,7 +719,6 @@ func TestResolveRawRowCutAfterOpType(t *testing.T) {
 	assert.Equal(t, 1, n)
 	assert.Equal(t, json.RawMessage(`"stored value"`), records[0].Data["payload"])
 	assert.Equal(t, int64(1), resolver.recovered)
-	assert.Zero(t, resolver.fetchedBytes)
 }
 
 func TestResolveReadRequest(t *testing.T) {
@@ -830,46 +819,6 @@ func TestResolveReadRequest(t *testing.T) {
 	}
 }
 
-func TestResolveOpenFiles(t *testing.T) {
-	testCases := []struct {
-		name            string
-		writer          func(files *testWriter) Writer
-		expectedFlushes [][]string
-	}{
-		// the arrow writer holds data files open on the Go side, so it is asked to close them
-		{
-			name: "arrow writer closes the files to read",
-			writer: func(files *testWriter) Writer {
-				return struct {
-					Writer
-					*testWriter
-				}{testWriter: files}
-			},
-			expectedFlushes: [][]string{{"a.parquet"}},
-		},
-		// the legacy writer's files are closed by Java when ReadRows asks for them
-		{
-			name:   "legacy writer leaves open files to Java",
-			writer: func(*testWriter) Writer { return struct{ Writer }{} },
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			files := &testWriter{locations: map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}}}
-			resolver := newUnavailableValuesResolver("test-thread", testConfiguredStream(true), tc.writer(files),
-				types.NewStreamIndexThread(testIndex{writer: files}), &testReader{table: testTable{{"a.parquet", 0, "payload"}: "stored"}})
-			t.Cleanup(resolver.Close)
-			records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")}
-
-			require.NoError(t, resolveAll(resolver, records))
-
-			assert.Equal(t, "stored", records[0].Data["payload"])
-			assert.Equal(t, tc.expectedFlushes, files.flushes, "files made readable")
-		})
-	}
-}
-
 func TestResolveErrors(t *testing.T) {
 	failure := errors.New("boom")
 
@@ -922,34 +871,34 @@ func TestResolveErrors(t *testing.T) {
 	}
 }
 
-func TestResolveCarryBudget(t *testing.T) {
+func TestResolveKnownBudget(t *testing.T) {
 	testCases := []struct {
-		name                string
-		overBudget          bool
-		records             []types.RawRecord
-		expectedCarriedRows int
+		name              string
+		overBudget        bool
+		records           []types.RawRecord
+		expectedKnownRows int
 	}{
 		// the values are kept for the next change to the row
 		{
-			name: "under budget the written values are carried",
+			name: "under budget the written values are kept",
 			records: []types.RawRecord{
 				testRecord("1", "i", map[string]any{"id": 1, "payload": "inserted"}),
 				testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
 			},
-			expectedCarriedRows: 1,
+			expectedKnownRows: 1,
 		},
-		// dropping costs nothing: the rows are read back only if a later change asks for them
+		// clearing costs nothing now: the rows are read back only if a later change asks for them
 		{
-			name:       "over budget the carried values are dropped",
+			name:       "over budget known is cleared",
 			overBudget: true,
 			records: []types.RawRecord{
 				testRecord("1", "i", map[string]any{"id": 1, "payload": "inserted"}),
 				testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
 			},
 		},
-		// a delete-heavy stream must not grow the carry without bound
+		// a delete-heavy stream must not grow known without bound
 		{
-			name:       "tombstones count against the budget",
+			name:       "deleted rows count against the budget",
 			overBudget: true,
 			records: []types.RawRecord{
 				testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
@@ -958,7 +907,7 @@ func TestResolveCarryBudget(t *testing.T) {
 			},
 		},
 		{
-			name:    "a stream that never marks a column carries nothing",
+			name:    "a stream that never marks a column keeps nothing",
 			records: []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": "value"})},
 		},
 	}
@@ -968,59 +917,58 @@ func TestResolveCarryBudget(t *testing.T) {
 			writer := &testWriter{locations: map[string]types.RowLocation{}}
 			resolver := testResolver(t, true, writer, &testReader{table: testTable{}})
 			if tc.overBudget {
-				testOverBudget(t)
+				testOverBudget(resolver)
 			}
 
 			require.NoError(t, resolveAll(resolver, tc.records))
 
-			assert.Len(t, resolver.carry, tc.expectedCarriedRows)
-			if tc.expectedCarriedRows == 0 {
-				assert.Zero(t, resolver.carryBytes)
+			assert.Len(t, resolver.known, tc.expectedKnownRows)
+			if tc.expectedKnownRows == 0 {
+				assert.Zero(t, resolver.knownBytes)
 			}
-			assert.Empty(t, writer.flushes, "no file is closed to drop or keep carried values")
+			assert.Empty(t, writer.flushes, "no file is closed to keep or clear known values")
 		})
 	}
 }
 
-// Over its share, rows written in earlier batches go first: they sit in closed files, while a
-// recent row may sit in a file still open that a read would have to close early.
-func TestResolveTrimDropsLeastRecentRowsFirst(t *testing.T) {
-	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
-	marker := testRecord("0", "u", map[string]any{"id": 0, "payload": placeholder}, "payload")
+// Once known is cleared, the next change to a row this sync wrote reads it back from the
+// destination, closing the file it sits in if the writer still has it open.
+func TestResolveAfterKnownClearedReadsBack(t *testing.T) {
+	writer := &testWriter{locations: map[string]types.RowLocation{"1": {FilePath: "open.parquet", Position: 3}}}
+	reader := &testReader{table: testTable{{"open.parquet", 3, "payload"}: "written this sync"}}
+	resolver := testResolver(t, true, writer, reader)
 
-	// more than this thread's share once another thread carries, so dropping it alone brings the
-	// thread under half its share
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
-		marker, testRecord("old", "c", map[string]any{"payload": strings.Repeat("x", int(maxCarryBytes/2)+1)}),
+		testRecord("0", "u", map[string]any{"id": 0, "payload": placeholder}, "payload"),
+		testRecord("1", "c", map[string]any{"id": 1, "payload": "written this sync"}),
 	}))
-	require.NoError(t, resolveAll(resolver, []types.RawRecord{
-		marker, testRecord("new", "c", map[string]any{"payload": "recent"}),
-	}))
+	require.Contains(t, resolver.known, "1")
+	writer.flushes = nil
 
-	// another thread starts carrying, which halves this thread's share
-	carriers.Add(1)
-	t.Cleanup(func() { carriers.Add(-1) })
+	testOverBudget(resolver)
 	resolver.trim()
+	require.Empty(t, resolver.known)
 
-	assert.NotContains(t, resolver.carry, "old")
-	assert.Contains(t, resolver.carry, "new")
-	assert.LessOrEqual(t, resolver.carryBytes, maxCarryBytes/4)
+	records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")}
+	require.NoError(t, resolveAll(resolver, records))
+
+	assert.Equal(t, "written this sync", records[0].Data["payload"])
+	assert.Equal(t, [][]string{{"open.parquet"}}, writer.flushes, "the file is made readable before the read")
 }
 
-func TestUnavailableValuesResolverCloseReleasesBudget(t *testing.T) {
-	before := carriers.Load()
+func TestUnavailableValuesResolverCloseReleasesKnown(t *testing.T) {
 	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
 
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
 		testRecord("1", "i", map[string]any{"id": 1, "payload": "inserted"}),
 		testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
 	}))
-	require.Equal(t, before+1, carriers.Load(), "a thread that carries takes a share of the budget")
+	require.NotEmpty(t, resolver.known)
 
 	resolver.Close()
 
-	assert.Equal(t, before, carriers.Load(), "the thread gives its share back")
-	assert.Empty(t, resolver.carry)
+	assert.Empty(t, resolver.known)
+	assert.Zero(t, resolver.knownBytes)
 }
 
 func TestValueSize(t *testing.T) {
@@ -1064,7 +1012,7 @@ func TestFieldValue(t *testing.T) {
 	}
 }
 
-func TestFetchRowWithoutNormalization(t *testing.T) {
+func TestStoreRowWithoutNormalization(t *testing.T) {
 	stored := func(value *proto.IcebergPayload_IceRecord_FieldValue) map[string]*proto.IcebergPayload_IceRecord_FieldValue {
 		return map[string]*proto.IcebergPayload_IceRecord_FieldValue{constants.StringifiedData: value}
 	}
@@ -1097,14 +1045,14 @@ func TestFetchRowWithoutNormalization(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resolver := &unavailableValuesResolver{stream: testConfiguredStream(false), fetched: map[string]map[string]any{}}
-			err := resolver.fetchRow(&pendingRead{olakeID: "1", columns: tc.columns}, stored(tc.stored))
+			resolver := &unavailableValuesResolver{stream: testConfiguredStream(false), known: map[string]map[string]any{}}
+			err := resolver.storeRow(&pendingRead{olakeID: "1", columns: tc.columns}, stored(tc.stored))
 			if tc.expectedErr {
 				assert.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, resolver.fetched["1"])
+			assert.Equal(t, tc.expected, resolver.known["1"])
 		})
 	}
 }

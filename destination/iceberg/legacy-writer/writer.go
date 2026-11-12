@@ -163,6 +163,12 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	return nil
 }
 
+// EnsureReadable does nothing: Java holds this writer's open files and closes the
+// ones a ReadRows call asks for before reading them.
+func (w *LegacyWriter) EnsureReadable(context.Context, []string) error {
+	return nil
+}
+
 // Abort drops the buffered index entries of a thread that never reaches a
 // commit. Nothing was written to the index, so releasing the buffer is the
 // entire rollback.

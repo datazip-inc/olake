@@ -13,4 +13,7 @@ type Writer interface {
 	// Abort discards whatever the writer staged outside Iceberg, for the paths
 	// that give up before Close can commit.
 	Abort()
+	// EnsureReadable closes, without committing, any data file in paths the writer
+	// still has open, so rows written to it this sync can be read back.
+	EnsureReadable(ctx context.Context, paths []string) error
 }
