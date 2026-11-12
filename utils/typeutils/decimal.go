@@ -119,6 +119,7 @@ func exactDecimal(v any) (Decimal, error) {
 	if err != nil {
 		return Decimal{}, err
 	}
+	// a literal has no column type, so it takes the narrowest decimal(p,s) holding it: 0.05 is decimal(2,2)
 	precision := max(scale, 1)
 	for precision < types.MaxDecimalPrecision && !unscaled.Abs().Less(decimal128.GetScaleMultiplier(int(precision))) {
 		precision++
