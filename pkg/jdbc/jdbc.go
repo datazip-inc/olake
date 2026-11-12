@@ -511,6 +511,21 @@ func MySQLMasterStatusQueryNew() string {
 	return "SHOW BINARY LOG STATUS"
 }
 
+// MySQLServerUUIDQuery returns the query to fetch the MySQL server UUID.
+func MySQLServerUUIDQuery() string {
+	return "SELECT @@server_uuid"
+}
+
+// MySQLGTIDModeQuery returns the query to fetch the server UUID and GTID mode.
+func MySQLGTIDModeQuery() string {
+	return "SELECT @@server_uuid, @@gtid_mode"
+}
+
+// MySQLGTIDStateQuery returns the query to fetch server identity and GTID history.
+func MySQLGTIDStateQuery() string {
+	return "SELECT @@server_uuid, @@gtid_mode, @@global.gtid_executed, @@global.gtid_purged"
+}
+
 // MySQLLogBinQuery returns the query to fetch the log_bin variable in MySQL
 func MySQLLogBinQuery() string {
 	return "SHOW GLOBAL VARIABLES LIKE 'log_bin'"
@@ -626,9 +641,9 @@ func MySQLTimeZoneQuery() string {
 
 // MySQLVersion returns the version of the MySQL server
 // It returns the flavor, major and minor version of the MySQL server
-func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error) {
+func MySQLVersion(ctx context.Context, client sqlx.QueryerContext) (string, int, int, error) {
 	var version string
-	err := client.QueryRowContext(ctx, "SELECT @@version").Scan(&version)
+	err := client.QueryRowxContext(ctx, "SELECT @@version").Scan(&version)
 	if err != nil {
 		return "", 0, 0, fmt.Errorf("failed to get MySQL version: %w", err)
 	}
