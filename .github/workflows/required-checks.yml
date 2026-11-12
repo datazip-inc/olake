@@ -1,0 +1,130 @@
+name: Required Checks
+
+# Require only "All Required Checks Passed" in the ruleset. Green when every PR
+# run for the commit finished success/skipped/neutral.
+
+on:
+  workflow_run:
+    workflows:
+      - "*"
+      - "!Required Checks"
+    types: [requested, completed]
+
+concurrency:
+  group: required-checks-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  checks: write
+
+jobs:
+  report:
+    name: Report
+    if: contains(fromJSON('["pull_request","pull_request_target"]'), github.event.workflow_run.event)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate and publish merge gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CHECK_NAME: All Required Checks Passed
+          EXTERNAL_ID: olake-required-checks
+          DETAILS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TRIGGER_PATH: ${{ github.event.workflow_run.path }}
+          TRIGGER_NAME: ${{ github.event.workflow_run.name }}
+          TRIGGER_STATUS: ${{ github.event.workflow_run.status }}
+          TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          : "${HEAD_SHA:?workflow_run payload carried no head SHA}"
+
+          runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100")
+
+          # Unpaginated so runs can be grouped in one pass; refuse rather than lose some.
+          total=$(jq -r '.total_count // 0' <<< "$runs")
+          if [ "$total" -gt 100 ]; then
+            echo "::error::${total} runs for ${HEAD_SHA} exceeds this gate's single-page limit"
+            exit 1
+          fi
+
+          body=$(jq -c '
+            def approval: (.status | IN("action_required", "waiting")) or (.conclusion == "action_required");
+            def finished: (.status == "completed") and (approval | not);
+            def passing:  (.conclusion | IN("success", "skipped", "neutral"));
+
+            # Latest attempt per workflow, keyed by id so a rename is still the
+            # same workflow.
+            ( .workflow_runs
+              | map(select(.event == "pull_request" or .event == "pull_request_target"))
+              | group_by(.workflow_id)
+              | map(sort_by(.run_number, .run_attempt) | last)
+              | map({ path: (.path // ""), name: .name, status: .status, conclusion: (.conclusion // "-") })
+            ) as $api
+
+            | { path: env.TRIGGER_PATH, name: env.TRIGGER_NAME, status: env.TRIGGER_STATUS,
+                conclusion: (if (env.TRIGGER_CONCLUSION | length) > 0 then env.TRIGGER_CONCLUSION else "-" end)
+              } as $trigger
+
+            # Fold in the event payload, forward only: a run never un-completes,
+            # so an out-of-order `requested` cannot reopen one the API reports as
+            # finished. Covers read lag on the last completion, which no later
+            # event would correct.
+            | ( if ($trigger.path | length) == 0 then $api
+                elif ($api | any(.path == $trigger.path))
+                then $api | map(if .path == $trigger.path and $trigger.status == "completed" and .status != "completed"
+                                then $trigger else . end)
+                else $api + [$trigger] end
+                | sort_by(.name)
+              ) as $observed
+
+            | [$observed[] | select(finished and (passing | not))] as $failed
+            | [$observed[] | select(finished | not)]               as $outstanding
+
+            # Empty means the API has not caught up, never that nothing must run.
+            | ( if   ($observed    | length) == 0 then "empty"
+                elif ($failed      | length)  > 0 then "failure"
+                elif ($outstanding | length)  > 0 then "pending"
+                else "success" end ) as $verdict
+
+            | ( if   $verdict == "failure" then "Workflows failed: \($failed | map(.name) | join(", "))"
+                elif $verdict == "success" then "All workflows passed"
+                elif $verdict == "empty"   then "Waiting for workflow runs to register"
+                elif ($outstanding | any(approval)) then "Waiting for maintainer approval to run workflows"
+                else "Waiting for \($outstanding | map(.name) | join(", "))" end ) as $title
+
+            | ( "### \($title)\n\n`\(env.HEAD_SHA)`\n\n"
+                + ($observed | map("- **\(.name)** (`\(.path)`) — `\(.status)` / `\(.conclusion)`") | join("\n"))
+              ) as $summary
+
+            | { name: env.CHECK_NAME,
+                head_sha: env.HEAD_SHA,
+                status: (if $verdict == "failure" or $verdict == "success" then "completed" else "in_progress" end),
+                details_url: env.DETAILS_URL,
+                external_id: env.EXTERNAL_ID,
+                output: { title: ($title | .[0:255]), summary: ($summary | .[0:65000]) } }
+            | if   $verdict == "failure" then . + { conclusion: "failure" }
+              elif $verdict == "success" then . + { conclusion: "success" }
+              else . end
+          ' <<< "$runs")
+
+          new_status=$(jq -r '.status' <<< "$body")
+          echo "Gate: $(jq -r '.output.title' <<< "$body")"
+
+          existing=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+            --jq '.check_runs[] | select(.external_id == env.EXTERNAL_ID) | "\(.id) \(.status)"' \
+            | sort -n | tail -1)
+
+          method=POST
+          url="repos/${GITHUB_REPOSITORY}/check-runs"
+          # A completed check run cannot be reopened, so a flip back to pending
+          # needs a fresh one.
+          if [ -n "$existing" ] && { [ "${existing##* }" != completed ] || [ "$new_status" = completed ]; }; then
+            method=PATCH
+            url="repos/${GITHUB_REPOSITORY}/check-runs/${existing%% *}"
+            body=$(jq -c 'del(.head_sha)' <<< "$body")
+          fi
+
+          printf '%s' "$body" | gh api --method "$method" "$url" --input - --jq '{id, status, conclusion}'
+          jq -r '.output.summary' <<< "$body" >> "$GITHUB_STEP_SUMMARY"
