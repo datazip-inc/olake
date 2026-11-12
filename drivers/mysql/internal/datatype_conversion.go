@@ -2,9 +2,11 @@ package driver
 
 import (
 	"database/sql"
+	"slices"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 // mysqlTypeToDataTypes returns the mapping of MySQL data types to internal data types for the state
@@ -94,5 +96,21 @@ func resolveColumnType(dataType string, dataMaxLength, precision, scale sql.Null
 		return mapped
 	default:
 		return types.FixedBinaryOf(int(dataMaxLength.Int64))
+	}
+}
+
+// mysqlColumnTypeName names a DECIMAL column by its precision and scale, so its values read as a decimal.
+// unsignedDecimals are the UNSIGNED ones, whose precision go-sql-driver reports a digit short.
+func mysqlColumnTypeName(unsignedDecimals []string) func(colType *sql.ColumnType) string {
+	return func(colType *sql.ColumnType) string {
+		name := colType.DatabaseTypeName()
+		precision, scale, ok := colType.DecimalSize()
+		if !ok || name != "DECIMAL" {
+			return name
+		}
+		if slices.Contains(unsignedDecimals, colType.Name()) {
+			precision++ // go-sql-driver counts a sign digit mysql leaves out of an UNSIGNED DECIMAL
+		}
+		return typeutils.DecimalColumnType(name, precision, scale)
 	}
 }

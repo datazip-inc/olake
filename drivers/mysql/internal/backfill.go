@@ -79,7 +79,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
-		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlColumnSizer, unsignedDecimals...)
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlColumnSizer, mysqlColumnTypeName(unsignedDecimals))
 	})
 }
 

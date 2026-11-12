@@ -1,7 +1,10 @@
 package driver
 
 import (
+	"database/sql"
+
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 var pgTypeToDataTypes = map[string]types.DataType{
@@ -100,4 +103,13 @@ var pgTypeToDataTypes = map[string]types.DataType{
 	"numeric[]":     types.Array,
 	"uuid[]":        types.Array,
 	"jsonb[]":       types.Array,
+}
+
+// pgColumnTypeName names a NUMERIC column by the precision and scale pgx reports, so its values read as a decimal.
+func pgColumnTypeName(colType *sql.ColumnType) string {
+	name := colType.DatabaseTypeName()
+	if precision, scale, ok := colType.DecimalSize(); ok && name == "NUMERIC" {
+		return typeutils.DecimalColumnType(name, precision, scale)
+	}
+	return name
 }
