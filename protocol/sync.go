@@ -70,9 +70,9 @@ var syncCmd = &cobra.Command{
 			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
-		} else {
-			state.Version = constants.LatestStateVersion
 		}
+		// a fresh state file has no version yet; only a state that already holds progress is legacy
+		state.EnsureVersion(constants.LatestStateVersion)
 		// set state version to global variable to use throughout olake cli instance
 		constants.LoadedStateVersion = state.Version
 
