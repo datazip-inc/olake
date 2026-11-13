@@ -22,6 +22,7 @@ import (
 	"io"
 	"maps"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -94,6 +95,70 @@ func (m destinationMetadata) flatten(skip []string) map[string]string {
 	}
 	return flat
 }
+
+// partitionStats collects the per-partition counts of files, data_records and delete_records. A key
+// carries the partition as "%p", so it can be written either with the partition in it or, when
+// partition values differ between the runs by construction, without.
+type partitionStats map[string]map[string]map[string]int64 // category -> partition -> key -> count
+
+func (p partitionStats) add(category, partition, key string, n int64) {
+	if p[category] == nil {
+		p[category] = map[string]map[string]int64{}
+	}
+	if p[category][partition] == nil {
+		p[category][partition] = map[string]int64{}
+	}
+	p[category][partition][key] += n
+}
+
+// emit writes the counts into m. With opaque partitions -- partitioned on a column whose values
+// cannot match across two runs, such as MongoDB's server-generated _id -- each partition is reduced
+// to its counts, and what is compared is how many partitions have each set of counts.
+func (p partitionStats) emit(m destinationMetadata, opaque bool) {
+	for category, partitions := range p {
+		for partition, counts := range partitions {
+			if !opaque {
+				for key, n := range counts {
+					m.add(category, strings.ReplaceAll(key, "%p", partition), n)
+				}
+				continue
+			}
+			var signature []string
+			for key, n := range counts {
+				label := strings.Join(strings.Fields(strings.ReplaceAll(key, "%p", "")), " ")
+				if label == "" {
+					label = "records"
+				}
+				signature = append(signature, fmt.Sprintf("%s=%d", label, n))
+			}
+			slices.Sort(signature)
+			m.add(category, "partitions["+strings.Join(signature, ", ")+"]", 1)
+		}
+	}
+}
+
+// opaquePartitions reports whether any partition source column is compared by type only, so its
+// values -- and the partition values made from them -- differ between the two runs by construction.
+func opaquePartitions(partitionColumns, typeOnly []string) bool {
+	return slices.ContainsFunc(partitionColumns, func(column string) bool {
+		return slices.Contains(typeOnly, column) || slices.Contains(typeOnly, testutils.Reformat(column))
+	})
+}
+
+// partitionRegexColumns are the source columns a stream's partition regex names: the first token of
+// each "{column,transform}" group.
+func partitionRegexColumns(partitionRegex string) []string {
+	var columns []string
+	for _, group := range partitionGroup.FindAllStringSubmatch(partitionRegex, -1) {
+		column, _, _ := strings.Cut(group[1], ",")
+		if column = strings.TrimSpace(column); column != "" {
+			columns = append(columns, column)
+		}
+	}
+	return columns
+}
+
+var partitionGroup = regexp.MustCompile(`\{([^}]*)\}`)
 
 // compareDestinationMetadata asserts both sides' metadata match outside the skipped categories. It
 // runs after compareDestinationOutputs, so the rows already match.
@@ -185,14 +250,14 @@ type icebergFile struct {
 
 // readIcebergMetadata reads and normalizes one side's table: its current metadata.json and its files
 // metadata table.
-func readIcebergMetadata(ctx context.Context, t *testing.T, spark sql.SparkSession, table string) destinationMetadata {
+func readIcebergMetadata(ctx context.Context, t *testing.T, spark sql.SparkSession, table string, typeOnly []string) destinationMetadata {
 	t.Helper()
 	raw, location := readIcebergMetadataFile(ctx, t, spark, table)
 	var file icebergMetadataFile
 	require.NoErrorf(t, json.Unmarshal(raw, &file), "failed to parse %s", location)
 
 	files := readIcebergFiles(ctx, t, spark, table, file.partitioned())
-	metadata, err := normalizeIcebergMetadata(file, files)
+	metadata, err := normalizeIcebergMetadata(file, files, typeOnly)
 	require.NoErrorf(t, err, "failed to normalize the metadata of %s", table)
 	return metadata
 }
@@ -263,7 +328,9 @@ func readIcebergFiles(ctx context.Context, t *testing.T, spark sql.SparkSession,
 }
 
 // normalizeIcebergMetadata is the pure half of readIcebergMetadata, kept apart so it is unit-testable.
-func normalizeIcebergMetadata(file icebergMetadataFile, files []icebergFile) (destinationMetadata, error) {
+// typeOnly are the columns compared by type only; a partition on one of them is compared by its
+// counts, not its values (partitionStats.emit).
+func normalizeIcebergMetadata(file icebergMetadataFile, files []icebergFile, typeOnly []string) (destinationMetadata, error) {
 	m := destinationMetadata{}
 
 	// Field ids become column names everywhere they are referenced. A column is named by its latest
@@ -288,6 +355,7 @@ func normalizeIcebergMetadata(file icebergMetadataFile, files []icebergFile) (de
 
 	// spec
 	m.set(metaSpec, "format-version", strconv.Itoa(file.FormatVersion))
+	var partitionColumns []string
 	for _, spec := range file.PartitionSpecs {
 		if spec.SpecID != file.DefaultSpecID {
 			continue
@@ -295,6 +363,7 @@ func normalizeIcebergMetadata(file icebergMetadataFile, files []icebergFile) (de
 		m.set(metaSpec, "partition-fields", strconv.Itoa(len(spec.Fields)))
 		for i, field := range spec.Fields {
 			m.set(metaSpec, fmt.Sprintf("partition[%d]", i), fmt.Sprintf("%s=%s(%s)", field.Name, field.Transform, name(field.SourceID)))
+			partitionColumns = append(partitionColumns, name(field.SourceID))
 		}
 	}
 	for _, order := range file.SortOrders {
@@ -365,6 +434,7 @@ func normalizeIcebergMetadata(file icebergMetadataFile, files []icebergFile) (de
 	}
 
 	// files, data_records, delete_records, column_stats
+	byPartition := partitionStats{}
 	for _, f := range files {
 		partition := f.Partition
 		if partition == "" {
@@ -372,8 +442,8 @@ func normalizeIcebergMetadata(file icebergMetadataFile, files []icebergFile) (de
 		}
 		switch f.Content {
 		case "0":
-			m.add(metaFiles, "data "+partition, 1)
-			m.add(metaDataRecords, partition, f.Records)
+			byPartition.add(metaFiles, partition, "data %p", 1)
+			byPartition.add(metaDataRecords, partition, "%p", f.Records)
 			for id, nulls := range f.NullCounts {
 				fieldID, err := strconv.Atoi(id)
 				if err != nil {
@@ -388,13 +458,14 @@ func normalizeIcebergMetadata(file icebergMetadataFile, files []icebergFile) (de
 				columns = append(columns, name(id))
 			}
 			slices.Sort(columns)
-			group := fmt.Sprintf("%s %s %s [%s]", partition, kind, f.Format, strings.Join(columns, ","))
-			m.add(metaFiles, "delete "+group, 1)
-			m.add(metaDeleteRecords, group, f.Records)
+			group := fmt.Sprintf("%%p %s %s [%s]", kind, f.Format, strings.Join(columns, ","))
+			byPartition.add(metaFiles, partition, "delete "+group, 1)
+			byPartition.add(metaDeleteRecords, partition, group, f.Records)
 		default:
 			return nil, fmt.Errorf("unknown file content %q", f.Content)
 		}
 	}
+	byPartition.emit(m, opaquePartitions(partitionColumns, typeOnly))
 	return m, nil
 }
 
@@ -407,8 +478,9 @@ type parquetObject struct {
 }
 
 // readParquetMetadata reads and normalizes one side's parquet table folder: metadata.json, what is
-// left under _olake_2pc, and the footer of every data file.
-func readParquetMetadata(ctx context.Context, t *testing.T, db, table string) destinationMetadata {
+// left under _olake_2pc, and the footer of every data file. opaque is opaquePartitions for the
+// stream's partition columns.
+func readParquetMetadata(ctx context.Context, t *testing.T, db, table string, opaque bool) destinationMetadata {
 	t.Helper()
 	client, err := testutils.NewMinIOClient()
 	require.NoError(t, err, "failed to create the MinIO client")
@@ -425,7 +497,7 @@ func readParquetMetadata(ctx context.Context, t *testing.T, db, table string) de
 		}
 		objects = append(objects, object)
 	}
-	metadata, err := normalizeParquetMetadata(objects)
+	metadata, err := normalizeParquetMetadata(objects, opaque)
 	require.NoErrorf(t, err, "failed to normalize the metadata of %s/%s", db, table)
 	return metadata
 }
@@ -438,8 +510,9 @@ const (
 
 // normalizeParquetMetadata is the pure half of readParquetMetadata, kept apart so it is unit-testable.
 // A data file is grouped by its folder, which is its partition.
-func normalizeParquetMetadata(objects []parquetObject) (destinationMetadata, error) {
+func normalizeParquetMetadata(objects []parquetObject, opaque bool) (destinationMetadata, error) {
 	m := destinationMetadata{}
+	byPartition := partitionStats{}
 	m.set(metaStaging, "objects", "0")
 	normalizeOlake2PC(m, "")
 
@@ -460,8 +533,8 @@ func normalizeParquetMetadata(objects []parquetObject) (destinationMetadata, err
 			if err != nil {
 				return nil, fmt.Errorf("failed to open %s: %s", object.key, err)
 			}
-			m.add(metaFiles, "data "+partition, 1)
-			m.add(metaDataRecords, partition, file.NumRows())
+			byPartition.add(metaFiles, partition, "data %p", 1)
+			byPartition.add(metaDataRecords, partition, "%p", file.NumRows())
 
 			for _, columnPath := range file.Schema().Columns() {
 				leaf, _ := file.Schema().Lookup(columnPath...)
@@ -483,6 +556,7 @@ func normalizeParquetMetadata(objects []parquetObject) (destinationMetadata, err
 			}
 		}
 	}
+	byPartition.emit(m, opaque)
 	for column, types := range schemas {
 		m.set(metaFileSchema, column, strings.Join(slices.Sorted(maps.Keys(types)), " | "))
 	}

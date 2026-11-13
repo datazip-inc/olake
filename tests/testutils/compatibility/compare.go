@@ -65,11 +65,12 @@ func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicie
 	var referenceMetadata, upgradedMetadata destinationMetadata
 	switch group.destination {
 	case "iceberg":
-		referenceMetadata = readIcebergMetadata(ctx, t, spark, referenceOutput)
-		upgradedMetadata = readIcebergMetadata(ctx, t, spark, upgradedOutput)
+		referenceMetadata = readIcebergMetadata(ctx, t, spark, referenceOutput, policies.typeOnly)
+		upgradedMetadata = readIcebergMetadata(ctx, t, spark, upgradedOutput, policies.typeOnly)
 	case "parquet":
-		referenceMetadata = readParquetMetadata(ctx, t, referenceDB, referenceTable)
-		upgradedMetadata = readParquetMetadata(ctx, t, upgradedDB, upgradedTable)
+		opaque := opaquePartitions(partitionRegexColumns(reference.PartitionRegex), policies.typeOnly)
+		referenceMetadata = readParquetMetadata(ctx, t, referenceDB, referenceTable, opaque)
+		upgradedMetadata = readParquetMetadata(ctx, t, upgradedDB, upgradedTable, opaque)
 	}
 	compareDestinationMetadata(t, diag, referenceMetadata, upgradedMetadata, policies.metadataSkip)
 }
