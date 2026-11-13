@@ -65,14 +65,14 @@ func TestFetchRowWithoutNormalization(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resolver := &unavailableValuesResolver{stream: testConfiguredStream(false), readBuffer: newReadBuffer()}
+			resolver := &unavailableValuesResolver{stream: testConfiguredStream(false), tableValues: newTableValues()}
 			err := resolver.fetchRow(&pendingRead{olakeID: "1", columns: tc.columns}, stored(tc.stored))
 			if tc.expectedErr {
 				assert.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, resolver.readBuffer.rows["1"])
+			assert.Equal(t, tc.expected, resolver.tableValues.rows["1"])
 		})
 	}
 }

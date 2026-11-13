@@ -18,70 +18,74 @@ type unavailableValuesResolver struct {
 	stream   types.StreamInterface
 	// index locates a row's previous version: this thread's uncommitted writes first, then the committed index.
 	index *types.StreamIndexThread
-	// reader reads stored values out of data files (Java side).
-	reader proto.TableIndexServiceClient
-	// writer is this thread's writer when it keeps data files open (arrow): a read asks it to close them first,
-	// as an open file cannot be read. nil for the legacy writer, whose open files Java closes.
-	writer openFileWriter
+	// tableIndexClient calls the Java table index service, which reads stored values back out of the data files.
+	tableIndexClient proto.TableIndexServiceClient
+	// ensureReadable closes, without committing, the data files this thread's writer still has open, as an open
+	// file cannot be read; a no-op for the legacy writer, whose open files Java closes.
+	ensureReadable func(ctx context.Context, paths []string) error
 
 	unavailableColumns map[string]struct{} // every column this thread has seen unavailable; only these are cached
-	writeCache         *writeCache         // per row, the values this thread last wrote for it
-	readBuffer         *readBuffer         // values read from the destination, until fill moves them into records
-	lastRead           readSize            // how big the last read's rows were, to size the next read
+	cachedValues       *cachedValues       // per row, the values this thread last wrote for it
+	tableValues        *tableValues        // values read from the table, until they are filled into records
+	averageRowBytes    int64               // average size of a row the last read got in full, 0 before any
 
 	recovered  int64 // values filled into records
 	fromTable  int64 // values read from the destination
 	unresolved int64 // values left as the placeholder
 }
 
-func newUnavailableValuesResolver(threadID string, stream types.StreamInterface, writer Writer, index *types.StreamIndexThread, reader proto.TableIndexServiceClient) *unavailableValuesResolver {
-	withOpenFiles, _ := writer.(openFileWriter)
+func newUnavailableValuesResolver(threadID string, stream types.StreamInterface, writer Writer, index *types.StreamIndexThread, tableIndexClient proto.TableIndexServiceClient) *unavailableValuesResolver {
+	ensureReadable := func(context.Context, []string) error { return nil }
+	if withOpenFiles, ok := writer.(openFileWriter); ok {
+		ensureReadable = withOpenFiles.EnsureReadable
+	}
 	return &unavailableValuesResolver{
 		threadID:           threadID,
 		stream:             stream,
 		index:              index,
-		reader:             reader,
-		writer:             withOpenFiles,
+		tableIndexClient:   tableIndexClient,
+		ensureReadable:     ensureReadable,
 		unavailableColumns: make(map[string]struct{}),
-		writeCache:         newWriteCache(),
-		readBuffer:         newReadBuffer(),
+		cachedValues:       newCachedValues(),
+		tableValues:        newTableValues(),
 	}
 }
 
-// RecoverUnavailableValues fills the unavailable values of a prefix of records and returns its length, at least
-// 1. The caller writes that prefix and calls again with the rest, so the values filled at once stay within limit
-// bytes. It reads once, at the first record missing a value, and ends the prefix at a record that read did not
-// answer. Only a lone first record may pass the limit.
-func (r *unavailableValuesResolver) RecoverUnavailableValues(ctx context.Context, records []types.RawRecord, limit int64) (int, error) {
-	r.collectUnavailableColumns(records)
-	if len(r.unavailableColumns) == 0 {
-		return len(records), nil // no column was ever unavailable in this thread: nothing to fill or cache
+// RecoverUnavailableValues fills in the values the source could not send (Postgres unchanged TOAST) with each row's
+// previous value. It fills records in order up to maxBytes and returns how many it filled, at least 1; the caller
+// writes those and calls again with the rest. It reads once, at the first record that needs a value not in memory,
+// and stops at a record that read did not answer. Only a lone first record may pass maxBytes.
+func (r *unavailableValuesResolver) RecoverUnavailableValues(ctx context.Context, records []types.RawRecord, maxBytes int64) (int, error) {
+	hasUnavailableValues := r.findUnavailableValues(records)
+	if !hasUnavailableValues && r.cachedValues.isEmpty() {
+		return len(records), nil // nothing to fill, and nothing cached that these writes could make stale
 	}
-	defer r.trimWriteCache()
+	defer r.keepCachedValuesWithinBudget()
 
 	size, read := int64(0), false
 	for idx := range records {
 		record := &records[idx]
 		if !read && r.needsRead(record) {
 			read = true
-			if err := r.readMissing(ctx, records, idx, limit-size); err != nil {
+			if err := r.readUncachedValuesFromTable(ctx, records, idx, maxBytes-size); err != nil {
 				return 0, err
 			}
 		}
 
 		recordSize := r.filledSize(record)
-		if idx > 0 && (r.needsRead(record) || size+recordSize > limit) {
+		if idx > 0 && (r.needsRead(record) || size+recordSize > maxBytes) {
 			return idx, nil // the next call goes on from this record
 		}
-		r.fill(record)
+		r.fillRecord(record)
 		size += recordSize
 	}
 	return len(records), nil
 }
 
-// collectUnavailableColumns drops the unavailable columns the stream does not sync and adds the rest to the
-// columns this thread caches.
-func (r *unavailableValuesResolver) collectUnavailableColumns(records []types.RawRecord) {
+// findUnavailableValues drops the unavailable columns the stream does not sync, adds the rest to the columns this
+// thread caches, and reports whether any record has one.
+func (r *unavailableValuesResolver) findUnavailableValues(records []types.RawRecord) bool {
+	found := false
 	for idx := range records {
 		record := &records[idx]
 		record.UnavailableColumns = slices.DeleteFunc(record.UnavailableColumns, func(column string) bool {
@@ -90,101 +94,104 @@ func (r *unavailableValuesResolver) collectUnavailableColumns(records []types.Ra
 		})
 		for _, column := range record.UnavailableColumns {
 			if len(r.unavailableColumns) == 0 {
-				writeCacheThreads.Add(1) // this thread starts caching, so it takes a share of the budget
+				cachingThreads.Add(1) // this thread starts caching, so it takes a share of the budget
 			}
 			r.unavailableColumns[column] = struct{}{}
+			found = true
 		}
 	}
+	return found
 }
 
-// readMissing reads the values the records from idx on are missing, as many as fit in left: the bytes of limit the
-// records before idx did not fill, less what the read buffer already holds for later records. The first record is
-// filled whatever its size, so if it is still missing values, it is then read alone.
-func (r *unavailableValuesResolver) readMissing(ctx context.Context, records []types.RawRecord, idx int, left int64) error {
-	if err := r.readAhead(ctx, records[idx:], left-r.readBuffer.bytes); err != nil {
+// readUncachedValuesFromTable reads from the table, in one call, the values the records from idx on need that memory
+// lacks, as many as fit in left: the bytes of maxBytes the records before idx did not fill, less what the table values
+// already hold for later records. The first record is always filled, so if it did not fit, it is then read alone.
+func (r *unavailableValuesResolver) readUncachedValuesFromTable(ctx context.Context, records []types.RawRecord, idx int, left int64) error {
+	if err := r.readFromTable(ctx, records[idx:], left-r.tableValues.bytes); err != nil {
 		return err
 	}
 	if idx == 0 && r.needsRead(&records[0]) {
-		return r.readAhead(ctx, records[:1], math.MaxInt64)
+		return r.readFromTable(ctx, records[:1], math.MaxInt64)
 	}
 	return nil
 }
 
-// needsRead reports whether some unavailable value of the record is not known yet.
-func (r *unavailableValuesResolver) needsRead(record *types.RawRecord) bool {
-	return len(r.missing(record)) > 0
+// keepCachedValuesWithinBudget drops this thread's oldest cached rows once its cache is over its share of the budget.
+// It runs only after the records are filled, as a later record may need what an earlier one in the same call wrote.
+func (r *unavailableValuesResolver) keepCachedValuesWithinBudget() {
+	before := len(r.cachedValues.rows)
+	share := maxCachedBytes / cachingThreads.Load() // this thread is one of them, so never a division by zero
+	if dropped := r.cachedValues.trim(share); dropped > 0 {
+		logger.Debugf("Thread[%s]: dropped %d of %d cached row(s), %d bytes left", r.threadID, dropped, before, r.cachedValues.bytes)
+	}
 }
 
-// missing lists the record's unavailable columns whose previous value is not known yet.
-func (r *unavailableValuesResolver) missing(record *types.RawRecord) []string {
+// needsRead reports whether some of the record's previous values must still be read from the table.
+func (r *unavailableValuesResolver) needsRead(record *types.RawRecord) bool {
+	return len(r.columnsToRead(record)) > 0
+}
+
+// columnsToRead lists the record's unavailable columns whose previous value is not in memory yet.
+func (r *unavailableValuesResolver) columnsToRead(record *types.RawRecord) []string {
 	olakeID := olakeIDOf(record)
-	var missing []string
+	var columns []string
 	for _, column := range record.UnavailableColumns {
-		if _, found := r.previous(olakeID, column); !found {
-			missing = append(missing, column)
+		if _, found := r.previousValue(olakeID, column); !found {
+			columns = append(columns, column)
 		}
 	}
-	return missing
+	return columns
 }
 
-// previous is the row's value of column before this record: what this thread last wrote for the row, else what
-// was read for it. A row deleted earlier in this sync gives the placeholder, so its old values never come back.
-func (r *unavailableValuesResolver) previous(olakeID, column string) (any, bool) {
-	if value, found := r.writeCache.value(olakeID, column); found {
+// previousValue is the row's value of column before this record: what this thread last wrote for it, else what was
+// read from the table. A row deleted earlier in this sync gives the placeholder, so its old values never come back.
+func (r *unavailableValuesResolver) previousValue(olakeID, column string) (any, bool) {
+	if value, found := r.cachedValues.value(olakeID, column); found {
 		return value, true
 	}
-	return r.readBuffer.value(olakeID, column)
+	return r.tableValues.value(olakeID, column)
 }
 
-// filledSize is the size of the record's values once fill has filled them in.
+// filledSize is the size of the record's values once fillRecord has filled them in.
 func (r *unavailableValuesResolver) filledSize(record *types.RawRecord) int64 {
 	olakeID := olakeIDOf(record)
 	size := dataSize(record.Data)
 	for _, column := range record.UnavailableColumns {
-		if value, found := r.previous(olakeID, column); found && value != constants.UnavailableValue {
+		if value, found := r.previousValue(olakeID, column); found && value != constants.UnavailableValue {
 			size += valueSize(value) - valueSize(record.Data[column])
 		}
 	}
 	return size
 }
 
-// fill writes the row's previous values into the record's unavailable columns and caches what the record writes,
-// the placeholder too, so the row's next change needs no read. A delete caches only that the row is gone.
-func (r *unavailableValuesResolver) fill(record *types.RawRecord) {
+// fillRecord writes the row's previous values into the record's unavailable columns and caches what the record
+// writes, the placeholder too, so the row's next change needs no read. A delete caches only that the row is gone.
+func (r *unavailableValuesResolver) fillRecord(record *types.RawRecord) {
 	olakeID := olakeIDOf(record)
 	if isDelete(record) {
-		r.writeCache.markDeleted(olakeID)
+		r.cachedValues.markDeleted(olakeID)
 		return
 	}
 
 	for _, column := range record.UnavailableColumns {
-		if value, found := r.previous(olakeID, column); found && value != constants.UnavailableValue {
+		if value, found := r.previousValue(olakeID, column); found && value != constants.UnavailableValue {
 			record.Data[column] = value
 			r.recovered++
 			continue
 		}
 		r.unresolved++
 	}
-	r.readBuffer.release(olakeID)
-	r.writeCache.remember(olakeID, record.Data, r.unavailableColumns)
+	r.tableValues.release(olakeID)
+	r.cachedValues.remember(olakeID, record.Data, r.unavailableColumns)
 }
 
-// trimWriteCache drops this thread's oldest cached rows once its cache is over its share of the budget. This
-// thread is one of writeCacheThreads, so the share never divides by zero.
-func (r *unavailableValuesResolver) trimWriteCache() {
-	before := len(r.writeCache.rows)
-	if dropped := r.writeCache.trim(maxWriteCacheBytes / writeCacheThreads.Load()); dropped > 0 {
-		logger.Debugf("Thread[%s]: dropped %d of %d cached row(s), %d bytes left", r.threadID, dropped, before, r.writeCache.bytes)
-	}
-}
-
-// Close gives back this thread's share of the write cache budget and logs what it recovered. It frees the cache
+// Close gives back this thread's share of the cache budget and logs what it recovered. It frees the cached values
 // now, because this writer's commit and other streams' commits run after it.
 func (r *unavailableValuesResolver) Close() {
 	if len(r.unavailableColumns) > 0 {
-		writeCacheThreads.Add(-1)
+		cachingThreads.Add(-1)
 	}
-	r.unavailableColumns, r.writeCache, r.readBuffer = nil, nil, nil
+	r.unavailableColumns, r.cachedValues, r.tableValues = nil, nil, nil
 
 	if r.recovered+r.unresolved == 0 {
 		return

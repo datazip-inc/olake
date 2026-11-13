@@ -14,26 +14,26 @@ import (
 // Over its share, rows written in earlier batches go first: they sit in closed files, while a
 // recent row may sit in a file still open that a read would have to close early.
 func TestTrimWriteCacheDropsLeastRecentRowsFirst(t *testing.T) {
-	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
+	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testTableIndexClient{table: testTable{}})
 	marker := testRecord("0", "u", map[string]any{"id": 0, "payload": placeholder}, "payload")
 
 	// more than this thread's share once another thread caches, so dropping it alone brings the
 	// thread under half its share
 	require.NoError(t, testRecoverAll(resolver, []types.RawRecord{
-		marker, testRecord("old", "c", map[string]any{"payload": strings.Repeat("x", int(maxWriteCacheBytes/2)+1)}),
+		marker, testRecord("old", "c", map[string]any{"payload": strings.Repeat("x", int(maxCachedBytes/2)+1)}),
 	}))
 	require.NoError(t, testRecoverAll(resolver, []types.RawRecord{
 		marker, testRecord("new", "c", map[string]any{"payload": "recent"}),
 	}))
 
 	// another thread starts caching, which halves this thread's share
-	writeCacheThreads.Add(1)
-	t.Cleanup(func() { writeCacheThreads.Add(-1) })
-	resolver.trimWriteCache()
+	cachingThreads.Add(1)
+	t.Cleanup(func() { cachingThreads.Add(-1) })
+	resolver.keepCachedValuesWithinBudget()
 
-	assert.NotContains(t, resolver.writeCache.rows, "old")
-	assert.Contains(t, resolver.writeCache.rows, "new")
-	assert.LessOrEqual(t, resolver.writeCache.bytes, maxWriteCacheBytes/4)
+	assert.NotContains(t, resolver.cachedValues.rows, "old")
+	assert.Contains(t, resolver.cachedValues.rows, "new")
+	assert.LessOrEqual(t, resolver.cachedValues.bytes, maxCachedBytes/4)
 }
 
 func TestValueSize(t *testing.T) {
