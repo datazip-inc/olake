@@ -39,25 +39,11 @@ type pendingRead struct {
 	columns  []string
 }
 
-// readSize is how many rows a read got in full and how many bytes they brought.
-type readSize struct {
-	rows  int64
-	bytes int64
-}
-
-// averageRowBytes is what one row brought on average, 0 before any read got a row in full.
-func (s readSize) averageRowBytes() int64 {
-	if s.rows == 0 {
-		return 0
-	}
-	return s.bytes / s.rows
-}
-
 // readFromTable reads the previous versions of the rows whose values the records need, as many as fit in budget.
 // Only a row's first record can need one: later records of the row get what the earlier ones wrote.
 func (r *unavailableValuesResolver) readFromTable(ctx context.Context, records []types.RawRecord, budget int64) error {
 	if budget <= 0 {
-		return nil // the read buffer already fills the budget
+		return nil // the table values already fill the budget
 	}
 	rows, err := r.rowsToRead(records, budget)
 	if err != nil || len(rows) == 0 {
@@ -73,7 +59,7 @@ func (r *unavailableValuesResolver) rowsToRead(records []types.RawRecord, budget
 	size := int64(0) // the records' own bytes, plus what their rows to read are expected to bring
 	seen := make(map[string]struct{})
 	for idx := range records {
-		if size >= budget || (r.lastRead.rows == 0 && len(rows) >= firstReadRows) {
+		if size >= budget || (r.averageRowBytes == 0 && len(rows) >= firstReadRows) {
 			break
 		}
 		record := &records[idx]
@@ -99,12 +85,12 @@ func (r *unavailableValuesResolver) rowsToRead(records []types.RawRecord, budget
 			continue
 		}
 		rows = append(rows, &pendingRead{olakeID: olakeID, location: location, columns: columns})
-		size += r.lastRead.averageRowBytes()
+		size += r.averageRowBytes
 	}
 	return rows, nil
 }
 
-// readRows reads the pending rows in one streamed call into the read buffer. Java ends the stream after the row that
+// readRows reads the pending rows in one streamed call into the table values. Java ends the stream after the row that
 // takes the bytes it sent past budget; a row not read in full by then is read by a later call.
 func (r *unavailableValuesResolver) readRows(ctx context.Context, rows []*pendingRead, budget int64) error {
 	request, wanted := r.readRequest(rows, budget)
@@ -123,10 +109,10 @@ func (r *unavailableValuesResolver) readRows(ctx context.Context, rows []*pendin
 		return fmt.Errorf("failed to read unavailable column values: %w", err)
 	}
 
-	start, done := r.readBuffer.bytes, int64(0) // done: rows read in full by this call
+	start, done := r.tableValues.bytes, int64(0) // done: rows read in full by this call
 	defer func() {
 		if done > 0 { // the next read is sized from this one alone
-			r.lastRead = readSize{rows: done, bytes: r.readBuffer.bytes - start}
+			r.averageRowBytes = (r.tableValues.bytes - start) / done
 		}
 	}()
 	for {
@@ -143,7 +129,7 @@ func (r *unavailableValuesResolver) readRows(ctx context.Context, rows []*pendin
 			if err := r.fetchRow(pending, row.GetValues()); err != nil {
 				return fmt.Errorf("failed to read row %d of %s: %w", row.GetPosition(), row.GetFilePath(), err)
 			}
-			if r.readBuffer.hasAll(pending.olakeID, pending.columns) { // a row over 16 MB comes in parts
+			if r.tableValues.hasAll(pending.olakeID, pending.columns) { // a row over 16 MB comes in parts
 				done++
 			}
 		}
@@ -193,7 +179,7 @@ func (r *unavailableValuesResolver) readColumns(columns []string) []string {
 	return read
 }
 
-// fetchRow puts the wanted values of one stored row, or one part of a split row, into the read buffer. NULL
+// fetchRow puts the wanted values of one stored row, or one part of a split row, into the table values. NULL
 // stays the placeholder: Postgres never leaves out a NULL, so a stored NULL means the value was never written.
 func (r *unavailableValuesResolver) fetchRow(pending *pendingRead, stored map[string]*proto.IcebergPayload_IceRecord_FieldValue) error {
 	if r.stream.NormalizationEnabled() {
@@ -231,12 +217,12 @@ func (r *unavailableValuesResolver) fetchRow(pending *pendingRead, stored map[st
 	return nil
 }
 
-// fetch puts a value read for a row into the read buffer, where fillRecord finds it.
+// fetch puts a value read for a row into the table values, where fillRecord finds it.
 func (r *unavailableValuesResolver) fetch(olakeID, column string, value any) {
 	if value != constants.UnavailableValue {
 		r.fromTable++
 	}
-	r.readBuffer.put(olakeID, column, value)
+	r.tableValues.put(olakeID, column, value)
 }
 
 // fieldValue converts one stored value for the record; unset means NULL. The columns read are text (Postgres

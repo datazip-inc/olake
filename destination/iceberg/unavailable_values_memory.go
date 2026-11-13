@@ -12,18 +12,18 @@ import (
 )
 
 const (
-	// maxWriteCacheBytes is the memory all threads' write caches share, split equally; past its share a thread
+	// maxCachedBytes is the memory all threads' cached values share, split equally; past its share a thread
 	// drops its oldest rows, which are read back from the destination if needed.
-	maxWriteCacheBytes = int64(128) * 1024 * 1024 // 128 MB
+	maxCachedBytes = int64(128) * 1024 * 1024 // 128 MB
 	// cachedRowOverhead and cachedValueOverhead approximate what a cached row costs besides its id and value
 	// bytes: measured at about 400 bytes for a row of up to 8 values (Go 1.26).
 	cachedRowOverhead   = int64(384)
 	cachedValueOverhead = int64(24)
 )
 
-// writeCacheThreads counts the threads keeping a write cache; each keeps to maxWriteCacheBytes / this count. An
-// idle thread keeps its old share until its next batch trims it to the new one.
-var writeCacheThreads atomic.Int64
+// cachingThreads counts the threads that cache values; each keeps to maxCachedBytes / this count. An idle
+// thread keeps its old share until its next batch trims it to the new one.
+var cachingThreads atomic.Int64
 
 // cachedValues holds, for each row, the values this thread last wrote for it, so the row's next change in this
 // sync takes them from memory instead of reading the destination.
@@ -122,39 +122,39 @@ func (row *cachedRow) size(olakeID string) int64 {
 	return int64(len(olakeID)) + cachedRowOverhead + dataSize(row.values) + int64(len(row.values))*cachedValueOverhead
 }
 
-// readBuffer holds the values read from the table until fillRecord moves them into their records. Unlike the
-// cached values it is never trimmed, so no row is read twice; reads keep it within maxBytes plus one row.
-type readBuffer struct {
+// tableValues holds the values read from the table until fillRecord moves them into their records. Unlike the
+// cached values they are never trimmed, so no row is read twice; reads keep them within maxBytes plus one row.
+type tableValues struct {
 	rows  map[string]map[string]any // olake id -> column -> value
 	bytes int64
 }
 
-func newReadBuffer() *readBuffer {
-	return &readBuffer{rows: make(map[string]map[string]any)}
+func newTableValues() *tableValues {
+	return &tableValues{rows: make(map[string]map[string]any)}
 }
 
 // value is the value read for the row's column.
-func (b *readBuffer) value(olakeID, column string) (any, bool) {
-	value, found := b.rows[olakeID][column]
+func (t *tableValues) value(olakeID, column string) (any, bool) {
+	value, found := t.rows[olakeID][column]
 	return value, found
 }
 
 // put keeps a value read for a row. A value can come twice when two source columns share one destination column
 // (Foo and foo), so it replaces the old one.
-func (b *readBuffer) put(olakeID, column string, value any) {
-	values := b.rows[olakeID]
+func (t *tableValues) put(olakeID, column string, value any) {
+	values := t.rows[olakeID]
 	if values == nil {
 		values = make(map[string]any)
-		b.rows[olakeID] = values
+		t.rows[olakeID] = values
 	}
-	b.bytes += valueSize(value) - valueSize(values[column])
+	t.bytes += valueSize(value) - valueSize(values[column])
 	values[column] = value
 }
 
 // hasAll reports whether a value has arrived for every one of the row's columns.
-func (b *readBuffer) hasAll(olakeID string, columns []string) bool {
+func (t *tableValues) hasAll(olakeID string, columns []string) bool {
 	for _, column := range columns {
-		if _, found := b.rows[olakeID][column]; !found {
+		if _, found := t.rows[olakeID][column]; !found {
 			return false
 		}
 	}
@@ -162,9 +162,9 @@ func (b *readBuffer) hasAll(olakeID string, columns []string) bool {
 }
 
 // release drops what was read for a row once fillRecord has moved it into the row's record.
-func (b *readBuffer) release(olakeID string) {
-	b.bytes -= dataSize(b.rows[olakeID])
-	delete(b.rows, olakeID)
+func (t *tableValues) release(olakeID string) {
+	t.bytes -= dataSize(t.rows[olakeID])
+	delete(t.rows, olakeID)
 }
 
 func dataSize(data map[string]any) int64 {

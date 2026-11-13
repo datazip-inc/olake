@@ -197,7 +197,7 @@ func testResolver(t *testing.T, normalized bool, writer *testWriter, tableIndexC
 		stream:             testConfiguredStream(normalized),
 		unavailableColumns: make(map[string]struct{}),
 		cachedValues:       newCachedValues(),
-		readBuffer:         newReadBuffer(),
+		tableValues:        newTableValues(),
 	}
 	t.Cleanup(resolver.Close)
 
@@ -215,13 +215,13 @@ func testRecord(olakeID, opType string, data map[string]any, unavailable ...stri
 	}
 }
 
-// testOverBudget makes so many threads share the write cache budget that this thread's share holds
+// testOverBudget makes so many threads share the cache budget that this thread's share holds
 // nothing, so the next Resolve has to drop what it caches.
 func testOverBudget(t *testing.T) {
 	t.Helper()
 
-	writeCacheThreads.Add(maxWriteCacheBytes)
-	t.Cleanup(func() { writeCacheThreads.Add(-maxWriteCacheBytes) })
+	cachingThreads.Add(maxCachedBytes)
+	t.Cleanup(func() { cachingThreads.Add(-maxCachedBytes) })
 }
 
 // resolveAll resolves records as one prefix, as a batch under the byte limit is.
@@ -267,13 +267,13 @@ type resolveStep struct {
 
 func TestResolve(t *testing.T) {
 	committed := map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}}
-	big := strings.Repeat("x", int(maxWriteCacheBytes/2))
+	big := strings.Repeat("x", int(maxCachedBytes/2))
 
 	testCases := []struct {
 		name               string
 		rawData            bool  // normalization off: the whole source row is stored as JSON
 		limit              int64 // bytes per prefix; 0 resolves each batch as one prefix
-		overBudget         bool  // the write cache budget holds nothing, so every batch drops what it caches
+		overBudget         bool  // the cache budget holds nothing, so every batch drops what it caches
 		threads            int   // threads resolving each batch at once, each its own copy; 0 is one
 		locations          map[string]types.RowLocation
 		table              testTable
@@ -322,7 +322,7 @@ func TestResolve(t *testing.T) {
 			}},
 			expectedRecovered: 1,
 		},
-		// a value written after a queued read is newer; the read's answer must not replace it in the write cache
+		// a value written after a queued read is newer; the read's answer must not replace it in the cached values
 		{
 			name:      "a read answer does not overwrite a newer value from the same batch",
 			locations: committed,
@@ -416,7 +416,7 @@ func TestResolve(t *testing.T) {
 			expectedFromTable: 2,
 			expectedRecovered: 2,
 		},
-		// batches without a marker still update the write cache; skipping them would hand the
+		// batches without a marker still update the cached values; skipping them would hand the
 		// third batch the value read in the first one
 		{
 			name:      "a change in a later batch without markers replaces the cached value",
@@ -507,9 +507,9 @@ func TestResolve(t *testing.T) {
 			expectedLookups:    1,
 			expectedUnresolved: 2,
 		},
-		// the write cache keeps nothing, so the row's next change reads its value from the destination again
+		// nothing stays cached, so the row's next change reads its value from the destination again
 		{
-			name:       "a value dropped from the write cache is read again from the destination",
+			name:       "a value no longer cached is read again from the destination",
 			overBudget: true,
 			locations:  committed,
 			table:      testTable{{"a.parquet", 0, "payload"}: "stored"},
@@ -529,7 +529,7 @@ func TestResolve(t *testing.T) {
 		},
 		// a 64 MB row fits a lone thread's share but not a quarter of the budget, so each thread's next batch drops it
 		{
-			name:    "threads caching at once share the write cache budget",
+			name:    "threads caching at once share the cache budget",
 			threads: 4,
 			steps: []resolveStep{
 				{
@@ -711,10 +711,10 @@ func TestResolve(t *testing.T) {
 				assert.Equal(t, tc.expectedRecovered, resolver.recovered, "recovered")
 				assert.Equal(t, tc.expectedFromTable, resolver.fromTable, "from table")
 				assert.Equal(t, tc.expectedUnresolved, resolver.unresolved, "unresolved")
-				assert.Zero(t, resolver.readBuffer.bytes, "every value read is filled into its record")
+				assert.Zero(t, resolver.tableValues.bytes, "every value read is filled into its record")
 				cached += resolver.cachedValues.bytes
 			}
-			assert.LessOrEqual(t, cached, maxWriteCacheBytes, "the threads' write caches stay within the budget together")
+			assert.LessOrEqual(t, cached, maxCachedBytes, "the threads' cached values stay within the budget together")
 		})
 	}
 }
@@ -781,7 +781,7 @@ func TestResolveColumnsSharingDestinationName(t *testing.T) {
 
 	assert.Equal(t, "big value", records[0].Data["Foo"])
 	assert.Equal(t, "big value", records[0].Data["foo"])
-	assert.Zero(t, resolver.readBuffer.bytes, "read buffer bytes")
+	assert.Zero(t, resolver.tableValues.bytes, "table values bytes")
 }
 
 // A batch whose recovered values pass the limit is resolved a prefix at a time: a prefix passes
@@ -805,7 +805,7 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 	}
 	tableIndexClient := &testTableIndexClient{table: table, reverse: true}
 	resolver := testResolver(t, true, writer, tableIndexClient)
-	// the write cache is trimmed to nothing after every prefix; the read buffer must survive that
+	// the cached values are trimmed to nothing after every prefix; the table values must survive that
 	testOverBudget(t)
 
 	for start := 0; start < len(records); {
@@ -824,7 +824,7 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 			assert.LessOrEqual(t, size, int64(limit), "prefix at %d", start)
 		}
 		// a read stops after the row that passes the limit, of at most 259 bytes here
-		assert.LessOrEqual(t, resolver.readBuffer.bytes, int64(limit+259), "read ahead at %d", start)
+		assert.LessOrEqual(t, resolver.tableValues.bytes, int64(limit+259), "read ahead at %d", start)
 		start += n
 	}
 
@@ -835,7 +835,7 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 	}
 	assert.Equal(t, int64(len(records)), resolver.recovered)
 	assert.Equal(t, int64(len(records)), resolver.fromTable, "no value is read twice")
-	assert.Zero(t, resolver.readBuffer.bytes)
+	assert.Zero(t, resolver.tableValues.bytes)
 }
 
 // A read stopped by the limit in the middle of a row split in parts keeps the parts it got,
@@ -897,7 +897,7 @@ func TestResolveRawRowCutAfterOpType(t *testing.T) {
 	assert.Equal(t, 1, n)
 	assert.Equal(t, json.RawMessage(`"stored value"`), records[0].Data["payload"])
 	assert.Equal(t, int64(1), resolver.recovered)
-	assert.Zero(t, resolver.readBuffer.bytes)
+	assert.Zero(t, resolver.tableValues.bytes)
 }
 
 func TestResolveReadRequest(t *testing.T) {
@@ -1090,7 +1090,7 @@ func TestResolveErrors(t *testing.T) {
 	}
 }
 
-func TestResolveWriteCacheBudget(t *testing.T) {
+func TestResolveCachedValuesBudget(t *testing.T) {
 	testCases := []struct {
 		name               string
 		overBudget         bool
@@ -1115,7 +1115,7 @@ func TestResolveWriteCacheBudget(t *testing.T) {
 				testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
 			},
 		},
-		// a delete-heavy stream must not grow the write cache without bound
+		// a delete-heavy stream must not grow the cached values without bound
 		{
 			name:       "tombstones count against the budget",
 			overBudget: true,
@@ -1159,35 +1159,35 @@ func TestResolveTrimDropsLeastRecentRowsFirst(t *testing.T) {
 	// more than this thread's share once another thread caches, so dropping it alone brings the
 	// thread under half its share
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
-		marker, testRecord("old", "c", map[string]any{"payload": strings.Repeat("x", int(maxWriteCacheBytes/2)+1)}),
+		marker, testRecord("old", "c", map[string]any{"payload": strings.Repeat("x", int(maxCachedBytes/2)+1)}),
 	}))
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
 		marker, testRecord("new", "c", map[string]any{"payload": "recent"}),
 	}))
 
 	// another thread starts caching, which halves this thread's share
-	writeCacheThreads.Add(1)
-	t.Cleanup(func() { writeCacheThreads.Add(-1) })
-	resolver.keepWriteCacheWithinBudget()
+	cachingThreads.Add(1)
+	t.Cleanup(func() { cachingThreads.Add(-1) })
+	resolver.keepCachedValuesWithinBudget()
 
 	assert.NotContains(t, resolver.cachedValues.rows, "old")
 	assert.Contains(t, resolver.cachedValues.rows, "new")
-	assert.LessOrEqual(t, resolver.cachedValues.bytes, maxWriteCacheBytes/4)
+	assert.LessOrEqual(t, resolver.cachedValues.bytes, maxCachedBytes/4)
 }
 
 func TestUnavailableValuesResolverCloseReleasesBudget(t *testing.T) {
-	before := writeCacheThreads.Load()
+	before := cachingThreads.Load()
 	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testTableIndexClient{table: testTable{}})
 
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
 		testRecord("1", "i", map[string]any{"id": 1, "payload": "inserted"}),
 		testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
 	}))
-	require.Equal(t, before+1, writeCacheThreads.Load(), "a thread that caches takes a share of the budget")
+	require.Equal(t, before+1, cachingThreads.Load(), "a thread that caches takes a share of the budget")
 
 	resolver.Close()
 
-	assert.Equal(t, before, writeCacheThreads.Load(), "the thread gives its share back")
+	assert.Equal(t, before, cachingThreads.Load(), "the thread gives its share back")
 	assert.Nil(t, resolver.cachedValues, "the cached values are freed")
 }
 
@@ -1265,14 +1265,14 @@ func TestFetchRowWithoutNormalization(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resolver := &unavailableValuesResolver{stream: testConfiguredStream(false), readBuffer: newReadBuffer()}
+			resolver := &unavailableValuesResolver{stream: testConfiguredStream(false), tableValues: newTableValues()}
 			err := resolver.fetchRow(&pendingRead{olakeID: "1", columns: tc.columns}, stored(tc.stored))
 			if tc.expectedErr {
 				assert.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, resolver.readBuffer.rows["1"])
+			assert.Equal(t, tc.expected, resolver.tableValues.rows["1"])
 		})
 	}
 }

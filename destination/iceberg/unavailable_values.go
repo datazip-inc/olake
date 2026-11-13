@@ -26,8 +26,8 @@ type unavailableValuesResolver struct {
 
 	unavailableColumns map[string]struct{} // every column this thread has seen unavailable; only these are cached
 	cachedValues       *cachedValues       // per row, the values this thread last wrote for it
-	readBuffer         *readBuffer         // values read from the table, until they are filled into records
-	lastRead           readSize            // how big the last read's rows were, to size the next read
+	tableValues        *tableValues        // values read from the table, until they are filled into records
+	averageRowBytes    int64               // average size of a row the last read got in full, 0 before any
 
 	recovered  int64 // values filled into records
 	fromTable  int64 // values read from the destination
@@ -47,7 +47,7 @@ func newUnavailableValuesResolver(threadID string, stream types.StreamInterface,
 		ensureReadable:     ensureReadable,
 		unavailableColumns: make(map[string]struct{}),
 		cachedValues:       newCachedValues(),
-		readBuffer:         newReadBuffer(),
+		tableValues:        newTableValues(),
 	}
 }
 
@@ -58,7 +58,7 @@ func (r *unavailableValuesResolver) Resolve(ctx context.Context, records []types
 	if !hasUnavailableValues && r.cachedValues.isEmpty() {
 		return len(records), nil // nothing to fill, and nothing cached that these writes could make stale
 	}
-	defer r.keepWriteCacheWithinBudget()
+	defer r.keepCachedValuesWithinBudget()
 
 	if err := r.readUncachedValuesFromTable(ctx, records, maxBytes); err != nil {
 		return 0, err
@@ -83,7 +83,7 @@ func (r *unavailableValuesResolver) findUnavailableValues(records []types.RawRec
 		})
 		for _, column := range record.UnavailableColumns {
 			if len(r.unavailableColumns) == 0 {
-				writeCacheThreads.Add(1) // this thread starts caching, so it takes a share of the budget
+				cachingThreads.Add(1) // this thread starts caching, so it takes a share of the budget
 			}
 			r.unavailableColumns[column] = struct{}{}
 			found = true
@@ -95,7 +95,7 @@ func (r *unavailableValuesResolver) findUnavailableValues(records []types.RawRec
 // readUncachedValuesFromTable reads from the table, in one call, the values the records need that memory lacks, for
 // as many records as fit in maxBytes. The first record is always filled, so if it did not fit, it is then read alone.
 func (r *unavailableValuesResolver) readUncachedValuesFromTable(ctx context.Context, records []types.RawRecord, maxBytes int64) error {
-	if err := r.readFromTable(ctx, records, maxBytes-r.readBuffer.bytes); err != nil {
+	if err := r.readFromTable(ctx, records, maxBytes-r.tableValues.bytes); err != nil {
 		return err
 	}
 	if len(records) > 0 && r.needsRead(&records[0]) {
@@ -120,11 +120,11 @@ func (r *unavailableValuesResolver) fillUnavailableValues(records []types.RawRec
 	return len(records)
 }
 
-// keepWriteCacheWithinBudget drops this thread's oldest cached rows once its cache is over its share of the budget.
+// keepCachedValuesWithinBudget drops this thread's oldest cached rows once its cache is over its share of the budget.
 // It runs only after the records are filled, as a later record may need what an earlier one in the same call wrote.
-func (r *unavailableValuesResolver) keepWriteCacheWithinBudget() {
+func (r *unavailableValuesResolver) keepCachedValuesWithinBudget() {
 	before := len(r.cachedValues.rows)
-	share := maxWriteCacheBytes / writeCacheThreads.Load() // this thread is one of them, so never a division by zero
+	share := maxCachedBytes / cachingThreads.Load() // this thread is one of them, so never a division by zero
 	if dropped := r.cachedValues.trim(share); dropped > 0 {
 		logger.Debugf("Thread[%s]: dropped %d of %d cached row(s), %d bytes left", r.threadID, dropped, before, r.cachedValues.bytes)
 	}
@@ -153,7 +153,7 @@ func (r *unavailableValuesResolver) previousValue(olakeID, column string) (any, 
 	if value, found := r.cachedValues.value(olakeID, column); found {
 		return value, true
 	}
-	return r.readBuffer.value(olakeID, column)
+	return r.tableValues.value(olakeID, column)
 }
 
 // filledSize is the size of the record's values once fillRecord has filled them in.
@@ -185,17 +185,17 @@ func (r *unavailableValuesResolver) fillRecord(record *types.RawRecord) {
 		}
 		r.unresolved++
 	}
-	r.readBuffer.release(olakeID)
+	r.tableValues.release(olakeID)
 	r.cachedValues.remember(olakeID, record.Data, r.unavailableColumns)
 }
 
-// Close gives back this thread's share of the write cache budget and logs what it recovered. It frees the cache
+// Close gives back this thread's share of the cache budget and logs what it recovered. It frees the cached values
 // now, because this writer's commit and other streams' commits run after it.
 func (r *unavailableValuesResolver) Close() {
 	if len(r.unavailableColumns) > 0 {
-		writeCacheThreads.Add(-1)
+		cachingThreads.Add(-1)
 	}
-	r.unavailableColumns, r.cachedValues, r.readBuffer = nil, nil, nil
+	r.unavailableColumns, r.cachedValues, r.tableValues = nil, nil, nil
 
 	if r.recovered+r.unresolved == 0 {
 		return
