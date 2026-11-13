@@ -37,16 +37,16 @@ func (w *prefixWriter) Write(_ context.Context, records []types.RawRecord) error
 	return w.writeErr
 }
 
-// resolvingWriter hands the batch over prefix records at a time, as a writer that recovers
+// recoveringWriter hands the batch over prefix records at a time, as a writer that recovers
 // values does.
-type resolvingWriter struct {
+type recoveringWriter struct {
 	*prefixWriter
 	prefix int
 	err    error
 }
 
-func (w *resolvingWriter) Resolve(_ context.Context, records []types.RawRecord) (int, error) {
-	w.calls = append(w.calls, fmt.Sprintf("resolve %v", ids(records)))
+func (w *recoveringWriter) RecoverUnavailableValues(_ context.Context, records []types.RawRecord) (int, error) {
+	w.calls = append(w.calls, fmt.Sprintf("recover %v", ids(records)))
 	return min(w.prefix, len(records)), w.err
 }
 
@@ -58,11 +58,11 @@ func ids(records []types.RawRecord) []int {
 	return list
 }
 
-func TestFlushWritesResolvedPrefixesInOrder(t *testing.T) {
+func TestFlushWritesRecoveredPrefixesInOrder(t *testing.T) {
 	testCases := []struct {
 		name             string
-		prefix           int // records each Resolve hands over; 0 for a writer that recovers nothing
-		resolveErr       error
+		prefix           int // records each RecoverUnavailableValues hands over; 0 for a writer that recovers nothing
+		recoverErr       error
 		writeErr         error
 		filter           map[int]bool
 		expectedCalls    []string
@@ -76,12 +76,12 @@ func TestFlushWritesResolvedPrefixesInOrder(t *testing.T) {
 			expectedReleased: 5,
 		},
 		{
-			name:   "a resolving writer writes each prefix before resolving the rest",
+			name:   "a recovering writer writes each prefix before recovering the rest",
 			prefix: 2,
 			expectedCalls: []string{
-				"resolve [0 1 2 3 4]", "write [0 1]",
-				"resolve [2 3 4]", "write [2 3]",
-				"resolve [4]", "write [4]",
+				"recover [0 1 2 3 4]", "write [0 1]",
+				"recover [2 3 4]", "write [2 3]",
+				"recover [4]", "write [4]",
 			},
 			expectedReleased: 5,
 		},
@@ -90,25 +90,25 @@ func TestFlushWritesResolvedPrefixesInOrder(t *testing.T) {
 			prefix: 2,
 			filter: map[int]bool{1: true, 4: true},
 			expectedCalls: []string{
-				"resolve [0 1 2 3 4]", "write [0]",
-				"resolve [2 3 4]", "write [2 3]",
-				"resolve [4]", "write []",
+				"recover [0 1 2 3 4]", "write [0]",
+				"recover [2 3 4]", "write [2 3]",
+				"recover [4]", "write []",
 			},
 			expectedFiltered: 2,
 			expectedReleased: 5,
 		},
 		{
-			name:          "a failed resolve fails the flush before its prefix is written",
+			name:          "a failed recovery fails the flush before its prefix is written",
 			prefix:        2,
-			resolveErr:    errors.New("index unavailable"),
-			expectedCalls: []string{"resolve [0 1 2 3 4]"},
-			expectedErr:   "failed to resolve unavailable values: index unavailable",
+			recoverErr:    errors.New("index unavailable"),
+			expectedCalls: []string{"recover [0 1 2 3 4]"},
+			expectedErr:   "failed to recover unavailable values: index unavailable",
 		},
 		{
-			name:          "a failed write fails the flush before the rest is resolved",
+			name:          "a failed write fails the flush before the rest is recovered",
 			prefix:        2,
 			writeErr:      errors.New("upload failed"),
-			expectedCalls: []string{"resolve [0 1 2 3 4]", "write [0 1]"},
+			expectedCalls: []string{"recover [0 1 2 3 4]", "write [0 1]"},
 			expectedErr:   "failed to write records: upload failed",
 		},
 	}
@@ -118,7 +118,7 @@ func TestFlushWritesResolvedPrefixesInOrder(t *testing.T) {
 			base := &prefixWriter{filter: tc.filter, writeErr: tc.writeErr}
 			var writer Writer = base
 			if tc.prefix > 0 {
-				writer = &resolvingWriter{prefixWriter: base, prefix: tc.prefix, err: tc.resolveErr}
+				writer = &recoveringWriter{prefixWriter: base, prefix: tc.prefix, err: tc.recoverErr}
 			}
 			thread := &WriterThread{writer: writer, stats: &Stats{}, threadID: "test-thread"}
 			var buf []types.RawRecord

@@ -34,8 +34,9 @@ type Writer interface {
 }
 
 // ValueResolver is an optional Writer that fills values the source could not send (Postgres
-// unchanged TOAST) before flattening. Resolve fills a prefix of records (at least one) small
-// enough to write and returns its length; the thread writes it before resolving the rest.
+// unchanged TOAST) before flattening. RecoverUnavailableValues fills a prefix of records (at
+// least one) small enough to write and returns its length; the thread writes it before
+// recovering the rest.
 type ValueResolver interface {
-	Resolve(ctx context.Context, records []types.RawRecord) (int, error)
+	RecoverUnavailableValues(ctx context.Context, records []types.RawRecord) (int, error)
 }

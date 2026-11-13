@@ -170,14 +170,14 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
 }
 
-// Resolve fills the values the source could not send into a prefix of records whose values stay
-// within MaxDestinationBatchBytes, so no write exceeds the 2 GB message limit and recovered
-// values are written before more are read.
-func (i *Iceberg) Resolve(ctx context.Context, records []types.RawRecord) (int, error) {
+// RecoverUnavailableValues fills the values the source could not send into a prefix of records
+// whose values stay within MaxDestinationBatchBytes, so no write exceeds the 2 GB message limit
+// and recovered values are written before more are read.
+func (i *Iceberg) RecoverUnavailableValues(ctx context.Context, records []types.RawRecord) (int, error) {
 	if i.unavailableValues == nil {
 		return len(records), nil
 	}
-	return i.unavailableValues.Resolve(ctx, records, constants.MaxDestinationBatchBytes)
+	return i.unavailableValues.RecoverUnavailableValues(ctx, records, constants.MaxDestinationBatchBytes)
 }
 
 func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error) {

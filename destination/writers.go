@@ -289,13 +289,13 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	resolver, resolves := wt.writer.(ValueResolver)
+	resolver, recovers := wt.writer.(ValueResolver)
 	written := 0
 	for len(buf) > 0 {
 		chunk := len(buf)
-		if resolves {
-			if chunk, err = resolver.Resolve(flushCtx, buf); err != nil {
-				return fmt.Errorf("failed to resolve unavailable values: %w", err)
+		if recovers {
+			if chunk, err = resolver.RecoverUnavailableValues(flushCtx, buf); err != nil {
+				return fmt.Errorf("failed to recover unavailable values: %w", err)
 			}
 		}
 
@@ -304,7 +304,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 			return err
 		}
 		written += count
-		// release the written records before the next prefix is resolved
+		// release the written records before the next prefix is recovered
 		clear(buf[:chunk])
 		buf = buf[chunk:]
 	}
