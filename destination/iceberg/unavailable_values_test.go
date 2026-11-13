@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/goccy/go-json"
@@ -189,14 +190,14 @@ func testResolver(t *testing.T, normalized bool, writer *testWriter, reader *tes
 	t.Helper()
 
 	resolver := &unavailableValuesResolver{
-		openFiles: writer,
-		index:     types.NewStreamIndexThread(testIndex{writer: writer}),
-		reader:    reader,
-		threadID:  "test-thread",
-		stream:    testConfiguredStream(normalized),
-		tracked:   make(map[string]struct{}),
-		carry:     make(map[string]*carryRow),
-		fetched:   make(map[string]map[string]any),
+		writer:             writer,
+		index:              types.NewStreamIndexThread(testIndex{writer: writer}),
+		reader:             reader,
+		threadID:           "test-thread",
+		stream:             testConfiguredStream(normalized),
+		unavailableColumns: make(map[string]struct{}),
+		writeCache:         newWriteCache(),
+		readBuffer:         newReadBuffer(),
 	}
 	t.Cleanup(resolver.Close)
 
@@ -214,19 +215,47 @@ func testRecord(olakeID, opType string, data map[string]any, unavailable ...stri
 	}
 }
 
-// testOverBudget makes so many threads share the carry budget that this thread's share holds
-// nothing, so the next Resolve has to drop what it carries.
+// testOverBudget makes so many threads share the write cache budget that this thread's share holds
+// nothing, so the next Resolve has to drop what it caches.
 func testOverBudget(t *testing.T) {
 	t.Helper()
 
-	carriers.Add(maxCarryBytes)
-	t.Cleanup(func() { carriers.Add(-maxCarryBytes) })
+	writeCacheThreads.Add(maxWriteCacheBytes)
+	t.Cleanup(func() { writeCacheThreads.Add(-maxWriteCacheBytes) })
 }
 
 // resolveAll resolves records as one prefix, as a batch under the byte limit is.
 func resolveAll(resolver *unavailableValuesResolver, records []types.RawRecord) error {
 	_, err := resolver.Resolve(context.Background(), records, math.MaxInt64)
 	return err
+}
+
+// testResolveBatch resolves records a prefix at a time, as the writer does; a call that fills nothing fails.
+func testResolveBatch(resolver *unavailableValuesResolver, records []types.RawRecord, limit int64) error {
+	for start := 0; start < len(records); {
+		n, err := resolver.Resolve(context.Background(), records[start:], limit)
+		if err != nil {
+			return err
+		}
+		if n < 1 {
+			return fmt.Errorf("resolving the records from %d on filled none", start)
+		}
+		start += n
+	}
+	return nil
+}
+
+// testCopyRecords copies records, so each thread fills its own.
+func testCopyRecords(records []types.RawRecord) []types.RawRecord {
+	copied := make([]types.RawRecord, 0, len(records))
+	for _, record := range records {
+		copied = append(copied, types.RawRecord{
+			Data:               maps.Clone(record.Data),
+			OlakeColumns:       maps.Clone(record.OlakeColumns),
+			UnavailableColumns: slices.Clone(record.UnavailableColumns),
+		})
+	}
+	return copied
 }
 
 // resolveStep is one Resolve call, i.e. one batch. expected lists, per record, the columns to
@@ -238,10 +267,14 @@ type resolveStep struct {
 
 func TestResolve(t *testing.T) {
 	committed := map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}}
+	big := strings.Repeat("x", int(maxWriteCacheBytes/2))
 
 	testCases := []struct {
 		name               string
-		rawData            bool // normalization off: the whole source row is stored as JSON
+		rawData            bool  // normalization off: the whole source row is stored as JSON
+		limit              int64 // bytes per prefix; 0 resolves each batch as one prefix
+		overBudget         bool  // the write cache budget holds nothing, so every batch drops what it caches
+		threads            int   // threads resolving each batch at once, each its own copy; 0 is one
 		locations          map[string]types.RowLocation
 		table              testTable
 		steps              []resolveStep
@@ -289,7 +322,7 @@ func TestResolve(t *testing.T) {
 			}},
 			expectedRecovered: 1,
 		},
-		// a value written after a queued read is newer; the read's answer must not replace it in carry
+		// a value written after a queued read is newer; the read's answer must not replace it in the write cache
 		{
 			name:      "a read answer does not overwrite a newer value from the same batch",
 			locations: committed,
@@ -350,10 +383,43 @@ func TestResolve(t *testing.T) {
 			expectedFromTable: 1,
 			expectedRecovered: 2,
 		},
-		// batches without a marker still update the carry; skipping them would hand the
+		// the first change sends doc and leaves out payload, the second leaves out both: doc comes from the first
+		{
+			name:      "a later change of a row takes a column it leaves out from the change before",
+			locations: committed,
+			table:     testTable{{"a.parquet", 0, "payload"}: "stored payload", {"a.parquet", 0, "doc"}: "stored doc"},
+			steps: []resolveStep{{
+				records: []types.RawRecord{
+					testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder, "doc": "new doc"}, "payload"),
+					testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder, "doc": placeholder}, "payload", "doc"),
+				},
+				expected: []map[string]any{{"payload": "stored payload"}, {"payload": "stored payload", "doc": "new doc"}},
+			}},
+			expectedLookups:   1,
+			expectedFromTable: 1,
+			expectedRecovered: 3,
+		},
+		// a 1-byte limit is smaller than any record, so every call fills its first record alone and moves on
+		{
+			name:      "records larger than the limit are filled one per call",
+			limit:     1,
+			locations: map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}, "2": {FilePath: "a.parquet", Position: 1}},
+			table:     testTable{{"a.parquet", 0, "payload"}: "stored one", {"a.parquet", 1, "payload"}: "stored two"},
+			steps: []resolveStep{{
+				records: []types.RawRecord{
+					testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
+					testRecord("2", "u", map[string]any{"id": 2, "payload": placeholder}, "payload"),
+				},
+				expected: []map[string]any{{"payload": "stored one"}, {"payload": "stored two"}},
+			}},
+			expectedLookups:   2,
+			expectedFromTable: 2,
+			expectedRecovered: 2,
+		},
+		// batches without a marker still update the write cache; skipping them would hand the
 		// third batch the value read in the first one
 		{
-			name:      "a change in a later batch without markers replaces the carried value",
+			name:      "a change in a later batch without markers replaces the cached value",
 			locations: committed,
 			table:     testTable{{"a.parquet", 0, "payload"}: "P1"},
 			steps: []resolveStep{
@@ -373,7 +439,7 @@ func TestResolve(t *testing.T) {
 		},
 		// same as above for a delete followed by a re-insert
 		{
-			name:      "a delete and re-insert in a batch without markers replace the carried value",
+			name:      "a delete and re-insert in a batch without markers replace the cached value",
 			locations: committed,
 			table:     testTable{{"a.parquet", 0, "payload"}: "P1"},
 			steps: []resolveStep{
@@ -416,15 +482,70 @@ func TestResolve(t *testing.T) {
 			}},
 			expectedRecovered: 1,
 		},
-		// a filtered row, or an update that changed the primary key
+		// a delete writes no values, so the columns it leaves out need no read, and nothing read is kept for it
 		{
-			name: "a row with no destination version keeps the placeholder",
+			name:      "a delete with unavailable columns reads nothing",
+			locations: committed,
+			table:     testTable{{"a.parquet", 0, "payload"}: "stored"},
 			steps: []resolveStep{{
-				records:  []types.RawRecord{testRecord("42", "u", map[string]any{"id": 42, "payload": placeholder}, "payload")},
-				expected: []map[string]any{{"payload": placeholder}},
+				records: []types.RawRecord{testRecord("1", "d", map[string]any{"id": 1, "payload": placeholder}, "payload")},
 			}},
+		},
+		// a filtered row, or an update that changed the primary key: the placeholder is cached, so it is looked up once
+		{
+			name: "a row with no destination version keeps the placeholder, looked up once",
+			steps: []resolveStep{
+				{
+					records:  []types.RawRecord{testRecord("42", "u", map[string]any{"id": 42, "payload": placeholder}, "payload")},
+					expected: []map[string]any{{"payload": placeholder}},
+				},
+				{
+					records:  []types.RawRecord{testRecord("42", "u", map[string]any{"id": 42, "payload": placeholder}, "payload")},
+					expected: []map[string]any{{"payload": placeholder}},
+				},
+			},
 			expectedLookups:    1,
-			expectedUnresolved: 1,
+			expectedUnresolved: 2,
+		},
+		// the write cache keeps nothing, so the row's next change reads its value from the destination again
+		{
+			name:       "a value dropped from the write cache is read again from the destination",
+			overBudget: true,
+			locations:  committed,
+			table:      testTable{{"a.parquet", 0, "payload"}: "stored"},
+			steps: []resolveStep{
+				{
+					records:  []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")},
+					expected: []map[string]any{{"payload": "stored"}},
+				},
+				{
+					records:  []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")},
+					expected: []map[string]any{{"payload": "stored"}},
+				},
+			},
+			expectedLookups:   2,
+			expectedFromTable: 2,
+			expectedRecovered: 2,
+		},
+		// a 64 MB row fits a lone thread's share but not a quarter of the budget, so each thread's next batch drops it
+		{
+			name:    "threads caching at once share the write cache budget",
+			threads: 4,
+			steps: []resolveStep{
+				{
+					records: []types.RawRecord{
+						testRecord("big", "c", map[string]any{"payload": big}),
+						testRecord("0", "u", map[string]any{"id": 0, "payload": placeholder}, "payload"),
+					},
+					expected: []map[string]any{nil, {"payload": placeholder}},
+				},
+				{
+					records:  []types.RawRecord{testRecord("0", "u", map[string]any{"id": 0, "payload": placeholder}, "payload")},
+					expected: []map[string]any{{"payload": placeholder}},
+				},
+			},
+			expectedLookups:    1,
+			expectedUnresolved: 2,
 		},
 		// the source marks the column, but the stream's selection dropped it from Data
 		{
@@ -514,6 +635,29 @@ func TestResolve(t *testing.T) {
 			expectedFromTable: 2,
 			expectedRecovered: 2,
 		},
+		// a JSON null, a stored placeholder and a missing key all mean no value was stored; the text "null" is one
+		{
+			name:      "without normalization only a stored value is recovered, not a JSON null, placeholder or missing key",
+			rawData:   true,
+			locations: committed,
+			table:     testTable{{"a.parquet", 0, constants.StringifiedData}: `{"id":1,"nulled":null,"text":"null","old":"` + placeholder + `"}`},
+			steps: []resolveStep{{
+				records: []types.RawRecord{
+					testRecord("1", "u", map[string]any{"id": 1, "nulled": placeholder, "text": placeholder, "old": placeholder, "added": placeholder},
+						"nulled", "text", "old", "added"),
+				},
+				expected: []map[string]any{{
+					"nulled": placeholder,
+					"text":   json.RawMessage(`"null"`),
+					"old":    placeholder,
+					"added":  placeholder,
+				}},
+			}},
+			expectedLookups:    1,
+			expectedFromTable:  1,
+			expectedRecovered:  1,
+			expectedUnresolved: 3,
+		},
 		// streams that never produce a marker must cost nothing
 		{
 			name:      "a batch without markers does nothing",
@@ -527,26 +671,50 @@ func TestResolve(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			writer := &testWriter{locations: map[string]types.RowLocation{}}
-			maps.Copy(writer.locations, tc.locations)
-			table := testTable{}
-			maps.Copy(table, tc.table)
-			resolver := testResolver(t, !tc.rawData, writer, &testReader{table: table})
+			if tc.overBudget {
+				testOverBudget(t)
+			}
+			limit := tc.limit
+			if limit == 0 {
+				limit = math.MaxInt64
+			}
+			writers := make([]*testWriter, max(tc.threads, 1))
+			resolvers := make([]*unavailableValuesResolver, len(writers))
+			for idx := range writers {
+				writers[idx] = &testWriter{locations: maps.Clone(tc.locations)}
+				resolvers[idx] = testResolver(t, !tc.rawData, writers[idx], &testReader{table: tc.table})
+			}
 
 			for stepIdx, step := range tc.steps {
-				require.NoError(t, resolveAll(resolver, step.records))
+				batches := make([][]types.RawRecord, len(resolvers))
+				errs := make([]error, len(resolvers))
+				var wg sync.WaitGroup
+				for idx, resolver := range resolvers {
+					batches[idx] = testCopyRecords(step.records)
+					wg.Go(func() { errs[idx] = testResolveBatch(resolver, batches[idx], limit) })
+				}
+				wg.Wait()
 
-				for recordIdx, columns := range step.expected {
-					for column, expected := range columns {
-						assert.Equal(t, expected, step.records[recordIdx].Data[column], "batch %d, record %d, column %s", stepIdx, recordIdx, column)
+				for idx, batch := range batches {
+					require.NoError(t, errs[idx])
+					for recordIdx, columns := range step.expected {
+						for column, expected := range columns {
+							assert.Equal(t, expected, batch[recordIdx].Data[column], "batch %d, record %d, column %s", stepIdx, recordIdx, column)
+						}
 					}
 				}
 			}
 
-			assert.Equal(t, tc.expectedLookups, writer.lookups, "lookups")
-			assert.Equal(t, tc.expectedRecovered, resolver.recovered, "recovered")
-			assert.Equal(t, tc.expectedFromTable, resolver.fromTable, "from table")
-			assert.Equal(t, tc.expectedUnresolved, resolver.unresolved, "unresolved")
+			cached := int64(0)
+			for idx, resolver := range resolvers {
+				assert.Equal(t, tc.expectedLookups, writers[idx].lookups, "lookups")
+				assert.Equal(t, tc.expectedRecovered, resolver.recovered, "recovered")
+				assert.Equal(t, tc.expectedFromTable, resolver.fromTable, "from table")
+				assert.Equal(t, tc.expectedUnresolved, resolver.unresolved, "unresolved")
+				assert.Zero(t, resolver.readBuffer.bytes, "every value read is filled into its record")
+				cached += resolver.writeCache.bytes
+			}
+			assert.LessOrEqual(t, cached, maxWriteCacheBytes, "the threads' write caches stay within the budget together")
 		})
 	}
 }
@@ -613,7 +781,7 @@ func TestResolveColumnsSharingDestinationName(t *testing.T) {
 
 	assert.Equal(t, "big value", records[0].Data["Foo"])
 	assert.Equal(t, "big value", records[0].Data["foo"])
-	assert.Zero(t, resolver.fetchedBytes, "fetchedBytes")
+	assert.Zero(t, resolver.readBuffer.bytes, "read buffer bytes")
 }
 
 // A batch whose recovered values pass the limit is resolved a prefix at a time: a prefix passes
@@ -637,7 +805,7 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 	}
 	reader := &testReader{table: table, reverse: true}
 	resolver := testResolver(t, true, writer, reader)
-	// carry is trimmed to nothing after every prefix; what was read ahead must survive that
+	// the write cache is trimmed to nothing after every prefix; the read buffer must survive that
 	testOverBudget(t)
 
 	for start := 0; start < len(records); {
@@ -656,7 +824,7 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 			assert.LessOrEqual(t, size, int64(limit), "prefix at %d", start)
 		}
 		// a read stops after the row that passes the limit, of at most 259 bytes here
-		assert.LessOrEqual(t, resolver.fetchedBytes, int64(limit+259), "read ahead at %d", start)
+		assert.LessOrEqual(t, resolver.readBuffer.bytes, int64(limit+259), "read ahead at %d", start)
 		start += n
 	}
 
@@ -667,7 +835,7 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 	}
 	assert.Equal(t, int64(len(records)), resolver.recovered)
 	assert.Equal(t, int64(len(records)), resolver.fromTable, "no value is read twice")
-	assert.Zero(t, resolver.fetchedBytes)
+	assert.Zero(t, resolver.readBuffer.bytes)
 }
 
 // A read stopped by the limit in the middle of a row split in parts keeps the parts it got,
@@ -729,7 +897,7 @@ func TestResolveRawRowCutAfterOpType(t *testing.T) {
 	assert.Equal(t, 1, n)
 	assert.Equal(t, json.RawMessage(`"stored value"`), records[0].Data["payload"])
 	assert.Equal(t, int64(1), resolver.recovered)
-	assert.Zero(t, resolver.fetchedBytes)
+	assert.Zero(t, resolver.readBuffer.bytes)
 }
 
 func TestResolveReadRequest(t *testing.T) {
@@ -922,32 +1090,32 @@ func TestResolveErrors(t *testing.T) {
 	}
 }
 
-func TestResolveCarryBudget(t *testing.T) {
+func TestResolveWriteCacheBudget(t *testing.T) {
 	testCases := []struct {
-		name                string
-		overBudget          bool
-		records             []types.RawRecord
-		expectedCarriedRows int
+		name               string
+		overBudget         bool
+		records            []types.RawRecord
+		expectedCachedRows int
 	}{
 		// the values are kept for the next change to the row
 		{
-			name: "under budget the written values are carried",
+			name: "under budget the written values are cached",
 			records: []types.RawRecord{
 				testRecord("1", "i", map[string]any{"id": 1, "payload": "inserted"}),
 				testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
 			},
-			expectedCarriedRows: 1,
+			expectedCachedRows: 1,
 		},
 		// dropping costs nothing: the rows are read back only if a later change asks for them
 		{
-			name:       "over budget the carried values are dropped",
+			name:       "over budget the cached values are dropped",
 			overBudget: true,
 			records: []types.RawRecord{
 				testRecord("1", "i", map[string]any{"id": 1, "payload": "inserted"}),
 				testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
 			},
 		},
-		// a delete-heavy stream must not grow the carry without bound
+		// a delete-heavy stream must not grow the write cache without bound
 		{
 			name:       "tombstones count against the budget",
 			overBudget: true,
@@ -958,7 +1126,7 @@ func TestResolveCarryBudget(t *testing.T) {
 			},
 		},
 		{
-			name:    "a stream that never marks a column carries nothing",
+			name:    "a stream that never marks a column caches nothing",
 			records: []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": "value"})},
 		},
 	}
@@ -973,11 +1141,11 @@ func TestResolveCarryBudget(t *testing.T) {
 
 			require.NoError(t, resolveAll(resolver, tc.records))
 
-			assert.Len(t, resolver.carry, tc.expectedCarriedRows)
-			if tc.expectedCarriedRows == 0 {
-				assert.Zero(t, resolver.carryBytes)
+			assert.Len(t, resolver.writeCache.rows, tc.expectedCachedRows)
+			if tc.expectedCachedRows == 0 {
+				assert.Zero(t, resolver.writeCache.bytes)
 			}
-			assert.Empty(t, writer.flushes, "no file is closed to drop or keep carried values")
+			assert.Empty(t, writer.flushes, "no file is closed to drop or keep cached values")
 		})
 	}
 }
@@ -988,39 +1156,39 @@ func TestResolveTrimDropsLeastRecentRowsFirst(t *testing.T) {
 	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
 	marker := testRecord("0", "u", map[string]any{"id": 0, "payload": placeholder}, "payload")
 
-	// more than this thread's share once another thread carries, so dropping it alone brings the
+	// more than this thread's share once another thread caches, so dropping it alone brings the
 	// thread under half its share
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
-		marker, testRecord("old", "c", map[string]any{"payload": strings.Repeat("x", int(maxCarryBytes/2)+1)}),
+		marker, testRecord("old", "c", map[string]any{"payload": strings.Repeat("x", int(maxWriteCacheBytes/2)+1)}),
 	}))
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
 		marker, testRecord("new", "c", map[string]any{"payload": "recent"}),
 	}))
 
-	// another thread starts carrying, which halves this thread's share
-	carriers.Add(1)
-	t.Cleanup(func() { carriers.Add(-1) })
-	resolver.trim()
+	// another thread starts caching, which halves this thread's share
+	writeCacheThreads.Add(1)
+	t.Cleanup(func() { writeCacheThreads.Add(-1) })
+	resolver.trimWriteCache()
 
-	assert.NotContains(t, resolver.carry, "old")
-	assert.Contains(t, resolver.carry, "new")
-	assert.LessOrEqual(t, resolver.carryBytes, maxCarryBytes/4)
+	assert.NotContains(t, resolver.writeCache.rows, "old")
+	assert.Contains(t, resolver.writeCache.rows, "new")
+	assert.LessOrEqual(t, resolver.writeCache.bytes, maxWriteCacheBytes/4)
 }
 
 func TestUnavailableValuesResolverCloseReleasesBudget(t *testing.T) {
-	before := carriers.Load()
+	before := writeCacheThreads.Load()
 	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
 
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
 		testRecord("1", "i", map[string]any{"id": 1, "payload": "inserted"}),
 		testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
 	}))
-	require.Equal(t, before+1, carriers.Load(), "a thread that carries takes a share of the budget")
+	require.Equal(t, before+1, writeCacheThreads.Load(), "a thread that caches takes a share of the budget")
 
 	resolver.Close()
 
-	assert.Equal(t, before, carriers.Load(), "the thread gives its share back")
-	assert.Empty(t, resolver.carry)
+	assert.Equal(t, before, writeCacheThreads.Load(), "the thread gives its share back")
+	assert.Nil(t, resolver.writeCache, "the cached values are freed")
 }
 
 func TestValueSize(t *testing.T) {
@@ -1097,14 +1265,14 @@ func TestFetchRowWithoutNormalization(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resolver := &unavailableValuesResolver{stream: testConfiguredStream(false), fetched: map[string]map[string]any{}}
+			resolver := &unavailableValuesResolver{stream: testConfiguredStream(false), readBuffer: newReadBuffer()}
 			err := resolver.fetchRow(&pendingRead{olakeID: "1", columns: tc.columns}, stored(tc.stored))
 			if tc.expectedErr {
 				assert.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, resolver.fetched["1"])
+			assert.Equal(t, tc.expected, resolver.readBuffer.rows["1"])
 		})
 	}
 }
