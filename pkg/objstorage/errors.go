@@ -6,8 +6,8 @@ import "github.com/datazip-inc/olake/utils/errs"
 // service's own identifier, reported unchanged:
 // https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
 //
-// Shared by all three components that reach S3 — the source (SDK v2), the parquet destination
-// (SDK v1) and the Iceberg JVM — and by S3-compatible services, which answer with the same codes.
+// Shared by all three components that reach S3 — the source and the parquet destination
+// (both SDK v2) and the Iceberg JVM — and by S3-compatible services, which answer with the same codes.
 var ServiceCodeCategories = map[string]errs.Category{
 	// Nobody the service recognizes signed the request.
 	"InvalidAccessKeyId":    errs.AuthFailed,
