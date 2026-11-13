@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,18 +81,15 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return err
 	}
 
-	var rowsToProcess [][]interface{}
+	rowStep := 1
 	if operationType == "update" {
-		// For an "update" operation, the rows contain pairs of (before, after) images: [before, after, before, after, ...]
-		// We start from the second element (i=1) and step by 2 to get the "after" row (the updated state).
-		for i := 1; i < len(e.Rows); i += 2 {
-			rowsToProcess = append(rowsToProcess, e.Rows[i]) // Take after-images for updates
-		}
-	} else {
-		rowsToProcess = e.Rows
+		// Update rows are pairs of before and after images.
+		rowStep = 2
 	}
 
-	for _, row := range rowsToProcess {
+	primaryKeys := stream.GetStream().SourceDefinedPrimaryKey.Array()
+	for i := rowStep - 1; i < len(e.Rows); i += rowStep {
+		row := e.Rows[i]
 		record, err := convertRowToMap(row, view, f.converter)
 		if err != nil {
 			return err
@@ -102,6 +101,23 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
 		// otherwise fall back to second-precision header timestamp
 		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
+
+		if operationType == "update" && !view.samePrimaryKey(e.Rows[i-1], row, primaryKeys) {
+			oldRow := e.Rows[i-1]
+			oldRecord, err := convertRowToMap(oldRow, view, f.converter)
+			if err != nil {
+				return err
+			}
+			if utils.GetKeysHash(oldRecord, primaryKeys...) != utils.GetKeysHash(record, primaryKeys...) {
+				// Retire the old identity before writing the row under its new key.
+				change := abstract.NewCDCChange(stream, timestamp, "delete", oldRecord,
+					map[string]any{CDCBinlogFileName: pos.Name, CDCBinlogFilePos: pos.Pos},
+					mysqlCDCRowBytes(oldRow, view.types))
+				if err := callback(ctx, change); err != nil {
+					return err
+				}
+			}
+		}
 
 		// Bytes: InnoDB on-disk byte sum for this row, carried on the change and added per record by the writer.
 		change := abstract.NewCDCChange(stream, timestamp, operationType, record,
@@ -125,6 +141,21 @@ type columnView struct {
 	enumValues [][]string // nil for non-ENUM columns
 	setMembers [][]string // nil for non-SET columns
 	collations []uint64   // 0 = no charset decoding
+}
+
+// Only differing wire keys need the old row's conversion and destination ID comparison.
+func (view *columnView) samePrimaryKey(oldRow, row []any, keys []string) bool {
+	for _, key := range keys {
+		i := slices.Index(view.names, key)
+		if len(oldRow) != len(row) || i < 0 || !reflect.DeepEqual(oldRow[i], row[i]) {
+			return false
+		}
+		// Go considers +0 and -0 equal, but they render as different destination IDs.
+		if row[i] == float32(0) || row[i] == float64(0) {
+			return false
+		}
+	}
+	return true
 }
 
 // resolveColumns takes each field from the binlog when the server logged it and from

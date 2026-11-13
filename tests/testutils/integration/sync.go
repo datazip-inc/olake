@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
 // TestSync runs the happy-path sync suite: full load, CDC and incremental, over both Iceberg writers
@@ -18,6 +19,21 @@ func (th *TestHandler) TestSync(t *testing.T) {
 	testTable := th.GetTableName()
 
 	th.TestCommonSync(t)
+
+	if (th.Driver == string(constants.Postgres) || th.Driver == string(constants.MySQL)) && th.PrimaryKey == "" && len(th.DedupKeys) == 0 {
+		t.Run("Iceberg CDC Primary Key Update", func(t *testing.T) {
+			for _, writer := range []struct {
+				name     string
+				useArrow bool
+			}{{"Legacy", false}, {"Arrow", true}} {
+				t.Run(writer.name, func(t *testing.T) {
+					if err := th.IcebergWriter(ctx, t, testTable, writer.useArrow, th.testCDCPrimaryKeyUpdate); err != nil {
+						t.Fatalf("Iceberg CDC primary key update failed: %v", err)
+					}
+				})
+			}
+		})
+	}
 
 	// Iceberg row-index / delete-mode tests run on the base (legacy) writer config, the one
 	// the java writer's table indexer serves; IcebergWriter pins it back after the arrow runs.
@@ -62,6 +78,118 @@ func (th *TestHandler) TestSync(t *testing.T) {
 	}
 	th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	t.Logf("%s sync test cleanup", th.Driver)
+}
+
+// testCDCPrimaryKeyUpdate checks both identities, including the retained delete tombstone.
+func (th *TestHandler) testCDCPrimaryKeyUpdate(ctx context.Context, t *testing.T, testTable string) error {
+	th.resetTable(ctx, t)
+	defer th.resetCatalog(t)
+	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, "", "", []string{testTable}, []string{th.ColumnToExclude}); err != nil {
+		return fmt.Errorf("failed to clear partition and filter config: %w", err)
+	}
+	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, "cdc", ""); err != nil {
+		return err
+	}
+	if err := setUpdateType(th.TestConfig, th.Namespace, testTable, "eq"); err != nil {
+		return err
+	}
+
+	testutils.DropIcebergTable(t, testTable, th.DestinationDB)
+	if !testutils.KeepTestData() {
+		defer testutils.DropIcebergTable(t, testTable, th.DestinationDB)
+	}
+	if err := th.runIcebergSync(ctx, t, "primary key initial sync", false); err != nil {
+		return err
+	}
+
+	spark := getSparkSession(ctx, t)
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, testTable)
+	type rowState struct {
+		operation string
+		rowMarker string
+	}
+	markerColumn := "id_cursor"
+	if th.Driver == string(constants.Postgres) {
+		markerColumn = "col_cursor"
+	}
+	readRows := func() map[string]rowState {
+		refreshTable(ctx, t, spark, fullTableName)
+		df, err := spark.Sql(ctx, fmt.Sprintf("SELECT _olake_id, _op_type, %s AS row_marker FROM %s", markerColumn, fullTableName))
+		require.NoError(t, err)
+		rows, err := df.Collect(ctx)
+		require.NoError(t, err)
+		result := make(map[string]rowState, len(rows))
+		for _, row := range rows {
+			id := fmt.Sprint(row.Value("_olake_id"))
+			_, duplicate := result[id]
+			require.Falsef(t, duplicate, "duplicate destination identity %s", id)
+			state := rowState{operation: fmt.Sprint(row.Value("_op_type"))}
+			// DEFAULT identity omits non-key values from delete records.
+			if state.operation != "d" {
+				state.rowMarker = fmt.Sprint(row.Value("row_marker"))
+			}
+			result[id] = state
+		}
+		return result
+	}
+	want := map[string]rowState{"1": {"r", "1"}, "2": {"r", "2"}, "3": {"r", "3"}, "4": {"r", "4"}, "5": {"r", "5"}}
+	// The seed's normally filtered row is present in this unfiltered scenario too.
+	if th.Driver == string(constants.Postgres) {
+		want["6"] = rowState{"r", "-1"}
+	} else {
+		want["998"] = rowState{"r", "-1"}
+	}
+	require.Equal(t, want, readRows())
+
+	th.ExecuteQuery(ctx, t, th.TestConfig, "update_primary_key")
+	if err := th.runIcebergSync(ctx, t, "primary key update sync", true); err != nil {
+		return err
+	}
+	want["1"] = rowState{"d", ""}
+	want["101"] = rowState{"u", "1"}
+	require.Equal(t, want, readRows())
+
+	th.ExecuteQuery(ctx, t, th.TestConfig, "return_primary_key")
+	if err := th.runIcebergSync(ctx, t, "primary key return sync", true); err != nil {
+		return err
+	}
+	want["1"] = rowState{"u", "1"}
+	want["101"] = rowState{"d", ""}
+	require.Equal(t, want, readRows())
+
+	th.ExecuteQuery(ctx, t, th.TestConfig, "swap_primary_keys")
+	if err := th.runIcebergSync(ctx, t, "primary key swap sync", true); err != nil {
+		return err
+	}
+	want["1"] = rowState{"u", "2"}
+	want["2"] = rowState{"u", "1"}
+	want["1001"] = rowState{"d", ""}
+	require.Equal(t, want, readRows())
+
+	th.ExecuteQuery(ctx, t, th.TestConfig, "shift_primary_keys")
+	if err := th.runIcebergSync(ctx, t, "primary key shift sync", true); err != nil {
+		return err
+	}
+	want["1"] = rowState{"d", ""}
+	want["2"] = rowState{"u", "2"}
+	want["3"] = rowState{"u", "1"}
+	want["4"] = rowState{"u", "3"}
+	want["5"] = rowState{"u", "4"}
+	want["6"] = rowState{"u", "5"}
+	if th.Driver == string(constants.Postgres) {
+		want["7"] = rowState{"u", "-1"}
+	} else {
+		want["998"] = rowState{"d", ""}
+		want["999"] = rowState{"u", "-1"}
+	}
+	require.Equal(t, want, readRows())
+
+	// Keep source state and destination metadata so a new process exercises normal resume.
+	if err := th.runIcebergSync(ctx, t, "primary key repeat sync", true); err != nil {
+		return err
+	}
+	require.Equal(t, want, readRows())
+	return nil
 }
 
 // TestCommonSync is the boilerplate every sync suite runs: seed the source, point the catalog at
