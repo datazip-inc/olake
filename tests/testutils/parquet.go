@@ -162,3 +162,32 @@ func DeleteParquetTable(t *testing.T, parquetDB, tableName string) error {
 	t.Logf("--- Parquet Table Cleanup Complete: Deleted %d objects ---", deletedCount)
 	return nil
 }
+
+// ParquetTableObjects lists every object under a table's folder in MinIO, recursively: the data
+// files in the table folder and its partition folders, metadata.json and any _olake_2pc staging.
+// Keys are returned relative to the table folder.
+func ParquetTableObjects(ctx context.Context, client *minio.Client, parquetDB, tableName string) ([]string, error) {
+	prefix := parquetTablePath(parquetDB, tableName)
+	var keys []string
+	for object := range client.ListObjects(ctx, ParquetTestBucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if object.Err != nil {
+			return nil, fmt.Errorf("error listing objects: %s", object.Err)
+		}
+		keys = append(keys, strings.TrimPrefix(object.Key, prefix))
+	}
+	return keys, nil
+}
+
+// ReadParquetTableObject reads one object of a table's folder, by its key relative to that folder.
+func ReadParquetTableObject(ctx context.Context, client *minio.Client, parquetDB, tableName, key string) ([]byte, error) {
+	reader, err := client.GetObject(ctx, ParquetTestBucket, parquetTablePath(parquetDB, tableName)+key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch %s: %s", key, err)
+	}
+	defer func() { _ = reader.Close() }()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %s", key, err)
+	}
+	return data, nil
+}

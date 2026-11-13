@@ -11,6 +11,9 @@
       {"columns": ["_kafka_timestamp", "_kafka_offset"], "type_only": true, "note": "kafka's broker receive time, and offsets whose assignment order varies across concurrent partition writes"},
       {"columns": ["_last_modified_time"], "type_only": true, "note": "s3's cursor IS the object's upload stamp; each run uploads its own copy"},
       {"data_types": ["timestamp"], "assert_value_from": "v0.11.1", "note": "iceberg column types: #1233, the legacy writer truncated timestamps to milliseconds; the candidate keeps microseconds"}
+    ],
+    "metadata_rules": [
+      {"keys": ["olake_2pc"], "assert_from": "v1.0.2", "note": "iceberg olake_2pc arrived in v0.5.0 (#698) and parquet metadata.json in v0.9.5 (#959); #1302 saves the state on every sync from v1.0.2, so older baselines write a different olake_2pc or none"}
     ]
   },
   "oracle": {

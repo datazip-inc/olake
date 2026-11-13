@@ -60,6 +60,18 @@ func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicie
 	}
 
 	compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly, baselineRelease)
+
+	// The rows match; now the metadata readers and the next sync's resume rely on.
+	var referenceMetadata, upgradedMetadata destinationMetadata
+	switch group.destination {
+	case "iceberg":
+		referenceMetadata = readIcebergMetadata(ctx, t, spark, referenceOutput)
+		upgradedMetadata = readIcebergMetadata(ctx, t, spark, upgradedOutput)
+	case "parquet":
+		referenceMetadata = readParquetMetadata(ctx, t, referenceDB, referenceTable)
+		upgradedMetadata = readParquetMetadata(ctx, t, upgradedDB, upgradedTable)
+	}
+	compareDestinationMetadata(t, diag, referenceMetadata, upgradedMetadata, policies.metadataSkip)
 }
 
 // icebergTable refreshes and returns the fully-qualified name of an Iceberg table: the shared

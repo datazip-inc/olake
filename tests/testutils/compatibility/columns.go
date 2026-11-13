@@ -53,6 +53,8 @@ func resolveColumnPolicies(rules []ColumnRule, spec string) *assertionPolicies {
 type assertionPolicies struct {
 	seedExcluded []string
 	typeOnly     []string
+	// metadataSkip names the metadata categories the metadata comparison leaves out for this baseline.
+	metadataSkip []string
 	notes        []string
 }
 
@@ -101,7 +103,34 @@ func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules com
 		typeOnly[column] = true
 	}
 	policies.typeOnly = slices.Sorted(maps.Keys(typeOnly))
+
+	metadataRules := append(slices.Clone(compatibilityRules[allDrivers].MetadataRules), driverRules.MetadataRules...)
+	skip, notes := resolveMetadataRules(metadataRules, spec)
+	policies.metadataSkip = skip
+	policies.notes = append(policies.notes, notes...)
 	return policies, nil
+}
+
+// resolveMetadataRules returns the metadata categories left out against this baseline, with a note
+// per decision. An undatable baseline reads as newest, so only the undated rules fire, as for columns.
+func resolveMetadataRules(rules []metadataRule, spec string) ([]string, []string) {
+	skip := map[string]bool{}
+	var notes []string
+	for _, rule := range rules {
+		dated := rule.AssertFrom != ""
+		if dated && (!semver.IsValid(spec) || semver.Compare(spec, rule.AssertFrom) >= 0) {
+			continue
+		}
+		for _, key := range rule.Keys {
+			skip[key] = true
+		}
+		why := "any baseline"
+		if dated {
+			why = fmt.Sprintf("baseline %s is older than %s", spec, rule.AssertFrom)
+		}
+		notes = append(notes, fmt.Sprintf("metadata %s: not compared, %s (%s)", strings.Join(rule.Keys, ", "), why, rule.Note))
+	}
+	return slices.Sorted(maps.Keys(skip)), notes
 }
 
 // resolveTypeRules maps type-keyed rules onto the fixture's declared column types, merging

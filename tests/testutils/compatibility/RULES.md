@@ -161,6 +161,55 @@ on `data_types` applies to every writer:
 }
 ```
 
+## Metadata rules
+
+After the rows match, the tests also compare each side's destination
+metadata: for Iceberg, the table's metadata file and its files table; for
+Parquet, `metadata.json`, what is left under `_olake_2pc/`, and every data
+file's footer. Values that differ on every run are never compared: snapshot
+ids and order, timestamps, paths, sizes, Iceberg field ids (compared as the
+column names they stand for), and olake_2pc's thread id and source position.
+
+The rest is grouped into categories, and a metadata rule leaves whole
+categories out:
+
+| Category | Iceberg | Parquet |
+| --- | --- | --- |
+| `spec` | format version, partition spec, sort order | |
+| `identifier_fields` | identifier columns | |
+| `schemas` | number of schema versions, last column id | |
+| `field_ids` | columns whose field id changed between schema versions | |
+| `properties` | table properties | compression codec per column |
+| `olake_2pc` | the `olake_2pc` property: its fields, `dedup_inserts`, number of full-refresh commits | the same, from `metadata.json` |
+| `staging` | | objects left under `_olake_2pc/` |
+| `snapshots` | number of snapshots, and of each kind of commit by its record counts | |
+| `totals` | the current snapshot's record and delete totals | |
+| `files` | data and delete files per partition and kind | data files per partition folder |
+| `data_records` | records per partition | records per partition folder |
+| `delete_records` | delete records per partition, kind, format and equality columns | |
+| `column_stats` | null count per column | null count per column |
+| `file_schema` | | physical type, logical type and repetition per column |
+
+A metadata rule has three fields:
+
+| Field | Meaning |
+| --- | --- |
+| `keys` | the categories it leaves out |
+| `assert_from` | compare them from this release on; without it, never compare them |
+| `note` | why |
+
+```json
+"*": {
+  "metadata_rules": [
+    {"keys": ["files"], "assert_from": "v0.12.0", "note": "file rolling target changed in v0.12.0"}
+  ]
+}
+```
+
+A metadata rule can go under `"*"` or a driver, like any rule. A baseline
+that is not a release reads as the newest, so only rules without
+`assert_from` apply to it.
+
 ## Worked example: mysql against v0.4.1
 
 | Entry | Effect |
