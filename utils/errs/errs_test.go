@@ -466,3 +466,30 @@ func TestClassifiedByDefaultAccompaniesUnclassified(t *testing.T) {
 			"classified_by=%q must only ever accompany an unclassified category", ClassifiedByDefault)
 	}
 }
+
+func TestIsTransient(t *testing.T) {
+	testCases := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{name: "nil", err: nil, expected: false},
+		{name: "connection reset", err: &net.OpError{Op: "read", Err: syscall.ECONNRESET}, expected: true},
+		{name: "deadline exceeded", err: context.DeadlineExceeded, expected: true},
+		{name: "dns resolver timeout", err: &net.DNSError{IsTimeout: true}, expected: true},
+		{name: "dns host not found", err: &net.DNSError{IsNotFound: true}, expected: false},
+		{name: "tls cert invalid", err: x509.CertificateInvalidError{}, expected: false},
+		{name: "canceled", err: context.Canceled, expected: false},
+		{name: "unclassified", err: errors.New("opaque"), expected: false},
+		{name: "contention", err: Precondition(ConcurrencyConflict, "lock", errors.New("x")), expected: true},
+		{name: "capacity", err: Precondition(ResourceExhausted, "too_many_connections", errors.New("x")), expected: true},
+		{name: "auth", err: Precondition(AuthFailed, "bad_password", errors.New("x")), expected: false},
+		{name: "wrapped transient", err: fmt.Errorf("stream x: %w", &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}), expected: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsTransient(tc.err))
+		})
+	}
+}

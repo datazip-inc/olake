@@ -432,11 +432,68 @@ func TestDiscover(t *testing.T) {
 	}
 }
 
+// TestDiscoverRetriesTransientSchemaError pins that a transient ProduceSchema failure is retried
+// retry_count times, and that the cause survives the retry and discover wrappers.
+func TestDiscoverRetriesTransientSchemaError(t *testing.T) {
+	prev := discoverRetryBackoff
+	discoverRetryBackoff = time.Millisecond
+	t.Cleanup(func() { discoverRetryBackoff = prev })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	calls := &atomic.Int32{}
+	driver := NewAbstractDriver(ctx, stubDriver{
+		typ:         "postgres",
+		streamNames: []types.StreamID{{Namespace: "public", Name: "orders"}},
+		schemaErr:   networkReset(),
+		maxRetries:  3,
+		schemaCalls: calls,
+	})
+
+	streams, err := driver.Discover(ctx, 0, false)
+
+	require.Error(t, err)
+	assert.Nil(t, streams)
+	assert.Equal(t, int32(4), calls.Load(), "ProduceSchema attempts")
+
+	got := errs.From(errs.Classify(err))
+	assert.Equal(t, errs.NetworkUnreachable, got.Category, "category")
+	assert.Equal(t, "connection_reset", got.Code, "code")
+}
+
+// TestDiscoverPermanentSchemaErrorFailsFast pins that a permanent ProduceSchema failure ends
+// discover on the first attempt, since retrying cannot change the outcome.
+func TestDiscoverPermanentSchemaErrorFailsFast(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	calls := &atomic.Int32{}
+	driver := NewAbstractDriver(ctx, stubDriver{
+		typ:         "postgres",
+		streamNames: []types.StreamID{{Namespace: "public", Name: "orders"}},
+		schemaErr:   errs.Precondition(errs.AuthFailed, "postgres.auth_failed", errors.New("bad password")),
+		maxRetries:  3,
+		schemaCalls: calls,
+	})
+
+	streams, err := driver.Discover(ctx, 0, false)
+
+	require.Error(t, err)
+	assert.Nil(t, streams)
+	assert.Equal(t, int32(1), calls.Load(), "ProduceSchema attempts")
+	assert.Equal(t, errs.AuthFailed, errs.From(errs.Classify(err)).Category, "category")
+}
+
 // stubDriver is a DriverInterface that returns zero values except where a test sets a field.
 type stubDriver struct {
 	typ            string
 	cdcSupported   bool
+	streamNames    []types.StreamID
 	streamNamesErr error
+	schemaErr      error
+	maxRetries     int
+	schemaCalls    *atomic.Int32
 }
 
 func (s stubDriver) GetConfigRef() Config { return nil }
@@ -447,11 +504,17 @@ func (s stubDriver) Setup(context.Context) error {
 }
 func (s stubDriver) SetupState(*types.State) {}
 func (s stubDriver) MaxConnections() int     { return 0 }
-func (s stubDriver) MaxRetries() int         { return 0 }
+func (s stubDriver) MaxRetries() int         { return s.maxRetries }
 func (s stubDriver) GetStreamNames(context.Context) ([]types.StreamID, error) {
-	return nil, s.streamNamesErr
+	return s.streamNames, s.streamNamesErr
 }
 func (s stubDriver) ProduceSchema(context.Context, types.StreamID) (*types.Stream, error) {
+	if s.schemaCalls != nil {
+		s.schemaCalls.Add(1)
+	}
+	if s.schemaErr != nil {
+		return nil, s.schemaErr
+	}
 	return &types.Stream{}, nil
 }
 func (s stubDriver) GetOrSplitChunks(context.Context, *destination.WriterPool, types.StreamInterface) (*types.Set[types.Chunk], error) {

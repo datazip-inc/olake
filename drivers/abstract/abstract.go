@@ -87,6 +87,21 @@ func (a *AbstractDriver) SupportedUpdateTypes() []types.UpdateType {
 	return nil
 }
 
+// discoverRetryBackoff is the first wait before a transient schema error is retried; it doubles
+// per attempt, so the default three retries wait 2s+4s+8s, well inside the discover timeout.
+var discoverRetryBackoff = 2 * time.Second
+
+// retryTransient runs produce, retrying it only while it fails with a transient error.
+func (a *AbstractDriver) retryTransient(ctx context.Context, produce func(ctx context.Context) error) error {
+	return utils.RetryOnBackoff(ctx, a.driver.MaxRetries(), discoverRetryBackoff, func(ctx context.Context) error {
+		err := produce(ctx)
+		if err != nil && !errs.IsTransient(err) {
+			return fmt.Errorf("%w: %w", constants.ErrNonRetryable, err)
+		}
+		return err
+	})
+}
+
 func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, skipSchema bool) ([]*types.Stream, error) {
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
@@ -118,10 +133,14 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 		}
 
-		utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream types.StreamID) error {
-			streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
+		utils.ConcurrentInGroup(a.GlobalConnGroup, streams, func(ctx context.Context, _ int, stream types.StreamID) (err error) {
+			var streamSchema *types.Stream
+			err = a.retryTransient(ctx, func(ctx context.Context) error {
+				streamSchema, err = a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
+				return err
+			})
 			if err != nil {
-				return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrNonRetryable, stream, err)
+				return fmt.Errorf("failed to produce schema for stream %s: %w", stream, err)
 			}
 			streamMap.Store(streamSchema.ID(), streamSchema)
 			return nil
@@ -196,15 +215,19 @@ func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler Samp
 
 		// a finished errgroup cannot be reused, so every bucket gets a new group
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, threads)
-		utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, streamID types.StreamID) error {
-			stream, err := sampler.ProduceSampledSchema(ctx, streamID, limit)
+		utils.ConcurrentInGroup(a.GlobalConnGroup, streams, func(ctx context.Context, _ int, streamID types.StreamID) (err error) {
+			var stream *types.Stream
+			err = a.retryTransient(ctx, func(ctx context.Context) error {
+				stream, err = sampler.ProduceSampledSchema(ctx, streamID, limit)
+				return err
+			})
 			// a sample that returns after the timeout may be cut short without an error (Kafka
 			// reads a poll deadline as "caught up"), so it never replaces the previous bucket
 			if err == nil && ctx.Err() != nil {
 				err = ctx.Err()
 			}
 			if err != nil {
-				return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrNonRetryable, streamID, err)
+				return fmt.Errorf("failed to produce schema for stream %s: %w", streamID, err)
 			}
 
 			streamMap.Store(stream.ID(), stream) // replaces the previous bucket's schema
