@@ -53,9 +53,9 @@ func (s readSize) averageRowBytes() int64 {
 	return s.bytes / s.rows
 }
 
-// readAhead reads the previous versions of the rows the records are missing values of, as many as fit in
-// budget. Only a row's first record can be missing values: later ones get what the earlier ones wrote.
-func (r *unavailableValuesResolver) readAhead(ctx context.Context, records []types.RawRecord, budget int64) error {
+// readFromTable reads the previous versions of the rows whose values the records need, as many as fit in budget.
+// Only a row's first record can need one: later records of the row get what the earlier ones wrote.
+func (r *unavailableValuesResolver) readFromTable(ctx context.Context, records []types.RawRecord, budget int64) error {
 	if budget <= 0 {
 		return nil // the read buffer already fills the budget
 	}
@@ -63,7 +63,7 @@ func (r *unavailableValuesResolver) readAhead(ctx context.Context, records []typ
 	if err != nil || len(rows) == 0 {
 		return err
 	}
-	return r.read(ctx, rows, budget)
+	return r.readRows(ctx, rows, budget)
 }
 
 // rowsToRead lists where the previous versions of the records' rows are stored, until the read is full. A row
@@ -84,8 +84,8 @@ func (r *unavailableValuesResolver) rowsToRead(records []types.RawRecord, budget
 		}
 		seen[olakeID] = struct{}{}
 
-		missing := r.missing(record)
-		if len(missing) == 0 {
+		columns := r.columnsToRead(record)
+		if len(columns) == 0 {
 			continue
 		}
 		location, found, err := r.index.Lookup(olakeID)
@@ -93,34 +93,32 @@ func (r *unavailableValuesResolver) rowsToRead(records []types.RawRecord, budget
 			return nil, fmt.Errorf("failed to look up row[%s] in index: %w", olakeID, err)
 		}
 		if !found {
-			for _, column := range missing {
+			for _, column := range columns {
 				r.fetch(olakeID, column, constants.UnavailableValue)
 			}
 			continue
 		}
-		rows = append(rows, &pendingRead{olakeID: olakeID, location: location, columns: missing})
+		rows = append(rows, &pendingRead{olakeID: olakeID, location: location, columns: columns})
 		size += r.lastRead.averageRowBytes()
 	}
 	return rows, nil
 }
 
-// read reads the pending rows in one streamed call into the read buffer. Java ends the stream after the row that
+// readRows reads the pending rows in one streamed call into the read buffer. Java ends the stream after the row that
 // takes the bytes it sent past budget; a row not read in full by then is read by a later call.
-func (r *unavailableValuesResolver) read(ctx context.Context, rows []*pendingRead, budget int64) error {
+func (r *unavailableValuesResolver) readRows(ctx context.Context, rows []*pendingRead, budget int64) error {
 	request, wanted := r.readRequest(rows, budget)
-	if r.writer != nil {
-		paths := make([]string, 0, len(request.Files))
-		for _, file := range request.Files {
-			paths = append(paths, file.GetFilePath())
-		}
-		if err := r.writer.EnsureReadable(ctx, paths); err != nil {
-			return err
-		}
+	paths := make([]string, 0, len(request.Files))
+	for _, file := range request.Files {
+		paths = append(paths, file.GetFilePath())
+	}
+	if err := r.ensureReadable(ctx, paths); err != nil {
+		return err
 	}
 
 	ctx, cancel := context.WithCancel(ctx) // canceled on return, which stops Java's reads if this side fails first
 	defer cancel()
-	stream, err := r.reader.ReadRows(ctx, request, grpc.MaxCallRecvMsgSize(math.MaxInt32)) // the 4 MB default is too small for one large value
+	stream, err := r.tableIndexClient.ReadRows(ctx, request, grpc.MaxCallRecvMsgSize(math.MaxInt32)) // the 4 MB default is too small for one large value
 	if err != nil {
 		return fmt.Errorf("failed to read unavailable column values: %w", err)
 	}
@@ -233,7 +231,7 @@ func (r *unavailableValuesResolver) fetchRow(pending *pendingRead, stored map[st
 	return nil
 }
 
-// fetch puts a value read for a row into the read buffer, where fill finds it.
+// fetch puts a value read for a row into the read buffer, where fillRecord finds it.
 func (r *unavailableValuesResolver) fetch(olakeID, column string, value any) {
 	if value != constants.UnavailableValue {
 		r.fromTable++

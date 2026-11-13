@@ -25,9 +25,9 @@ const (
 // idle thread keeps its old share until its next batch trims it to the new one.
 var writeCacheThreads atomic.Int64
 
-// writeCache holds, for each row, the values this thread last wrote for it, so the row's next change in this
+// cachedValues holds, for each row, the values this thread last wrote for it, so the row's next change in this
 // sync takes them from memory instead of reading the destination.
-type writeCache struct {
+type cachedValues struct {
 	rows   map[string]*cachedRow // olake id -> row
 	bytes  int64
 	writes int64 // counts writes, to tell recently written rows from old ones
@@ -41,12 +41,17 @@ type cachedRow struct {
 	written int64 // order the row was last written in
 }
 
-func newWriteCache() *writeCache {
-	return &writeCache{rows: make(map[string]*cachedRow)}
+func newCachedValues() *cachedValues {
+	return &cachedValues{rows: make(map[string]*cachedRow)}
+}
+
+// isEmpty reports whether no row is cached.
+func (c *cachedValues) isEmpty() bool {
+	return len(c.rows) == 0
 }
 
 // value is the row's cached value of column; a row deleted in this sync gives the placeholder.
-func (c *writeCache) value(olakeID, column string) (any, bool) {
+func (c *cachedValues) value(olakeID, column string) (any, bool) {
 	row := c.rows[olakeID]
 	if row == nil {
 		return nil, false
@@ -59,7 +64,7 @@ func (c *writeCache) value(olakeID, column string) (any, bool) {
 }
 
 // remember caches the given columns of what this thread wrote for a row.
-func (c *writeCache) remember(olakeID string, data map[string]any, columns map[string]struct{}) {
+func (c *cachedValues) remember(olakeID string, data map[string]any, columns map[string]struct{}) {
 	row := c.rows[olakeID]
 	if row != nil {
 		c.bytes -= row.size(olakeID)
@@ -80,7 +85,7 @@ func (c *writeCache) remember(olakeID string, data map[string]any, columns map[s
 }
 
 // markDeleted records that the row was deleted, which drops the values cached for it.
-func (c *writeCache) markDeleted(olakeID string) {
+func (c *cachedValues) markDeleted(olakeID string) {
 	if row := c.rows[olakeID]; row != nil {
 		c.bytes -= row.size(olakeID)
 	}
@@ -92,7 +97,7 @@ func (c *writeCache) markDeleted(olakeID string) {
 
 // trim drops the oldest rows down to half of share once the cache is over share, and returns how many it dropped.
 // Old rows sit in closed files, cheap to read again, while a recent one may sit in a file still open.
-func (c *writeCache) trim(share int64) int {
+func (c *cachedValues) trim(share int64) int {
 	if c.bytes <= share {
 		return 0
 	}
@@ -117,8 +122,8 @@ func (row *cachedRow) size(olakeID string) int64 {
 	return int64(len(olakeID)) + cachedRowOverhead + dataSize(row.values) + int64(len(row.values))*cachedValueOverhead
 }
 
-// readBuffer holds the values read from the destination until fill moves them into their records. Unlike the
-// write cache it is never trimmed, so no row is read twice; reads keep it within Resolve's limit plus one row.
+// readBuffer holds the values read from the table until fillRecord moves them into their records. Unlike the
+// cached values it is never trimmed, so no row is read twice; reads keep it within maxBytes plus one row.
 type readBuffer struct {
 	rows  map[string]map[string]any // olake id -> column -> value
 	bytes int64
@@ -156,7 +161,7 @@ func (b *readBuffer) hasAll(olakeID string, columns []string) bool {
 	return true
 }
 
-// release drops what was read for a row once fill has moved it into the row's record.
+// release drops what was read for a row once fillRecord has moved it into the row's record.
 func (b *readBuffer) release(olakeID string) {
 	b.bytes -= dataSize(b.rows[olakeID])
 	delete(b.rows, olakeID)

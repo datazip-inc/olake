@@ -73,10 +73,10 @@ type testCell struct {
 // from the map is a column the data file does not carry, which the reader sends as NULL.
 type testTable map[testCell]any
 
-// testReader answers ReadRows out of a testTable, standing in for the Java side, and keeps
+// testTableIndexClient answers ReadRows out of a testTable, standing in for the Java side, and keeps
 // every request it received. The embedded interface supplies the table index calls the
 // resolver never makes.
-type testReader struct {
+type testTableIndexClient struct {
 	proto.TableIndexServiceClient
 	table    testTable
 	readErr  error
@@ -88,7 +88,7 @@ type testReader struct {
 	reverse bool
 }
 
-func (r *testReader) ReadRows(_ context.Context, request *proto.ReadRowsRequest, _ ...grpc.CallOption) (grpc.ServerStreamingClient[proto.ReadRowsBatch], error) {
+func (r *testTableIndexClient) ReadRows(_ context.Context, request *proto.ReadRowsRequest, _ ...grpc.CallOption) (grpc.ServerStreamingClient[proto.ReadRowsBatch], error) {
 	r.requests = append(r.requests, request)
 	if r.readErr != nil {
 		return nil, r.readErr
@@ -186,17 +186,17 @@ func testConfiguredStream(normalized bool) *types.ConfiguredStream {
 	return &types.ConfiguredStream{StreamMetadata: types.StreamMetadata{Normalization: new(normalized), UseSourceColumnNames: true}}
 }
 
-func testResolver(t *testing.T, normalized bool, writer *testWriter, reader *testReader) *unavailableValuesResolver {
+func testResolver(t *testing.T, normalized bool, writer *testWriter, tableIndexClient *testTableIndexClient) *unavailableValuesResolver {
 	t.Helper()
 
 	resolver := &unavailableValuesResolver{
-		writer:             writer,
+		ensureReadable:     writer.EnsureReadable,
 		index:              types.NewStreamIndexThread(testIndex{writer: writer}),
-		reader:             reader,
+		tableIndexClient:   tableIndexClient,
 		threadID:           "test-thread",
 		stream:             testConfiguredStream(normalized),
 		unavailableColumns: make(map[string]struct{}),
-		writeCache:         newWriteCache(),
+		cachedValues:       newCachedValues(),
 		readBuffer:         newReadBuffer(),
 	}
 	t.Cleanup(resolver.Close)
@@ -682,7 +682,7 @@ func TestResolve(t *testing.T) {
 			resolvers := make([]*unavailableValuesResolver, len(writers))
 			for idx := range writers {
 				writers[idx] = &testWriter{locations: maps.Clone(tc.locations)}
-				resolvers[idx] = testResolver(t, !tc.rawData, writers[idx], &testReader{table: tc.table})
+				resolvers[idx] = testResolver(t, !tc.rawData, writers[idx], &testTableIndexClient{table: tc.table})
 			}
 
 			for stepIdx, step := range tc.steps {
@@ -712,7 +712,7 @@ func TestResolve(t *testing.T) {
 				assert.Equal(t, tc.expectedFromTable, resolver.fromTable, "from table")
 				assert.Equal(t, tc.expectedUnresolved, resolver.unresolved, "unresolved")
 				assert.Zero(t, resolver.readBuffer.bytes, "every value read is filled into its record")
-				cached += resolver.writeCache.bytes
+				cached += resolver.cachedValues.bytes
 			}
 			assert.LessOrEqual(t, cached, maxWriteCacheBytes, "the threads' write caches stay within the budget together")
 		})
@@ -751,7 +751,7 @@ func TestResolveRowInParts(t *testing.T) {
 				{"a.parquet", 0, "payload"}:        "big value",
 				{"a.parquet", 0, "doc"}:            "big doc",
 			}
-			resolver := testResolver(t, true, writer, &testReader{table: table, inParts: true})
+			resolver := testResolver(t, true, writer, &testTableIndexClient{table: table, inParts: true})
 
 			records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder, "doc": placeholder}, "payload", "doc")}
 			require.NoError(t, resolveAll(resolver, records))
@@ -773,7 +773,7 @@ func TestResolveColumnsSharingDestinationName(t *testing.T) {
 		{"a.parquet", 0, constants.OpType}: "u",
 		{"a.parquet", 0, "foo"}:            "big value",
 	}
-	resolver := testResolver(t, true, writer, &testReader{table: table, inParts: true})
+	resolver := testResolver(t, true, writer, &testTableIndexClient{table: table, inParts: true})
 	resolver.stream = &types.ConfiguredStream{StreamMetadata: types.StreamMetadata{Normalization: new(true)}}
 
 	records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "Foo": placeholder, "foo": placeholder}, "Foo", "foo")}
@@ -803,8 +803,8 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 		expected[olakeID] = value
 		records = append(records, testRecord(olakeID, "u", map[string]any{"id": idx, "payload": placeholder}, "payload"))
 	}
-	reader := &testReader{table: table, reverse: true}
-	resolver := testResolver(t, true, writer, reader)
+	tableIndexClient := &testTableIndexClient{table: table, reverse: true}
+	resolver := testResolver(t, true, writer, tableIndexClient)
 	// the write cache is trimmed to nothing after every prefix; the read buffer must survive that
 	testOverBudget(t)
 
@@ -828,8 +828,8 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 		start += n
 	}
 
-	assert.Greater(t, len(reader.requests), 1, "the batch is read a window at a time")
-	for _, request := range reader.requests {
+	assert.Greater(t, len(tableIndexClient.requests), 1, "the batch is read a window at a time")
+	for _, request := range tableIndexClient.requests {
 		// a window is read within what is left of the limit; a lone first record whatever its size
 		assert.True(t, request.GetMaxBytes() <= limit || request.GetMaxBytes() == math.MaxInt64, "max_bytes %d", request.GetMaxBytes())
 	}
@@ -843,8 +843,8 @@ func TestResolvePrefixStaysWithinLimit(t *testing.T) {
 func TestResolveRowCutInParts(t *testing.T) {
 	writer := &testWriter{locations: map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}}}
 	table := testTable{{"a.parquet", 0, "payload"}: "big value", {"a.parquet", 0, "doc"}: "big doc"}
-	reader := &testReader{table: table, inParts: true}
-	resolver := testResolver(t, true, writer, reader)
+	tableIndexClient := &testTableIndexClient{table: table, inParts: true}
+	resolver := testResolver(t, true, writer, tableIndexClient)
 	records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder, "doc": placeholder}, "payload", "doc")}
 
 	// the read is cut after the payload part: the _op_type part is 25 serialized bytes, the payload part 35
@@ -855,17 +855,17 @@ func TestResolveRowCutInParts(t *testing.T) {
 	assert.Equal(t, 1, n)
 	assert.Equal(t, "big value", records[0].Data["payload"])
 	assert.Equal(t, "big doc", records[0].Data["doc"])
-	require.Len(t, reader.requests, 2)
-	assert.Equal(t, int64(limit), reader.requests[0].GetMaxBytes(), "the read ahead stops Java at the limit")
-	assert.Equal(t, int64(math.MaxInt64), reader.requests[1].GetMaxBytes(), "the lone first record is read whole")
-	assert.Len(t, reader.requests[1].GetFiles()[0].GetRows()[0].GetColumns(), 2, "_op_type and the one column still missing")
+	require.Len(t, tableIndexClient.requests, 2)
+	assert.Equal(t, int64(limit), tableIndexClient.requests[0].GetMaxBytes(), "the read ahead stops Java at the limit")
+	assert.Equal(t, int64(math.MaxInt64), tableIndexClient.requests[1].GetMaxBytes(), "the lone first record is read whole")
+	assert.Len(t, tableIndexClient.requests[1].GetFiles()[0].GetRows()[0].GetColumns(), 2, "_op_type and the one column still missing")
 }
 
 // The read starts at the first record missing a value and answers it, so the records after it
 // stay in the same prefix.
 func TestResolveReadMidBatchKeepsOnePrefix(t *testing.T) {
 	writer := &testWriter{locations: map[string]types.RowLocation{"2": {FilePath: "a.parquet", Position: 0}}}
-	resolver := testResolver(t, true, writer, &testReader{table: testTable{{"a.parquet", 0, "payload"}: "stored value"}})
+	resolver := testResolver(t, true, writer, &testTableIndexClient{table: testTable{{"a.parquet", 0, "payload"}: "stored value"}})
 	records := []types.RawRecord{
 		testRecord("1", "c", map[string]any{"id": 1, "payload": "inserted"}),
 		testRecord("2", "u", map[string]any{"id": 2, "payload": placeholder}, "payload"),
@@ -887,8 +887,8 @@ func TestResolveRawRowCutAfterOpType(t *testing.T) {
 		{"a.parquet", 0, constants.OpType}:          "u",
 		{"a.parquet", 0, constants.StringifiedData}: `{"id":1,"payload":"stored value"}`,
 	}
-	reader := &testReader{table: table, inParts: true}
-	resolver := testResolver(t, false, writer, reader)
+	tableIndexClient := &testTableIndexClient{table: table, inParts: true}
+	resolver := testResolver(t, false, writer, tableIndexClient)
 	records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")}
 
 	n, err := resolver.Resolve(context.Background(), records, 10)
@@ -965,18 +965,18 @@ func TestResolveReadRequest(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := &testWriter{locations: tc.locations}
-			reader := &testReader{table: tc.table}
-			resolver := testResolver(t, !tc.rawData, writer, reader)
+			tableIndexClient := &testTableIndexClient{table: tc.table}
+			resolver := testResolver(t, !tc.rawData, writer, tableIndexClient)
 
 			require.NoError(t, resolveAll(resolver, tc.records))
 
 			assert.Equal(t, tc.expectedFlushes, writer.flushes, "files made readable")
 			if tc.expectedRows == nil {
-				assert.Empty(t, reader.requests)
+				assert.Empty(t, tableIndexClient.requests)
 				return
 			}
-			require.Len(t, reader.requests, 1)
-			request := reader.requests[0]
+			require.Len(t, tableIndexClient.requests, 1)
+			request := tableIndexClient.requests[0]
 			assert.Equal(t, "test-thread", request.GetThreadId())
 
 			// files are in the order the records need them, and rows within a file in position order
@@ -1026,7 +1026,7 @@ func TestResolveOpenFiles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			files := &testWriter{locations: map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}}}
 			resolver := newUnavailableValuesResolver("test-thread", testConfiguredStream(true), tc.writer(files),
-				types.NewStreamIndexThread(testIndex{writer: files}), &testReader{table: testTable{{"a.parquet", 0, "payload"}: "stored"}})
+				types.NewStreamIndexThread(testIndex{writer: files}), &testTableIndexClient{table: testTable{{"a.parquet", 0, "payload"}: "stored"}})
 			t.Cleanup(resolver.Close)
 			records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")}
 
@@ -1043,41 +1043,41 @@ func TestResolveErrors(t *testing.T) {
 
 	// every failure is wrapped with %w, so the destination error classifier can still see it
 	testCases := []struct {
-		name    string
-		writer  *testWriter
-		reader  *testReader
-		message string
+		name             string
+		writer           *testWriter
+		tableIndexClient *testTableIndexClient
+		message          string
 	}{
 		{
-			name:    "index lookup fails",
-			writer:  &testWriter{lookupErr: failure},
-			reader:  &testReader{},
-			message: "failed to look up row[1] in index",
+			name:             "index lookup fails",
+			writer:           &testWriter{lookupErr: failure},
+			tableIndexClient: &testTableIndexClient{},
+			message:          "failed to look up row[1] in index",
 		},
 		{
-			name:    "open file cannot be closed",
-			writer:  &testWriter{ensureErr: failure},
-			reader:  &testReader{},
-			message: "boom",
+			name:             "open file cannot be closed",
+			writer:           &testWriter{ensureErr: failure},
+			tableIndexClient: &testTableIndexClient{},
+			message:          "boom",
 		},
 		{
-			name:    "read call fails",
-			writer:  &testWriter{},
-			reader:  &testReader{readErr: failure},
-			message: "failed to read unavailable column values",
+			name:             "read call fails",
+			writer:           &testWriter{},
+			tableIndexClient: &testTableIndexClient{readErr: failure},
+			message:          "failed to read unavailable column values",
 		},
 		{
-			name:    "read stream breaks",
-			writer:  &testWriter{},
-			reader:  &testReader{table: testTable{}, recvErr: failure},
-			message: "failed to read unavailable column values",
+			name:             "read stream breaks",
+			writer:           &testWriter{},
+			tableIndexClient: &testTableIndexClient{table: testTable{}, recvErr: failure},
+			message:          "failed to read unavailable column values",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.writer.locations = map[string]types.RowLocation{"1": {FilePath: "a.parquet", Position: 0}}
-			resolver := testResolver(t, true, tc.writer, tc.reader)
+			resolver := testResolver(t, true, tc.writer, tc.tableIndexClient)
 			records := []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")}
 
 			err := resolveAll(resolver, records)
@@ -1134,16 +1134,16 @@ func TestResolveWriteCacheBudget(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := &testWriter{locations: map[string]types.RowLocation{}}
-			resolver := testResolver(t, true, writer, &testReader{table: testTable{}})
+			resolver := testResolver(t, true, writer, &testTableIndexClient{table: testTable{}})
 			if tc.overBudget {
 				testOverBudget(t)
 			}
 
 			require.NoError(t, resolveAll(resolver, tc.records))
 
-			assert.Len(t, resolver.writeCache.rows, tc.expectedCachedRows)
+			assert.Len(t, resolver.cachedValues.rows, tc.expectedCachedRows)
 			if tc.expectedCachedRows == 0 {
-				assert.Zero(t, resolver.writeCache.bytes)
+				assert.Zero(t, resolver.cachedValues.bytes)
 			}
 			assert.Empty(t, writer.flushes, "no file is closed to drop or keep cached values")
 		})
@@ -1153,7 +1153,7 @@ func TestResolveWriteCacheBudget(t *testing.T) {
 // Over its share, rows written in earlier batches go first: they sit in closed files, while a
 // recent row may sit in a file still open that a read would have to close early.
 func TestResolveTrimDropsLeastRecentRowsFirst(t *testing.T) {
-	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
+	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testTableIndexClient{table: testTable{}})
 	marker := testRecord("0", "u", map[string]any{"id": 0, "payload": placeholder}, "payload")
 
 	// more than this thread's share once another thread caches, so dropping it alone brings the
@@ -1168,16 +1168,16 @@ func TestResolveTrimDropsLeastRecentRowsFirst(t *testing.T) {
 	// another thread starts caching, which halves this thread's share
 	writeCacheThreads.Add(1)
 	t.Cleanup(func() { writeCacheThreads.Add(-1) })
-	resolver.trimWriteCache()
+	resolver.keepWriteCacheWithinBudget()
 
-	assert.NotContains(t, resolver.writeCache.rows, "old")
-	assert.Contains(t, resolver.writeCache.rows, "new")
-	assert.LessOrEqual(t, resolver.writeCache.bytes, maxWriteCacheBytes/4)
+	assert.NotContains(t, resolver.cachedValues.rows, "old")
+	assert.Contains(t, resolver.cachedValues.rows, "new")
+	assert.LessOrEqual(t, resolver.cachedValues.bytes, maxWriteCacheBytes/4)
 }
 
 func TestUnavailableValuesResolverCloseReleasesBudget(t *testing.T) {
 	before := writeCacheThreads.Load()
-	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testReader{table: testTable{}})
+	resolver := testResolver(t, true, &testWriter{locations: map[string]types.RowLocation{}}, &testTableIndexClient{table: testTable{}})
 
 	require.NoError(t, resolveAll(resolver, []types.RawRecord{
 		testRecord("1", "i", map[string]any{"id": 1, "payload": "inserted"}),
@@ -1188,7 +1188,7 @@ func TestUnavailableValuesResolverCloseReleasesBudget(t *testing.T) {
 	resolver.Close()
 
 	assert.Equal(t, before, writeCacheThreads.Load(), "the thread gives its share back")
-	assert.Nil(t, resolver.writeCache, "the cached values are freed")
+	assert.Nil(t, resolver.cachedValues, "the cached values are freed")
 }
 
 func TestValueSize(t *testing.T) {
