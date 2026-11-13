@@ -493,7 +493,7 @@ func readBinlogStatus(ctx context.Context, conn sqlx.QueryerContext, mysqlFlavor
 	// Use the appropriate query based on the MySQL version
 	query := utils.Ternary(mysqlFlavor == "MySQL" && (majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4)), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
-	rows, err := conn.QueryxContext(ctx, query)
+	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
 		return Binlog{}, fmt.Errorf("failed to get master status: %w", err)
 	}

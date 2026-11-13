@@ -184,7 +184,7 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 		},
 	}
 
-	testCases := testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
+	testCases := testutils.Ternary(th.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
 	if len(th.DedupKeys) > 0 {
 		updateOp := "upsert_update"
 		if th.UpsertUpdateOp != "" {
@@ -224,8 +224,8 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 		if passed := t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if !th.TestConfig.SkipSchemaEvolution {
-					th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
+				if !th.SkipSchemaEvolution {
+					th.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
 				}
 			}
 
@@ -251,11 +251,11 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 	t.Log("Iceberg Full load + CDC tests completed successfully")
 
 	if testutils.KeepTestData() {
-		t.Logf("keeping %s source data (%s) is set", th.TestConfig.Driver, testutils.KeepTestDataEnvVar)
+		t.Logf("keeping %s source data (%s) is set", th.Driver, testutils.KeepTestDataEnvVar)
 		return nil
 	}
 	// Drop the Iceberg table after all tests are finished
-	testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, th.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
@@ -270,7 +270,7 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 	t.Log("Starting Parquet Full load + CDC tests")
 
 	th.resetTable(ctx, t)
-	if err := testutils.DeleteParquetTable(t, th.TestConfig.DestinationDB, testTable); err != nil {
+	if err := testutils.DeleteParquetTable(t, th.DestinationDB, testTable); err != nil {
 		return fmt.Errorf("failed to reset parquet table: %s", err)
 	}
 
@@ -322,7 +322,7 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 		},
 	}
 
-	testCases := testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
+	testCases := testutils.Ternary(th.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
 	if len(th.DedupKeys) > 0 {
 		updateOp := "upsert_update"
 		if th.UpsertUpdateOp != "" {
@@ -361,12 +361,12 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 		if passed := t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if !th.TestConfig.SkipSchemaEvolution {
-					th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
+				if !th.SkipSchemaEvolution {
+					th.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
 				}
 			}
 
-			if err := testutils.DeleteParquetFiles(t, th.TestConfig.DestinationDB, testTable); err != nil {
+			if err := testutils.DeleteParquetFiles(t, th.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
 			}
 
@@ -405,7 +405,7 @@ func (th *TestHandler) IcebergFullLoadAndIncremental(
 	th.resetTable(ctx, t)
 
 	// Patch the catalog: set sync_mode = incremental, cursor_field = "id"
-	if err := updateStreamConfig(th.TestConfig, th.TestConfig.Namespace, testTable, "incremental", th.TestConfig.CursorField); err != nil {
+	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, "incremental", th.CursorField); err != nil {
 		return fmt.Errorf("failed to patch the catalog for incremental: %s", err)
 	}
 
@@ -440,13 +440,13 @@ func (th *TestHandler) IcebergFullLoadAndIncremental(
 		if passed := t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if !th.TestConfig.SkipSchemaEvolution {
-					th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
+				if !th.SkipSchemaEvolution {
+					th.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
 				}
 			}
 
 			// drop iceberg table before sync
-			testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+			testutils.DropIcebergTable(t, testTable, th.DestinationDB)
 			t.Logf("Dropped Iceberg table: %s", testTable)
 
 			if err := th.runSyncAndVerify(
@@ -471,10 +471,10 @@ func (th *TestHandler) IcebergFullLoadAndIncremental(
 	t.Log("Iceberg Full load + Incremental tests completed successfully")
 
 	if testutils.KeepTestData() {
-		t.Logf("keeping %s source data (%s) is set", th.TestConfig.Driver, testutils.KeepTestDataEnvVar)
+		t.Logf("keeping %s source data (%s) is set", th.Driver, testutils.KeepTestDataEnvVar)
 		return nil
 	}
-	testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, th.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
@@ -489,12 +489,12 @@ func (th *TestHandler) ParquetFullLoadAndIncremental(
 	t.Log("Starting Parquet Full load + Incremental tests")
 
 	th.resetTable(ctx, t)
-	if err := testutils.DeleteParquetTable(t, th.TestConfig.DestinationDB, testTable); err != nil {
+	if err := testutils.DeleteParquetTable(t, th.DestinationDB, testTable); err != nil {
 		return fmt.Errorf("failed to reset parquet table: %s", err)
 	}
 
 	// Patch the catalog: set sync_mode = incremental, cursor_field = "id"
-	if err := updateStreamConfig(th.TestConfig, th.TestConfig.Namespace, testTable, "incremental", th.TestConfig.CursorField); err != nil {
+	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, "incremental", th.CursorField); err != nil {
 		return fmt.Errorf("failed to patch the catalog for incremental: %s", err)
 	}
 
@@ -529,12 +529,12 @@ func (th *TestHandler) ParquetFullLoadAndIncremental(
 		if passed := t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if !th.TestConfig.SkipSchemaEvolution {
-					th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
+				if !th.SkipSchemaEvolution {
+					th.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
 				}
 			}
 
-			if err := testutils.DeleteParquetFiles(t, th.TestConfig.DestinationDB, testTable); err != nil {
+			if err := testutils.DeleteParquetFiles(t, th.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
 			}
 

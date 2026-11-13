@@ -47,16 +47,16 @@ func (th *TestHandler) testAzureBlob(ctx context.Context, t *testing.T, testTabl
 
 	client := requireAzurite(t)
 	seed := testutils.Ternary(len(th.DedupKeys) > 0, testutils.Ternary(th.UpsertAddOp != "", th.UpsertAddOp, "upsert_add"), "add").(string)
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "clean")
-	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, seed)
+	th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "create")
+	th.ExecuteQuery(ctx, t, th.TestConfig, "clean")
+	th.ExecuteQuery(ctx, t, th.TestConfig, seed)
 
 	th.resetCatalog(t)
 	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, "", "", []string{testTable}, []string{th.ColumnToExclude}); err != nil {
 		return fmt.Errorf("failed to clear partition regex and filter config in streams.json: %s", err)
 	}
-	syncMode := testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), "strict_cdc", "full_refresh").(string)
+	syncMode := testutils.Ternary(th.Driver == string(constants.Kafka), "strict_cdc", "full_refresh").(string)
 	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, syncMode, ""); err != nil {
 		return fmt.Errorf("failed to set sync mode %s: %s", syncMode, err)
 	}
