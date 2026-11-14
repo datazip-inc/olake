@@ -643,70 +643,17 @@ func TestDecodeParquetDecimal(t *testing.T) {
 }
 
 func TestParquetValueToInterfaceWithType_Decimal(t *testing.T) {
-	// Note: pq.Decimal signature appears to be (precision, scale, type)
-	// But the scale field in the logical type might be read differently
-	// Let's test with a simpler approach - verify decimal conversion works
+	// parquet-go takes a decimal's scale first: this is DECIMAL(10,2) on an INT64
 	schema := pq.NewSchema("test", pq.Group{
-		"decimal": pq.Decimal(10, 2, pq.Int64Type),
+		"decimal": pq.Decimal(2, 10, pq.Int64Type),
 	})
 	decimalType := schema.Fields()[0].Type()
 
-	// Get the actual scale from the schema
-	logicalType := decimalType.LogicalType()
-	require.NotNil(t, logicalType, "Should have logical type")
-	require.NotNil(t, logicalType.Decimal, "Should be decimal type")
-	actualScale := logicalType.Decimal.Scale
+	result := parquetValueToInterfaceWithType(pq.Int64Value(12345), decimalType)
 
-	// Use a value that works with the actual scale
-	// If scale is 10, then 1234500000000 with scale 10 = 123.45
-	// If scale is 2, then 12345 with scale 2 = 123.45
-	var testValue int64
-	var expectedResult float64
-
-	if actualScale == 10 {
-		testValue = 1234500000000 // Will give 123.45 with scale 10
-		expectedResult = 123.45
-	} else if actualScale == 2 {
-		testValue = 12345 // Will give 123.45 with scale 2
-		expectedResult = 123.45
-	} else {
-		// Calculate expected based on scale
-		testValue = 12345
-		expectedResult = float64(testValue) / float64(pow10ForTest(actualScale))
-	}
-
-	val := pq.Int64Value(testValue)
-
-	// Test the decodeParquetDecimal function directly
-	dec, err := decodeParquetDecimal(val, actualScale)
+	want, err := typeutils.ReformatValue(types.DecimalOf(10, 2), "123.45")
 	require.NoError(t, err)
-	directResult, _ := dec.Float64()
-
-	// Now test through the full conversion
-	result := parquetValueToInterfaceWithType(val, decimalType)
-
-	resultFloat, ok := result.(float64)
-	require.True(t, ok, "Result should be float64")
-
-	// Verify both match
-	assert.InDelta(t, directResult, resultFloat, 0.0001,
-		"Full conversion should match direct decode. Got %f, expected %f", resultFloat, directResult)
-
-	// If we calculated expectedResult, verify it
-	if expectedResult > 0 {
-		assert.InDelta(t, expectedResult, resultFloat, 0.01,
-			"Should convert decimal correctly. Got %f, expected %f (scale: %d)",
-			resultFloat, expectedResult, actualScale)
-	}
-}
-
-// Helper function for testing
-func pow10ForTest(n int32) int64 {
-	result := int64(1)
-	for i := int32(0); i < n; i++ {
-		result *= 10
-	}
-	return result
+	assert.Equal(t, want, result)
 }
 
 func TestParquetValueToInterfaceWithType_ByteArray(t *testing.T) {
