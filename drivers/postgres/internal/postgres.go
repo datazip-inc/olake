@@ -285,9 +285,10 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 			var datatype types.DataType
 			if val, found := pgTypeToDataTypes[*column.DataType]; found {
 				datatype = val
-				// numeric_precision is also set for integer and float columns, in binary digits
+				// numeric_precision is also set for integer and float columns, in binary digits; numeric_scale is
+				// the type modifier's unsigned scale bits, 2046 for a scale of -2
 				if *column.DataType == "numeric" && column.NumericPrecision.Valid && column.NumericScale.Valid {
-					datatype = types.NumericOf(column.NumericPrecision.Int64, column.NumericScale.Int64)
+					datatype = types.NumericOf(column.NumericPrecision.Int64, waljs.NumericScale(column.NumericScale.Int64))
 				}
 			} else {
 				logger.Debugf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
