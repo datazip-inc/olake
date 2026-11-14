@@ -46,7 +46,7 @@ const (
 	getPrivilegedTablesFilteredTmpl = getPrivilegedTablesTmpl + `
 		AND nspname = ANY($1)`
 	// get table schema
-	getTableSchemaTmpl = `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
+	getTableSchemaTmpl = `SELECT column_name, data_type, is_nullable, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
 	// get primary key columns, query copied from pgjdbc's PgDatabaseMetaData.getPrimaryKeys() with the always-NULL TABLE_CAT column omitted
 	// ref: https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java#L2134
 	getTablePrimaryKey = `SELECT result.column_name
@@ -285,6 +285,11 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 			var datatype types.DataType
 			if val, found := pgTypeToDataTypes[*column.DataType]; found {
 				datatype = val
+				// numeric_precision is also set for integer and float columns, in binary digits; numeric_scale is
+				// the type modifier's unsigned scale bits, 2046 for a scale of -2
+				if *column.DataType == "numeric" && column.NumericPrecision.Valid && column.NumericScale.Valid {
+					datatype = types.NumericOf(column.NumericPrecision.Int64, waljs.NumericScale(column.NumericScale.Int64))
+				}
 			} else {
 				logger.Debugf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
 				datatype = types.String

@@ -548,7 +548,9 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 // iceberg type valueType, as its value type or through an iceberg promotion. A fixed[n] value of
 // the wrong length fails on write.
 func isValidTypeForColumn(columnType, valueType string) bool {
-	if types.IcebergValueType(columnType) == valueType || validTypeTransitions[columnType][valueType] {
+	if types.IcebergValueType(columnType) == valueType ||
+		validTypeTransitions[columnType][valueType] ||
+		isPromotionRequired(columnType, valueType) {
 		return true
 	}
 	return getCommonAncestorType(columnType, valueType) == columnType
@@ -558,6 +560,14 @@ func isValidTypeForColumn(columnType, valueType string) bool {
 func isPromotionRequired(oldType, newType string) bool {
 	if transitions, ok := promotionTransitions[oldType]; ok {
 		return transitions[newType]
+	}
+
+	switch {
+	case types.IsIcebergDecimal(oldType) && types.IsIcebergDecimal(newType):
+		oldPrecision, oldScale, _ := types.IcebergDecimalParams(oldType)
+		newPrecision, newScale, _ := types.IcebergDecimalParams(newType)
+		// an iceberg spec rule in every format version: decimal(P,S) promotes only to decimal(P',S) with P' > P
+		return oldScale == newScale && newPrecision > oldPrecision
 	}
 
 	return false
@@ -626,9 +636,10 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 		name := strings.TrimSpace(parts[1])
 		typeInfo := strings.TrimSpace(parts[2])
 
-		// typeInfo will contain `required type (id)` or `optional type`
-		types := strings.Split(typeInfo, " ")
-		fields[name] = types[1]
+		// typeInfo will contain `required type (id)` or `optional type`; decimal(P, S) holds a space
+		_, fieldType, _ := strings.Cut(typeInfo, " ")
+		fieldType, _, _ = strings.Cut(fieldType, " (")
+		fields[name] = fieldType
 	}
 	return fields, nil
 }

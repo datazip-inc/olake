@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 // Oracle type mapping to our internal types
@@ -62,6 +63,10 @@ func reformatOracleDatatype(dataType string, precision, scale sql.NullInt64) (ty
 			}
 			return types.Int64, true
 		}
+		// a scale of -1 reaches the reader as go-ora's float marker (see oracleColumnTypeName), so it stays a double
+		if precision.Valid && scale.Valid && scale.Int64 != -1 {
+			return types.NumericOf(precision.Int64, scale.Int64), true
+		}
 		return types.Float64, true
 
 	default:
@@ -70,5 +75,27 @@ func reformatOracleDatatype(dataType string, precision, scale sql.NullInt64) (ty
 		}
 		// Treat unknown data types as strings
 		return types.Unknown, false
+	}
+}
+
+// oracleColumnTypeName names a NUMBER column by the precision and scale go-ora reports: an integer type at scale 0,
+// else a decimal.
+func oracleColumnTypeName(colType *sql.ColumnType) string {
+	name := colType.DatabaseTypeName()
+	precision, scale, ok := colType.DecimalSize()
+	switch {
+	case !ok || name != "NUMBER":
+		return name
+	case scale == 0 && precision <= 9:
+		return "int32"
+	case scale == 0:
+		return "int64"
+	default:
+		// go-ora keeps the scale in a byte: a negative one arrives as 256 plus it, and 0xFF marks a FLOAT or an
+		// unconstrained NUMBER, which a scale of -1 shares
+		if scale > 127 && scale < 0xFF {
+			scale -= 256
+		}
+		return typeutils.DecimalColumnType(name, precision, scale)
 	}
 }

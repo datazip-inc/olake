@@ -184,8 +184,12 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 			isUnsigned = meta.Columns[i].Unsigned
 		}
 		view.types[i] = mysqlTypeName(tableMap.ColumnType[i], isUnsigned)
-		if tableMap.ColumnType[i] == mysql.MYSQL_TYPE_STRING && !tableMap.IsEnumColumn(i) && !tableMap.IsSetColumn(i) {
+		switch {
+		case tableMap.ColumnType[i] == mysql.MYSQL_TYPE_STRING && !tableMap.IsEnumColumn(i) && !tableMap.IsSetColumn(i):
 			view.widths[i] = fixedWidth(tableMap.ColumnMeta[i])
+		case tableMap.ColumnType[i] == mysql.MYSQL_TYPE_NEWDECIMAL:
+			// a DECIMAL's meta is its precision<<8 | scale
+			view.types[i] = typeutils.DecimalColumnType(view.types[i], int64(tableMap.ColumnMeta[i]>>8), int64(tableMap.ColumnMeta[i]&0xff))
 		}
 	}
 

@@ -65,6 +65,81 @@ func TestMSSQLSync(t *testing.T) {
 	mssqlSyncConfig(t).TestSync(t)
 }
 
+// TestMSSQLDecimalSync partitions and filters on DECIMAL(18,2) and MONEY columns. The filter cases use the
+// decimal cursor; the 19 digit MONEY filter value is a string.
+func TestMSSQLDecimalSync(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name      string
+		configure func(cfg *integration.TestHandler)
+	}{
+		{
+			name: "partition",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.PartitionRegex = "/{col_decimal,identity}"
+			},
+		},
+		{
+			// keeps only the filtered rows and the updated row the update phase asserts; the bound sits a
+			// ten-thousandth below the filtered value
+			name: "filter_inclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "col_cursor_decimal:id_cursor"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "col_decimal",
+                            "operator": ">",
+                            "value": 239835.8899
+                        },
+                        {
+                            "column": "col_decimal",
+                            "operator": "=",
+                            "value": 543.25
+                        }
+                    ]
+                }`
+				cfg.ExpectedData = ExpectedFilteredMSSQLData()
+			},
+		},
+		{
+			// drops the filtered rows; the updated row drops out too if its 19 digit MONEY filter value rounds
+			// through a double
+			name: "filter_exclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "col_cursor_decimal:id_cursor"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "col_decimal",
+                            "operator": "=",
+                            "value": "123.50"
+                        },
+                        {
+                            "column": "col_money",
+                            "operator": "=",
+                            "value": "922337203685477.5807"
+                        }
+                    ]
+                }`
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := mssqlSyncConfig(t)
+			tc.configure(cfg)
+			cfg.TestCommonSync(t)
+			if !testutils.KeepTestData() {
+				cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+			}
+		})
+	}
+}
+
 func TestMSSQL2PC(t *testing.T) {
 	t.Parallel()
 	mssqlBaseConfig(t).Test2PCIntegration(t)

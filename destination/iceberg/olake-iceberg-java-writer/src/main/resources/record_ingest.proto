@@ -169,6 +169,8 @@ message ArrowPayload {
         double double_value = 5;
         bool bool_value = 6;
         bytes bytes_value = 7;
+        // The exact text at the column's scale, e.g. "7.00" for decimal(10, 2).
+        string decimal_value = 8;
       }
     }
 

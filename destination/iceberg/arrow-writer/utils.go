@@ -164,7 +164,7 @@ func (fw *parquetWriter) RowGroupTotalBytesWritten() int64 {
 }
 
 // toArrowType maps an iceberg column type to its arrow type; a fixed[n] column takes its width
-// from the type.
+// and a decimal(P, S) column its precision and scale from the type.
 func toArrowType(icebergType string) arrow.DataType {
 	switch icebergType {
 	case "boolean":
@@ -184,6 +184,9 @@ func toArrowType(icebergType string) arrow.DataType {
 	default:
 		if width, isFixed := types.IcebergFixedWidth(icebergType); isFixed {
 			return &arrow.FixedSizeBinaryType{ByteWidth: width}
+		}
+		if precision, scale, isDecimal := types.IcebergDecimalParams(icebergType); isDecimal {
+			return &arrow.Decimal128Type{Precision: precision, Scale: scale}
 		}
 		return arrow.BinaryTypes.String
 	}
@@ -363,6 +366,13 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 			return fmt.Errorf("fixed[%d] holds exactly %d bytes, got %d", width, width, len(b))
 		}
 		builder.Append(b)
+	case *array.Decimal128Builder:
+		decimalType := builder.Type().(*arrow.Decimal128Type)
+		unscaled, err := typeutils.DecimalUnscaled(val, decimalType.Precision, decimalType.Scale)
+		if err != nil {
+			return err
+		}
+		builder.Append(unscaled)
 	case *array.StringBuilder:
 		// OLake converts the data column to json format for a denormalized table
 		if mapVal, ok := val.(map[string]interface{}); ok {
@@ -458,6 +468,19 @@ func arrowFieldsToParquet(field arrow.Field) (schema.Node, error) {
 		tsType := field.Type.(*arrow.TimestampType)
 		adjustedToUTC := tsType.TimeZone != ""
 		logicalType = schema.NewTimestampLogicalType(adjustedToUTC, schema.TimeUnitMicros)
+
+	case arrow.DECIMAL128:
+		decimalType := field.Type.(*arrow.Decimal128Type)
+		logicalType = schema.NewDecimalLogicalType(decimalType.Precision, decimalType.Scale)
+		switch {
+		case decimalType.Precision <= 9:
+			pqType = parquet.Types.Int32
+		case decimalType.Precision <= 18:
+			pqType = parquet.Types.Int64
+		default:
+			pqType = parquet.Types.FixedLenByteArray
+			typeLength = types.DecimalBytes(decimalType.Precision)
+		}
 
 	default:
 		// Default to string for any unsupported types

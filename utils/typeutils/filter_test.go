@@ -1697,3 +1697,64 @@ func TestFilterRecords_PreserveOrder(t *testing.T) {
 
 	assert.Equal(t, expectedOrder, actualOrder)
 }
+
+func TestFilterRecords(t *testing.T) {
+	price := types.DecimalOf(10, 2)
+	var records []types.RawRecord
+	for _, unscaled := range []string{"10055", "10056", "-1", "999"} {
+		records = append(records, makeRecord(map[string]any{"price": newDecimal(price, unscaled)}))
+	}
+
+	testCases := []struct {
+		name     string
+		schema   any
+		operator string
+		value    any
+		want     []string
+	}{
+		{
+			name:     "parquet decimal against a value past the column's scale",
+			schema:   makeParquetSchema(map[string]types.DataType{"price": price}),
+			operator: ">",
+			value:    "100.555",
+			want:     []string{"100.56"},
+		},
+		{
+			name:     "iceberg decimal against a number",
+			schema:   makeIcebergSchema(map[string]string{"price": "decimal(10, 2)"}),
+			operator: "<",
+			value:    10,
+			want:     []string{"-0.01", "9.99"},
+		},
+		{
+			name:     "iceberg decimal equal across scales",
+			schema:   makeIcebergSchema(map[string]string{"price": "decimal(10, 2)"}),
+			operator: "=",
+			value:    "100.5500",
+			want:     []string{"100.55"},
+		},
+		{
+			name:     "iceberg double column holding decimals",
+			schema:   makeIcebergSchema(map[string]string{"price": "double"}),
+			operator: "<",
+			value:    10,
+			want:     []string{"-0.01", "9.99"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := types.FilterConfig{
+				LogicalOperator: "AND",
+				Conditions:      []types.FilterCondition{{Column: "price", Operator: tc.operator, Value: tc.value}},
+			}
+			result, err := FilterRecords(context.Background(), records, filter, false, tc.schema, utils.Reformat, false)
+			require.NoError(t, err)
+			var got []string
+			for _, record := range result {
+				got = append(got, record.Data["price"].(Decimal).String())
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

@@ -1,13 +1,36 @@
 package driver
 
 import (
+	"database/sql"
+
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 // TODO: add support for utf-8 invalid and binary datatypes
 
 // rowversion, timestamp (rowversion synonym), geometry, and geography can produce
 // binary or non-UTF-8 values; mapping them to string cause sync to fail.
+
+// exactNumericTypes are the types whose declared precision and scale decide between Float64 and a decimal.
+var exactNumericTypes = []string{"decimal", "numeric", "money", "smallmoney"}
+
+// mssqlColumnTypeName names a DECIMAL column, which go-mssqldb reports NUMERIC ones as too, by its precision and
+// scale. MONEY and SMALLMONEY report none, so they get their fixed DECIMAL(19,4) and DECIMAL(10,4).
+func mssqlColumnTypeName(colType *sql.ColumnType) string {
+	name := colType.DatabaseTypeName()
+	switch name {
+	case "MONEY":
+		return typeutils.DecimalColumnType(name, 19, 4)
+	case "SMALLMONEY":
+		return typeutils.DecimalColumnType(name, 10, 4)
+	case "DECIMAL":
+		if precision, scale, ok := colType.DecimalSize(); ok {
+			return typeutils.DecimalColumnType(name, precision, scale)
+		}
+	}
+	return name
+}
 
 // mssqlTypeToDataTypes maps SQL Server types to internal data types.
 var mssqlTypeToDataTypes = map[string]types.DataType{

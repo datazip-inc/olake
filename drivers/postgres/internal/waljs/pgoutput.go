@@ -190,6 +190,10 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 
 		// Convert according to OID to string
 		typeName := oidToString(colType)
+		if mod := rel.Columns[idx].TypeModifier; colType == pgtype.NumericOID && mod >= 4 {
+			// a constrained numeric's type modifier is (precision<<16 | scale) + 4
+			typeName = typeutils.DecimalColumnType(typeName, int64((mod-4)>>16), NumericScale(int64(mod-4)))
+		}
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, 0, nil, err
@@ -257,6 +261,12 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
 		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes, nil))
+}
+
+// NumericScale is the scale a numeric type modifier packs into its low 11 bits, two's complement since Postgres 15
+// allows a negative scale. pgx and the raw modifier both hand those bits over unsigned.
+func NumericScale(packed int64) int64 {
+	return (packed&0x7ff ^ 0x400) - 0x400
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

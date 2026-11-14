@@ -3,9 +3,11 @@ package parquet
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net/url"
 	"os"
 	"path"
@@ -16,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow/decimal128"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -223,6 +226,9 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 			if err := p.checkFixedWidths(record.Data); err != nil {
 				return destination.WriteFailure(fmt.Errorf("failed to write in parquet file: %w", err))
 			}
+			if err := p.encodeDecimals(record.Data); err != nil {
+				return destination.WriteFailure(fmt.Errorf("failed to write in parquet file: %w", err))
+			}
 			_, err = partitionFile.writer.Write([]any{record.Data})
 		} else {
 			dataBytes, merr := json.Marshal(record.Data)
@@ -260,6 +266,70 @@ func (p *Parquet) checkFixedWidths(data map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// encodeDecimals replaces each decimal value with what its column stores: the unscaled integer as an
+// int32 up to 9 digits, an int64 up to 18, else its fixed width of big-endian two's complement bytes.
+func (p *Parquet) encodeDecimals(data map[string]any) error {
+	for column, value := range data {
+		if _, isDecimal := value.(typeutils.Decimal); !isDecimal || p.schema[column] == nil {
+			continue
+		}
+		ok, precision, scale := types.IsDecimal(p.schema[column].Type())
+		if !ok {
+			continue
+		}
+		unscaled, err := typeutils.DecimalUnscaled(value, precision, scale)
+		if err != nil {
+			return fmt.Errorf("field[%s]: %w", column, err)
+		}
+		switch {
+		case precision <= 9:
+			data[column], err = unscaledInt32(unscaled)
+		case precision <= 18:
+			data[column], err = unscaledInt64(unscaled)
+		default:
+			data[column] = unscaledBytes(unscaled, types.DecimalBytes(precision))
+		}
+		if err != nil {
+			return fmt.Errorf("field[%s]: %w", column, err)
+		}
+	}
+	return nil
+}
+
+// unscaledBytes is an unscaled decimal as the width big-endian two's complement bytes a FIXED_LEN_BYTE_ARRAY
+// decimal stores. The value fits its precision's width, so the bytes left off only repeat its sign.
+func unscaledBytes(unscaled decimal128.Num, width int32) []byte {
+	var b [16]byte
+	_, _ = binary.Encode(b[:8], binary.BigEndian, unscaled.HighBits()) // writes the int64's own bits; 8 bytes always fit
+	binary.BigEndian.PutUint64(b[8:], unscaled.LowBits())
+	return b[16-width:]
+}
+
+// unscaledInt64 is an unscaled decimal as an int64, failing when it needs more than 63 bits.
+func unscaledInt64(unscaled decimal128.Num) (int64, error) {
+	abs := unscaled.Abs()
+	lo := abs.LowBits()
+	if abs.HighBits() != 0 || lo > math.MaxInt64 {
+		return 0, fmt.Errorf("unscaled decimal %s does not fit an int64", unscaled.BigInt())
+	}
+	if unscaled.Sign() < 0 {
+		return -int64(lo), nil
+	}
+	return int64(lo), nil
+}
+
+// unscaledInt32 is an unscaled decimal as an int32, failing when it does not fit one.
+func unscaledInt32(unscaled decimal128.Num) (int32, error) {
+	n, err := unscaledInt64(unscaled)
+	if err != nil {
+		return 0, err
+	}
+	if n < math.MinInt32 || n > math.MaxInt32 {
+		return 0, fmt.Errorf("unscaled decimal %d does not fit an int32", n)
+	}
+	return int32(n), nil
 }
 
 // roll gives true when we need to check for rolling based on the current index of record
@@ -524,7 +594,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 				persistedTypes := p.schema[columnName].Types()
 				if _, exist := utils.ArrayContains(persistedTypes, func(elem types.DataType) bool {
-					return elem.ValueType() == detectedType
+					return elem == detectedType || elem.ValueType() == detectedType
 				}); !exist {
 					diffFound.Store(true)
 					break

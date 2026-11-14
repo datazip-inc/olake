@@ -235,6 +235,9 @@ func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 		return v.UTC().Format(constants.DefaultStateTimestampFormat)
 	case primitive.ObjectID:
 		return v.Hex()
+	case typeutils.Decimal:
+		// exact text: a JSON number reads back from state as a float64, rounding the cursor
+		return v.String()
 	case []byte:
 		switch {
 		case !utils.IsBinarySupported():

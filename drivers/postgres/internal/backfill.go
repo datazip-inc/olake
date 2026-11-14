@@ -51,7 +51,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return jdbc.MapScanConcurrent(setter, p.dataTypeConverter, OnMessage, pgColumnSizer)
+	return jdbc.MapScanConcurrent(setter, p.dataTypeConverter, OnMessage, pgColumnSizer, pgColumnTypeName)
 }
 
 func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

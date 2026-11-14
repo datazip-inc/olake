@@ -27,6 +27,8 @@ const (
 	TimestampNano  DataType = "timestamp_nano"  // storing datetime up to 9 precisions
 	Binary         DataType = "binary"
 	FixedBinary    DataType = "fixed_binary(%d)"
+	BigDecimal     DataType = "big_decimal"
+	Decimal        DataType = "decimal(%d,%d)"
 )
 
 var (
@@ -67,11 +69,13 @@ var TypeWeights = map[DataType]int{
 
 // ValueType is the type d's inherent value type ignoring the parameters
 func (d DataType) ValueType() DataType {
-	switch BaseOf(d) {
+	switch baseType := baseOf(d); baseType {
 	case FixedBinary:
 		return Binary
+	case Decimal:
+		return BigDecimal
 	default:
-		return d
+		return baseType
 	}
 }
 
@@ -128,6 +132,8 @@ var destinationTypes = destinationTypesMap{
 	Array:          {"string", plainNode(parquet.String)},
 	Binary:         {"binary", leafNode(parquet.ByteArrayType)},
 	FixedBinary:    {"fixed[%d]", fixedBinaryNode}, // the pattern is a registry key; only an instance renders
+	// the space is intentional: iceberg prints decimal(P, S), unlike the DataType's decimal(%d,%d)
+	Decimal: {"decimal(%d, %d)", decimalNode},
 }
 
 type icebergToDataTypeMap map[string]DataType
@@ -152,15 +158,16 @@ func (m icebergToDataTypeMap) get(icebergType string) (DataType, bool) {
 // share the same iceberg type. A family is registered under its pattern, the same key its
 // destination mapping produces. IcebergTypeToDatatype falls back to fallbackType.
 var icebergToDataType = icebergToDataTypeMap{
-	"boolean":     Bool,
-	"int":         Int32,
-	"long":        Int64,
-	"float":       Float32,
-	"double":      Float64,
-	"timestamptz": TimestampMicro,
-	"string":      String,
-	"binary":      Binary,
-	"fixed[%d]":   FixedBinary,
+	"boolean":         Bool,
+	"int":             Int32,
+	"long":            Int64,
+	"float":           Float32,
+	"double":          Float64,
+	"timestamptz":     TimestampMicro,
+	"string":          String,
+	"binary":          Binary,
+	"fixed[%d]":       FixedBinary,
+	"decimal(%d, %d)": Decimal,
 }
 
 type Record map[string]any

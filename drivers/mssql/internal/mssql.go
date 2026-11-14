@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -263,6 +264,8 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 		type columnInfo struct {
 			name         string
 			dataType     string
+			precision    sql.NullInt64
+			scale        sql.NullInt64
 			isNullable   string
 			isPrimaryKey bool
 		}
@@ -270,7 +273,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 		var columns []columnInfo
 		for rows.Next() {
 			var colInfo columnInfo
-			if err := rows.Scan(&colInfo.name, &colInfo.dataType, &colInfo.isNullable, &colInfo.isPrimaryKey); err != nil {
+			if err := rows.Scan(&colInfo.name, &colInfo.dataType, &colInfo.precision, &colInfo.scale, &colInfo.isNullable, &colInfo.isPrimaryKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			columns = append(columns, colInfo)
@@ -285,6 +288,11 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 			var datatype types.DataType
 			if val, found := mssqlTypeToDataTypes[strings.ToLower(column.dataType)]; found {
 				datatype = val
+				// money and smallmoney report their fixed DECIMAL(19,4) and DECIMAL(10,4); integer and float
+				// columns carry a NUMERIC_PRECISION too
+				if slices.Contains(exactNumericTypes, strings.ToLower(column.dataType)) && column.precision.Valid && column.scale.Valid {
+					datatype = types.NumericOf(column.precision.Int64, column.scale.Int64)
+				}
 			} else {
 				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
 				datatype = types.String

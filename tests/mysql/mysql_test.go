@@ -145,6 +145,83 @@ func TestMySQLBinarySync(t *testing.T) {
 	}
 }
 
+// TestMySQLDecimalSync partitions and filters on a DECIMAL(18,4) column that evolve-schema widens to DECIMAL(20,4).
+// The filter cases use the decimal cursor so incremental reads the filtered insert row too; the 18 digit filter value is a string.
+func TestMySQLDecimalSync(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name      string
+		configure func(cfg *integration.TestHandler)
+	}{
+		{
+			name: "partition",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.PartitionRegex = "/{price_decimal,identity}"
+			},
+		},
+		{
+			// keeps only the filtered rows (998 and 999) and the updated row the update phase asserts; each
+			// bound sits a ten-thousandth from a kept value
+			name: "filter_inclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "id_cursor_decimal:id_smallint"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "price_decimal",
+                            "operator": "<",
+                            "value": 50.1231
+                        },
+                        {
+                            "column": "price_decimal",
+                            "operator": ">",
+                            "value": 543.2099
+                        }
+                    ]
+                }`
+				cfg.ExpectedData = ExpectedFilteredData
+			},
+		},
+		{
+			// drops the filtered rows; the 18 digit updated row drops out too if its filter value rounds
+			// through a double
+			name: "filter_exclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "id_cursor_decimal:id_smallint"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "price_decimal",
+                            "operator": "=",
+                            "value": "123.4500"
+                        },
+                        {
+                            "column": "price_decimal",
+                            "operator": "=",
+                            "value": "12345678901234.5678"
+                        }
+                    ]
+                }`
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := mysqlBaseConfig(t)
+			cfg.ExpectedUpdatedData = ExpectedUpdatedData()
+			cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
+			tc.configure(cfg)
+			cfg.TestCommonSync(t)
+			if !testutils.KeepTestData() {
+				cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+			}
+		})
+	}
+}
+
 func TestMySQL2PC(t *testing.T) {
 	t.Parallel()
 	mysqlBaseConfig(t).Test2PCIntegration(t)

@@ -52,6 +52,13 @@ func TestFlatten(t *testing.T) {
 			expected:     types.Record{"payload": string([]byte{0xff, 0x00})},
 			expectError:  false,
 		},
+		// a decimal keeps its type rather than falling through to a json string
+		{
+			name:        "decimal values",
+			input:       types.Record{"price": newDecimal(types.DecimalOf(10, 2), "12345")},
+			expected:    types.Record{"price": newDecimal(types.DecimalOf(10, 2), "12345")},
+			expectError: false,
+		},
 		// basic values like string, int, bool, float, time, etc.
 		{
 			name: "simple values",

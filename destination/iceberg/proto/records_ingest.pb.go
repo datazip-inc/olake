@@ -1672,6 +1672,7 @@ type ArrowPayload_FileMetadata_PartitionValue struct {
 	//	*ArrowPayload_FileMetadata_PartitionValue_DoubleValue
 	//	*ArrowPayload_FileMetadata_PartitionValue_BoolValue
 	//	*ArrowPayload_FileMetadata_PartitionValue_BytesValue
+	//	*ArrowPayload_FileMetadata_PartitionValue_DecimalValue
 	Value         isArrowPayload_FileMetadata_PartitionValue_Value `protobuf_oneof:"value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1777,6 +1778,15 @@ func (x *ArrowPayload_FileMetadata_PartitionValue) GetBytesValue() []byte {
 	return nil
 }
 
+func (x *ArrowPayload_FileMetadata_PartitionValue) GetDecimalValue() string {
+	if x != nil {
+		if x, ok := x.Value.(*ArrowPayload_FileMetadata_PartitionValue_DecimalValue); ok {
+			return x.DecimalValue
+		}
+	}
+	return ""
+}
+
 type isArrowPayload_FileMetadata_PartitionValue_Value interface {
 	isArrowPayload_FileMetadata_PartitionValue_Value()
 }
@@ -1809,6 +1819,11 @@ type ArrowPayload_FileMetadata_PartitionValue_BytesValue struct {
 	BytesValue []byte `protobuf:"bytes,7,opt,name=bytes_value,json=bytesValue,proto3,oneof"`
 }
 
+type ArrowPayload_FileMetadata_PartitionValue_DecimalValue struct {
+	// The exact text at the column's scale, e.g. "7.00" for decimal(10, 2).
+	DecimalValue string `protobuf:"bytes,8,opt,name=decimal_value,json=decimalValue,proto3,oneof"`
+}
+
 func (*ArrowPayload_FileMetadata_PartitionValue_IntValue) isArrowPayload_FileMetadata_PartitionValue_Value() {
 }
 
@@ -1828,6 +1843,9 @@ func (*ArrowPayload_FileMetadata_PartitionValue_BoolValue) isArrowPayload_FileMe
 }
 
 func (*ArrowPayload_FileMetadata_PartitionValue_BytesValue) isArrowPayload_FileMetadata_PartitionValue_Value() {
+}
+
+func (*ArrowPayload_FileMetadata_PartitionValue_DecimalValue) isArrowPayload_FileMetadata_PartitionValue_Value() {
 }
 
 type ArrowPayload_DeletionVectorBatch_Entry struct {
@@ -2206,15 +2224,15 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x05Range\x12&\n" +
 	"\x0fbatch_start_idx\x18\x01 \x01(\x05R\rbatchStartIdx\x12%\n" +
 	"\x0estart_position\x18\x02 \x01(\x03R\rstartPosition\x12\x14\n" +
-	"\x05count\x18\x03 \x01(\x05R\x05count\"\xd5\f\n" +
+	"\x05count\x18\x03 \x01(\x05R\x05count\"\xfc\f\n" +
 	"\fArrowPayload\x12B\n" +
 	"\x04type\x18\x01 \x01(\x0e2..io.olake.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12G\n" +
-	"\bmetadata\x18\x02 \x01(\v2+.io.olake.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xe3\x03\n" +
+	"\bmetadata\x18\x02 \x01(\v2+.io.olake.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\x8a\x04\n" +
 	"\fFileMetadata\x12\x1b\n" +
 	"\tfile_type\x18\x01 \x01(\tR\bfileType\x12\x1b\n" +
 	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x12!\n" +
 	"\frecord_count\x18\x03 \x01(\x03R\vrecordCount\x12i\n" +
-	"\x10partition_values\x18\x05 \x03(\v2>.io.olake.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\x8a\x02\n" +
+	"\x10partition_values\x18\x05 \x03(\v2>.io.olake.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\xb1\x02\n" +
 	"\x0ePartitionValue\x12\x1d\n" +
 	"\tint_value\x18\x01 \x01(\x05H\x00R\bintValue\x12\x1f\n" +
 	"\n" +
@@ -2226,7 +2244,8 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
 	"bool_value\x18\x06 \x01(\bH\x00R\tboolValue\x12!\n" +
 	"\vbytes_value\x18\a \x01(\fH\x00R\n" +
-	"bytesValueB\a\n" +
+	"bytesValue\x12%\n" +
+	"\rdecimal_value\x18\b \x01(\tH\x00R\fdecimalValueB\a\n" +
 	"\x05value\x1aM\n" +
 	"\x11FileUploadRequest\x12\x1b\n" +
 	"\tfile_data\x18\x01 \x01(\fR\bfileData\x12\x1b\n" +
@@ -2433,6 +2452,7 @@ func file_records_ingest_proto_init() {
 		(*ArrowPayload_FileMetadata_PartitionValue_DoubleValue)(nil),
 		(*ArrowPayload_FileMetadata_PartitionValue_BoolValue)(nil),
 		(*ArrowPayload_FileMetadata_PartitionValue_BytesValue)(nil),
+		(*ArrowPayload_FileMetadata_PartitionValue_DecimalValue)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

@@ -8,9 +8,17 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func decimalValue(t *testing.T, dataType types.DataType, text string) typeutils.Decimal {
+	t.Helper()
+	value, err := typeutils.ReformatDecimal(dataType, text)
+	require.NoError(t, err)
+	return value
+}
 
 func TestToProtoFieldValue(t *testing.T) {
 	sample := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -58,6 +66,18 @@ func TestToProtoFieldValue(t *testing.T) {
 			iceType: "timestamptz",
 			value:   sample,
 			want:    &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: sample.UnixMicro()},
+		},
+		{
+			name:    "decimal travels as its exact text",
+			iceType: "decimal(38, 10)",
+			value:   decimalValue(t, types.DecimalOf(38, 10), "-1234567890123456789012345678.0123456789"),
+			want:    &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: "-1234567890123456789012345678.0123456789"},
+		},
+		{
+			name:    "decimal into a double column",
+			iceType: "double",
+			value:   decimalValue(t, types.DecimalOf(10, 2), "2.50"),
+			want:    &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: 2.5},
 		},
 		{
 			name:    "bytes into a binary column",

@@ -10,3 +10,12 @@ const binarySupportStateVersion = 8
 func IsBinarySupported() bool {
 	return constants.LoadedStateVersion >= binarySupportStateVersion
 }
+
+// decimalSupportStateVersion is the first state version that maps exact decimal columns to decimal(p,s).
+// Older state keeps them as double so an existing destination column does not change type on upgrade.
+const decimalSupportStateVersion = 9
+
+// IsDecimalSupported reports whether the loaded state (version 9 on) maps exact decimal columns to decimal(p,s) rather than double
+func IsDecimalSupported() bool {
+	return constants.LoadedStateVersion >= decimalSupportStateVersion
+}

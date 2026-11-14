@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -22,6 +23,11 @@ func mysqlPointWKB(x, y float64) []byte {
 }
 
 func TestDataTypeConverter(t *testing.T) {
+	decimal, err := typeutils.ReformatDecimal(types.DecimalOf(10, 2), "123.45")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	tests := []struct {
 		name string
 		// columnType as MySQL reports it; "unsigned <type>" for UNSIGNED columns.
@@ -339,7 +345,14 @@ func TestDataTypeConverter(t *testing.T) {
 			name:       "decimal from byte slice",
 			columnType: "decimal(10,2)",
 			value:      []uint8("123.45"),
-			expected:   float64(123.45),
+			expected:   decimal,
+		},
+		{
+			name:         "decimal from byte slice at version 8",
+			columnType:   "decimal(10,2)",
+			value:        []uint8("123.45"),
+			stateVersion: new(8),
+			expected:     float64(123.45),
 		},
 		// unmapped types fall through unchanged
 		{
