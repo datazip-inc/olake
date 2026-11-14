@@ -260,6 +260,7 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, source
 		if len(wt.buffer) >= int(wt.batchSize) || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
+			clear(wt.buffer)
 			wt.buffer = wt.buffer[:0]
 			wt.bufferBytes = 0
 			wt.group.Add(func(ctx context.Context) error {
@@ -287,33 +288,60 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	// create flush context
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	recordsCountBeforeFiltering := len(buf)
-	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
-	if err != nil {
-		return fmt.Errorf("failed to flatten and clean data: %w", err)
+
+	resolver, recovers := wt.writer.(ValueResolver)
+	written := 0
+	for len(buf) > 0 {
+		chunk := len(buf)
+		if recovers {
+			if chunk, err = resolver.RecoverUnavailableValues(flushCtx, buf); err != nil {
+				return fmt.Errorf("failed to recover unavailable values: %w", err)
+			}
+		}
+
+		count, err := wt.write(flushCtx, buf[:chunk])
+		if err != nil {
+			return err
+		}
+		written += count
+		// release the written records before the next prefix is recovered
+		clear(buf[:chunk])
+		buf = buf[chunk:]
 	}
-	filtered := int64(recordsCountBeforeFiltering - len(buf))
+
+	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, written)
+	return nil
+}
+
+// write flattens records, evolves the schema when they need it and writes them, returning how
+// many records were written after filtering.
+func (wt *WriterThread) write(ctx context.Context, records []types.RawRecord) (int, error) {
+	recordsCountBeforeFiltering := len(records)
+	evolution, records, threadSchema, err := wt.writer.FlattenAndCleanData(ctx, records)
+	if err != nil {
+		return 0, fmt.Errorf("failed to flatten and clean data: %w", err)
+	}
+	filtered := int64(recordsCountBeforeFiltering - len(records))
 	wt.stats.RecordsFiltered.Add(filtered)
 	wt.recordsFiltered.Add(filtered)
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
 		wt.streamArtifact.mu.Lock()
-		newSchema, err := wt.writer.EvolveSchema(flushCtx, wt.streamArtifact.schema, threadSchema)
+		newSchema, err := wt.writer.EvolveSchema(ctx, wt.streamArtifact.schema, threadSchema)
 		if err == nil && newSchema != nil {
 			wt.streamArtifact.schema = newSchema
 		}
 		wt.streamArtifact.mu.Unlock()
 		if err != nil {
-			return fmt.Errorf("failed to evolve schema: %w", err)
+			return 0, fmt.Errorf("failed to evolve schema: %w", err)
 		}
 	}
 
-	if err := wt.writer.Write(flushCtx, buf); err != nil {
-		return fmt.Errorf("failed to write records: %w", err)
+	if err := wt.writer.Write(ctx, records); err != nil {
+		return 0, fmt.Errorf("failed to write records: %w", err)
 	}
 
-	logger.Infof("Thread[%s]: successfully wrote %d records", wt.threadID, len(buf))
-	return nil
+	return len(records), nil
 }
 
 // rollbackStats removes this thread's live contribution to the pool-wide

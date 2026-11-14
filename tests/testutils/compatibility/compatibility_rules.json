@@ -31,6 +31,11 @@
       {"data_types": ["unsigned bigint"], "exclude_below": "v0.9.0", "note": "BIGINT UNSIGNED at or above 2^63 reaches the incremental scan as a byte slice; before v0.9.0 (state v6, ReformatInt64) it cannot be converted: v0.3.11's Iceberg writer fatals on the mixed long/string batch and a candidate on an older state file retries into a hang"}
     ]
   },
+  "postgres": {
+    "rules": [
+      {"columns": ["col_toast"], "assert_value_from": "v0.8.0", "note": "a CDC update that leaves an out-of-line (TOAST) value unchanged wrote NULL for it before v0.8.0; since then it writes __olake_unavailable_value__"}
+    ]
+  },
   "mongodb": {
     "note": "G1 (BSON regex serialized with Go field names, not lowercase keys, fixed v0.3.14) needs no rule: its threshold sits below the v0.3.17 floor",
     "rules": [

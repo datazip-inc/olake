@@ -154,6 +154,10 @@
                     "pos",
                     "dv"
                 ],
+                "available_write_modes": [
+                    "append",
+                    "upsert"
+                ],
                 "supported_sync_modes": [
                     "full_refresh",
                     "incremental"

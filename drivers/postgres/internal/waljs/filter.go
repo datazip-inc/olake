@@ -77,7 +77,7 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 
 		// Deprecated wal2json path: bytes not tracked, pgoutput is the supported replicator.
 		if err := OnFiltered(ctx, abstract.NewCDCChange(stream, changes.Timestamp.Time, ch.Kind, changesMap,
-			map[string]any{CDCLSN: changes.NextLSN}, 0)); err != nil {
+			map[string]any{CDCLSN: changes.NextLSN}, 0, nil)); err != nil {
 			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %w", err)
 		}
 	}

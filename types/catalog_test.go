@@ -2183,7 +2183,7 @@ func TestLogCatalog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, t.TempDir())
 
-			ApplyDestinationDefaults(tc.discovered, writableUpdateTypes, false)
+			ApplyDestinationDefaults(tc.discovered, writableUpdateTypes, AvailableWriteModes(Iceberg, nil))
 
 			LogCatalog(tc.discovered, tc.oldCatalog, writableUpdateTypes)
 
