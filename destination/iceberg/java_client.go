@@ -95,7 +95,7 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 		addMapKeyIfNotEmpty("gcp.auth.scopes", config.GCPAuthScopes)
 		// BigLake requires this header for request routing/billing.
 		addMapKeyIfNotEmpty("header.x-goog-user-project", config.GCPProjectID)
-		//Horizon
+		// Horizon and BigLake
 		addMapKeyIfNotEmpty("header.X-Iceberg-Access-Delegation", config.RESTAccessDelegation)
 	default:
 		return nil, errs.Precondition(errs.ConfigInvalid, codeUnsupportedCatalogType,
