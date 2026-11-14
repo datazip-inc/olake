@@ -65,11 +65,20 @@ func TestPostgresDiscover(t *testing.T) {
 	cfg.TestDiscover(t)
 }
 
+func TestPostgresUnchangedToastRecovery(t *testing.T) {
+	t.Parallel()
+	cfg := postgresBaseConfig(t)
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+	createReplicationSlot(t, cfg.TestConfig)
+	cfg.TestUnchangedToastRecovery(t)
+}
+
 // postgresSyncConfig adds to postgresBaseConfig what the sync suites verify after the update sync, and
 // the replication slot the suite's source config points at.
 func postgresSyncConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
 	cfg := postgresBaseConfig(t, opts...)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.ExpectedCDCUpdatedData = ExpectedCDCUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
 	createReplicationSlot(t, cfg.TestConfig)
 	return cfg

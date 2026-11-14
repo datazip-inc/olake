@@ -38,6 +38,9 @@ type Stream struct {
 	// can write. Empty means none qualifies, so the stream can only append; nil means the
 	// catalog predates target query engines. Not omitempty: empty must not read back as nil.
 	AvailableUpdateTypes []UpdateType `json:"available_update_types"`
+	// Write modes (append, upsert) the source and destination both allow. Empty means none
+	// does; nil means the catalog predates write modes. Not omitempty: empty must not read back as nil.
+	AvailableWriteModes []WriteMode `json:"available_write_modes"`
 	// Primary key if available
 	SourceDefinedPrimaryKey *Set[string] `json:"source_defined_primary_key,omitempty"`
 	// Available cursor fields supported by driver

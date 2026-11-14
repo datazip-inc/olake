@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/datazip-inc/olake/drivers/postgres/internal/waljs"
 	"github.com/datazip-inc/olake/pkg/jdbc"
-	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"

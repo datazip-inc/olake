@@ -32,6 +32,9 @@ type CDC struct {
 	InitialWaitTime int    `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
 	Publication string `json:"publication"`
+	// PreserveToastValues keeps the values Postgres leaves out of an UPDATE (unchanged TOAST) by
+	// reading the row's previous version from the destination. Iceberg with a row index (pos or dv) only.
+	PreserveToastValues bool `json:"preserve_toast_values"`
 }
 
 func (c *Config) Validate() error {
