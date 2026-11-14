@@ -63,7 +63,8 @@ func reformatOracleDatatype(dataType string, precision, scale sql.NullInt64) (ty
 			}
 			return types.Int64, true
 		}
-		if precision.Valid && scale.Valid {
+		// a scale of -1 reaches the reader as go-ora's float marker (see oracleColumnTypeName), so it stays a double
+		if precision.Valid && scale.Valid && scale.Int64 != -1 {
 			return types.NumericOf(precision.Int64, scale.Int64), true
 		}
 		return types.Float64, true
@@ -90,6 +91,11 @@ func oracleColumnTypeName(colType *sql.ColumnType) string {
 	case scale == 0:
 		return "int64"
 	default:
+		// go-ora keeps the scale in a byte: a negative one arrives as 256 plus it, and 0xFF marks a FLOAT or an
+		// unconstrained NUMBER, which a scale of -1 shares
+		if scale > 127 && scale < 0xFF {
+			scale -= 256
+		}
 		return typeutils.DecimalColumnType(name, precision, scale)
 	}
 }

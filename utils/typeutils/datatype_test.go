@@ -385,10 +385,17 @@ func TestDecimalColumnType(t *testing.T) {
 			want:      "NUMERIC",
 		},
 		{
-			name:      "a negative scale keeps its name",
+			name:      "a negative scale names a decimal of whole numbers",
 			typeName:  "NUMBER",
 			precision: 20,
 			scale:     -2,
+			want:      "decimal(22,0)",
+		},
+		{
+			name:      "a negative scale past 38 digits keeps its name",
+			typeName:  "NUMBER",
+			precision: 38,
+			scale:     -1,
 			want:      "NUMBER",
 		},
 		{

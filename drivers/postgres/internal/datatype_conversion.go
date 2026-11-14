@@ -3,6 +3,7 @@ package driver
 import (
 	"database/sql"
 
+	"github.com/datazip-inc/olake/drivers/postgres/internal/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
@@ -109,7 +110,7 @@ var pgTypeToDataTypes = map[string]types.DataType{
 func pgColumnTypeName(colType *sql.ColumnType) string {
 	name := colType.DatabaseTypeName()
 	if precision, scale, ok := colType.DecimalSize(); ok && name == "NUMERIC" {
-		return typeutils.DecimalColumnType(name, precision, scale)
+		return typeutils.DecimalColumnType(name, precision, waljs.NumericScale(scale))
 	}
 	return name
 }

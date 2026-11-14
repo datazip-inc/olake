@@ -24,7 +24,14 @@ func validDecimal[N int | int32 | int64](p []N) bool {
 // NumericOf maps a source decimal column of precision digits, scale of them after the point, to decimal(p,s) where
 // iceberg can hold it. Otherwise, and on older state so an existing destination column keeps its type, Float64.
 func NumericOf(precision, scale int64) DataType {
-	if !utils.IsDecimalSupported() || scale < 0 || !validDecimal([]int64{precision, scale}) {
+	switch {
+	case precision < 1: // an unknown precision stays unknown, never decimal(s,s)
+	case scale < 0: // rounds left of the point, so its values are whole numbers of precision-scale digits
+		precision, scale = precision-scale, 0
+	case scale > precision: // its digits all sit after the point
+		precision = scale
+	}
+	if !utils.IsDecimalSupported() || !validDecimal([]int64{precision, scale}) {
 		return Float64
 	}
 	return Decimal.Of(precision, scale)

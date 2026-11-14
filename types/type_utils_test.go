@@ -393,15 +393,27 @@ func TestNumericOf(t *testing.T) {
 			want:      Float64,
 		},
 		{
-			name:      "a negative scale",
+			name:      "a negative scale holds whole numbers of precision minus scale digits",
 			precision: 20,
 			scale:     -2,
+			want:      DataType("decimal(22,0)"),
+		},
+		{
+			name:      "a negative scale past 38 digits iceberg holds no decimal",
+			precision: 38,
+			scale:     -1,
 			want:      Float64,
 		},
 		{
-			name:      "a scale past the precision",
+			name:      "a scale past the precision keeps every digit after the point",
 			precision: 16,
 			scale:     17,
+			want:      DataType("decimal(17,17)"),
+		},
+		{
+			name:      "an unknown precision stays a double",
+			precision: 0,
+			scale:     2,
 			want:      Float64,
 		},
 		{
