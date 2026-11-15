@@ -455,6 +455,148 @@ func TestReformatValue(t *testing.T) {
 			expectedErr: nil,
 		},
 
+		// ===== Decimal =====
+		{
+			name:        "decimal from text",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "123.45",
+			expected:    newDecimal(types.DecimalOf(10, 2), "12345"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal pads a short scale",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "123.4",
+			expected:    newDecimal(types.DecimalOf(10, 2), "12340"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal drops zeros that change nothing",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "+00012.300000",
+			expected:    newDecimal(types.DecimalOf(10, 2), "1230"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal negative zero is zero",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "-0",
+			expected:    newDecimal(types.DecimalOf(10, 2), "0"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from an exponent",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "1.2E+3",
+			expected:    newDecimal(types.DecimalOf(10, 2), "120000"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from database bytes",
+			dataType:    types.DecimalOf(10, 2),
+			value:       []byte("-0.5"),
+			expected:    newDecimal(types.DecimalOf(10, 2), "-50"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from a json number",
+			dataType:    types.DecimalOf(10, 2),
+			value:       json.Number("12.3"),
+			expected:    newDecimal(types.DecimalOf(10, 2), "1230"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from an integer",
+			dataType:    types.DecimalOf(10, 2),
+			value:       int64(-42),
+			expected:    newDecimal(types.DecimalOf(10, 2), "-4200"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from the shortest text of a float",
+			dataType:    types.DecimalOf(10, 2),
+			value:       0.1,
+			expected:    newDecimal(types.DecimalOf(10, 2), "10"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from a narrower decimal",
+			dataType:    types.DecimalOf(10, 2),
+			value:       newDecimal(types.DecimalOf(5, 1), "15"),
+			expected:    newDecimal(types.DecimalOf(10, 2), "150"),
+			expectedErr: nil,
+		},
+		{
+			name:        "big decimal keeps the value's own scale",
+			dataType:    types.BigDecimal,
+			value:       "100.555",
+			expected:    newDecimal(types.DecimalOf(6, 3), "100555"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal rejects a digit past its scale",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "123.456",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("value[123.456] has more than the 2 digits after the point a decimal(10,2) keeps"),
+		},
+		{
+			name:        "decimal rejects a value past its precision",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "123456789",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("value[123456789] does not fit a decimal(10,2)"),
+		},
+		{
+			name:        "decimal rejects more than 38 significant digits",
+			dataType:    types.DecimalOf(38, 0),
+			value:       "123456789012345678901234567890123456789",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("value[123456789012345678901234567890123456789] has more than 38 significant digits"),
+		},
+		{
+			name:        "decimal rejects an exponent past any decimal",
+			dataType:    types.DecimalOf(38, 0),
+			value:       "1e39",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("value[1e39] has more than 38 digits"),
+		},
+		{
+			name:        "decimal rejects text that is not a number",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "1.2.3",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("failed to change %q to decimal", "1.2.3"),
+		},
+		{
+			name:        "decimal writes NaN as null",
+			dataType:    types.DecimalOf(10, 2),
+			value:       math.NaN(),
+			expected:    nil,
+			expectedErr: ErrNullValue,
+		},
+		{
+			name:        "decimal writes the NaN text postgres sends as null",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "NaN",
+			expected:    nil,
+			expectedErr: ErrNullValue,
+		},
+		{
+			name:        "decimal rejects an unsupported type",
+			dataType:    types.DecimalOf(10, 2),
+			value:       true,
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("failed to change true (type:bool) to decimal"),
+		},
+		{
+			name:        "a string column prints a decimal exactly",
+			dataType:    types.String,
+			value:       newDecimal(types.DecimalOf(38, 10), "-12345678901234567890123456780123456789"),
+			expected:    "-1234567890123456789012345678.0123456789",
+			expectedErr: nil,
+		},
+
 		// ===== Default =====
 		{
 			name:        "default passthrough",
@@ -557,6 +699,36 @@ func TestParseFilterValue(t *testing.T) {
 			value:       int64(1672531200),
 			expected:    time.Unix(1672531200, 0),
 			expectedErr: nil,
+		},
+
+		// ===== Decimal keeps the literal's own scale =====
+		{
+			name:        "decimal past the column's scale",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "100.555",
+			expected:    newDecimal(types.DecimalOf(6, 3), "100555"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from a number",
+			dataType:    types.DecimalOf(10, 2),
+			value:       10,
+			expected:    newDecimal(types.DecimalOf(2, 0), "10"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal null stays null",
+			dataType:    types.DecimalOf(10, 2),
+			value:       nil,
+			expected:    nil,
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal rejects text that is not a number",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "abc",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("failed to change %q to decimal", "abc"),
 		},
 
 		// ===== Default → ReformatValue =====
@@ -2320,6 +2492,14 @@ func TestReformatFloat64(t *testing.T) {
 			v:           " 123",
 			expected:    float64(0),
 			expectedErr: fmt.Errorf("failed to change string %v to float64: %v", " 123", &strconv.NumError{Func: "ParseFloat", Num: " 123", Err: strconv.ErrSyntax}),
+		},
+
+		// ===== decimal =====
+		{
+			name:        "decimal is the nearest float64",
+			v:           newDecimal(types.DecimalOf(38, 10), "-12345678901234567890123456780123456789"),
+			expected:    float64(-1234567890123456789012345678.0123456789),
+			expectedErr: nil,
 		},
 
 		// ===== unsupported =====

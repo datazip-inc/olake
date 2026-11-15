@@ -33,6 +33,7 @@ type stream struct {
 	filter        *types.FilterConfig // only read when normalized, so it can be made invalid
 	updateType    string              // selected_streams update_type; blank as legacy catalogs leave it
 	available     []types.UpdateType  // stream's available_update_types; empty on legacy catalogs
+	writeModes    []types.WriteMode   // stream's available_write_modes; nil on legacy catalogs
 }
 
 // catalogOf builds the two halves classifyStreams reads: the configured streams and the
@@ -42,7 +43,7 @@ func catalogOf(streams ...stream) *types.Catalog {
 	for _, s := range streams {
 		if !s.schemaMissing {
 			catalog.Streams = append(catalog.Streams, &types.ConfiguredStream{
-				Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode, AvailableUpdateTypes: s.available},
+				Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode, AvailableUpdateTypes: s.available, AvailableWriteModes: s.writeModes},
 			})
 		}
 		if s.unselected {
@@ -66,7 +67,7 @@ func TestClassifyStreamsMix(t *testing.T) {
 		streams         []stream
 		destinationType types.DestinationType // empty defaults to iceberg
 		expectedMix     types.StreamMix
-		expectedCode    string // non-empty: no stream survives, so the run fails with this code
+		expectedCode    string // non-empty: the run fails with this code
 	}{
 		// each mode lands in its own counter, and an unknown mode falls to full refresh
 		{
@@ -139,17 +140,33 @@ func TestClassifyStreamsMix(t *testing.T) {
 			},
 			expectedMix: types.StreamMix{CDC: 1, Selected: 1},
 		},
-		// discover clears update_type the target engines cannot read; the stream must wait for
-		// an explicit choice, while a legacy catalog without the list still defaults to equality
+		// a legacy catalog without the list still defaults to equality
 		{
-			name: "streams skipped for an unset or unreadable update type are not counted",
+			name: "streams with an offered or legacy update type are counted",
 			streams: []stream{
 				{name: "a", mode: types.CDC},
-				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
-				{name: "c", mode: types.CDC, updateType: "eq", available: []types.UpdateType{types.UpdateTypePosition}},
 				{name: "d", mode: types.CDC, updateType: "pos", available: []types.UpdateType{types.UpdateTypePosition}},
 			},
 			expectedMix: types.StreamMix{CDC: 2, Selected: 2, StreamWithPosUpdateType: 1},
+		},
+		// discover clears update_type the target engines cannot read; the run fails until one is chosen
+		{
+			name: "an unset update type fails the run",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
+			},
+			expectedCode: codeUpdateTypeInvalid,
+		},
+		// preserve_toast_values allows only upsert and parquet only appends, so the run fails
+		{
+			name: "a write mode the stream does not offer fails the run",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC, writeModes: []types.WriteMode{types.WriteModeUpsert}},
+			},
+			destinationType: types.Parquet,
+			expectedCode:    "catalog.write_mode_not_available",
 		},
 		// parquet writes no deletes, so the same streams are all synced there
 		{

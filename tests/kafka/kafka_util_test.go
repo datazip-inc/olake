@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"slices"
 	"testing"
@@ -48,6 +49,7 @@ const (
 			{"name":"string_value","type":"string"},
 			{"name":"int_value","type":"int"},
 			{"name":"float_value","type":"float"},
+			{"name":"decimal_value","type":{"type":"bytes","logicalType":"decimal","precision":20,"scale":4}},
 			{"name":"col_excluded","type":"int"}
 		]
 	}`
@@ -66,6 +68,7 @@ const (
 			{"name":"string_value","type":"string"},
 			{"name":"int_value","type":"long"},
 			{"name":"float_value","type":"double"},
+			{"name":"decimal_value","type":{"type":"bytes","logicalType":"decimal","precision":20,"scale":4}},
 			{"name":"col_excluded","type":"int"},
 			{"name":"col_included","type":"int","default": 102}
 		]
@@ -103,6 +106,7 @@ var (
 		"string_value":    "test_string",
 		"int_value":       int32(100),
 		"float_value":     float32(64.6464),
+		"decimal_value":   big.NewRat(123456789012345678, 10_000),
 		"col_excluded":    int32(101),
 	}
 
@@ -116,6 +120,7 @@ var (
 		"string_value":    "",
 		"int_value":       int32(100),
 		"float_value":     float32(64.6464),
+		"decimal_value":   big.NewRat(123456789012345678, 10_000),
 		"col_excluded":    int32(101),
 	}
 
@@ -129,6 +134,7 @@ var (
 		"string_value":    "test_string",
 		"int_value":       int64(100),
 		"float_value":     float64(64.6464),
+		"decimal_value":   big.NewRat(-987654321098765432, 10_000),
 		"col_excluded":    int32(101),
 		"col_included":    int32(102),
 	}
@@ -690,6 +696,8 @@ var ExpectedKafkaAvroData = map[string]interface{}{
 	"string_value":    "test_string",
 	"int_value":       int32(100),
 	"float_value":     float32(64.6464),
+	// an avro decimal lands as a double, so its 18 digits round
+	"decimal_value": float64(12345678901234.5678),
 }
 
 var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
@@ -702,7 +710,8 @@ var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
 	"string_value":    "test_string",
 	"int_value":       int64(100),       // promoted from int → long
 	"float_value":     float64(64.6464), // promoted from float → double
-	"col_included":    int32(102),       // new field
+	"decimal_value":   float64(-98765432109876.5432),
+	"col_included":    int32(102), // new field
 }
 
 var KafkaToDestinationAvroSchema = map[string]string{
@@ -714,6 +723,7 @@ var KafkaToDestinationAvroSchema = map[string]string{
 	"timestamp_value": "timestamp",
 	"int_value":       "int",
 	"float_value":     "float",
+	"decimal_value":   "double",
 	"string_value":    "string",
 }
 
@@ -727,6 +737,7 @@ var UpdatedKafkaToDestinationAvroSchema = map[string]string{
 	"string_value":    "string",
 	"int_value":       "bigint",
 	"float_value":     "double",
+	"decimal_value":   "double",
 	"col_included":    "int",
 }
 

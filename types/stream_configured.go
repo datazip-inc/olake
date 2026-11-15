@@ -3,9 +3,18 @@ package types
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
+)
+
+const (
+	// codeWriteModeNoneAvailable marks a stream whose source and destination share no write mode.
+	codeWriteModeNoneAvailable = "catalog.write_mode_none_available"
+	// codeWriteModeNotAvailable marks a stream whose write mode is not in its available_write_modes.
+	codeWriteModeNotAvailable = "catalog.write_mode_not_available"
 )
 
 // Input/Processed object for Stream
@@ -348,6 +357,31 @@ func (s *ConfiguredStream) ValidateUpdateType(destinationType DestinationType) e
 	}
 
 	return s.GetUpdateType().ValidateAgainst(available)
+}
+
+// ValidateWriteMode reports whether the stream's write mode is one its available_write_modes
+// allow. Parquet always appends, whatever append_mode says. A nil list means the catalog predates
+// write modes, so nothing is checked.
+func (s *ConfiguredStream) ValidateWriteMode(destinationType DestinationType) error {
+	available := s.Stream.AvailableWriteModes
+	if available == nil {
+		return nil
+	}
+	if len(available) == 0 {
+		return errs.Precondition(errs.ConfigInvalid, codeWriteModeNoneAvailable,
+			fmt.Errorf("the source and destination have no write mode in common"))
+	}
+
+	mode := WriteModeAppend
+	if s.UpsertApplies(destinationType) {
+		mode = WriteModeUpsert
+	}
+	if !slices.Contains(available, mode) {
+		return errs.Precondition(errs.ConfigInvalid, codeWriteModeNotAvailable,
+			fmt.Errorf("the source and destination support only %v, got %s", available, mode))
+	}
+
+	return nil
 }
 
 // UpsertApplies reports whether append_mode, update_type and dedup_keys affect what is written.

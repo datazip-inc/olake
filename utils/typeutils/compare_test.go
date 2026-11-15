@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -118,6 +119,14 @@ func TestCompare(t *testing.T) {
 		{"json_number_json_float_vs_json_int_less", json.Number("9.1"), json.Number("10"), -1},
 		{"json_number_json_string_vs_json_string_greater", json.Number("abc"), json.Number("123"), 1},
 		{"json_number_json_string_vs_json_string_lesser", json.Number("123"), json.Number("abc"), -1},
+
+		// decimal compares by value, whatever the scale
+		{"decimal_equal_across_scales", newDecimal(types.DecimalOf(10, 2), "150"), newDecimal(types.DecimalOf(2, 1), "15"), 0},
+		{"decimal_less", newDecimal(types.DecimalOf(10, 2), "150"), newDecimal(types.DecimalOf(4, 3), "1501"), -1},
+		{"decimal_greater", newDecimal(types.DecimalOf(10, 2), "150"), newDecimal(types.DecimalOf(4, 3), "1499"), 1},
+		{"decimal_negative_less", newDecimal(types.DecimalOf(10, 2), "-1000"), newDecimal(types.DecimalOf(4, 3), "-9999"), -1},
+		{"decimal_vs_float", newDecimal(types.DecimalOf(10, 2), "999"), float64(10), -1},
+		{"decimal_vs_text_falls_back", newDecimal(types.DecimalOf(10, 2), "999"), "abc", -1},
 
 		// fallback
 		{"fallback_string_vs_int", "123", 123, 0},
