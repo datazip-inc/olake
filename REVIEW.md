@@ -30,8 +30,10 @@ These apply to every finding, and most strictly to Important ones.
 ## Consistency across reviews
 
 - Read the earlier review threads on this PR and the author's replies before reviewing.
+- **Don't repeat a finding an earlier thread raised**, whether that thread is resolved, unresolved or outdated. A finding with the same root cause counts as the same one, even if the line or wording changed.
 - **Don't reverse an earlier suggestion that the author applied.** If code that follows an earlier suggestion now has a real bug, link the earlier thread and explain what changed. Don't flag the pattern itself.
 - If the author replied with a reason, and the reason holds against the code, don't raise the same finding again.
+- List each finding you dropped for one of these reasons in the summary, in one line with the reason.
 - Configuration versus constants: values a user may need to change per deployment (timeouts, batch sizes, endpoints) belong in config. Protocol and format constants (OLake column names, state keys, Iceberg field IDs) belong in `constants/`. Apply this one rule. Don't argue both directions in the same PR.
 
 ## PR description
