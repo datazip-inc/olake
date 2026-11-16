@@ -236,8 +236,8 @@ Below are other different ways you can run OLake Go:
 - [x] Oracle Full Load Support
 - [x] Oracle Incremental
 - [x] Filters for Full Load and Incremental
-- [ ] Interoperability (Coming Soon)
-- [ ] Iceberg V3 Support
+- [x] Interoperability
+- [x] Iceberg V3 Support
 
 ---
 
