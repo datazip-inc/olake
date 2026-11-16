@@ -50,6 +50,7 @@ var seedColumns = []seedColumn{
 	{name: "id_int", datatype: "INT", value: "100", filtered: "0", updated: "200"},
 	{name: "id_cursor", datatype: "INT", value: "", filtered: "-1", updated: "NULL"},
 	{name: "id_cursor_binary", datatype: "BINARY(16)", value: "", filtered: "X'00'", updated: "NULL"},
+	{name: "id_cursor_decimal", datatype: "DECIMAL(20,4)", value: "", filtered: "-1", updated: "NULL"},
 	{name: "id_int_unsigned", datatype: "INT UNSIGNED", value: "4294967295", filtered: "0", updated: "4294967293"},
 	{name: "id_integer", datatype: "INT", value: "102", filtered: "0", updated: "202"},
 	{name: "id_integer_unsigned", datatype: "INT UNSIGNED", value: "4294967294", filtered: "0", updated: "4294967292"},
@@ -64,8 +65,15 @@ var seedColumns = []seedColumn{
 	{name: "id_mediumint_unsigned_max", datatype: "MEDIUMINT UNSIGNED", value: "16777215", filtered: "0", updated: "16777214"},
 	{name: "id_mediumint_unsigned_signbit", datatype: "MEDIUMINT UNSIGNED", value: "8388608", filtered: "0", updated: "8388609"},
 	{name: "id_int_unsigned_max", datatype: "INT UNSIGNED", value: "4294967295", filtered: "0", updated: "4294967294"},
-	{name: "price_decimal", datatype: "DECIMAL(10,2)", value: "123.45", filtered: "50.123", updated: "543.21"},
+	{name: "price_decimal", datatype: "DECIMAL(18,4)", value: "123.45", filtered: "50.123", updated: "12345678901234.5678"},
 	{name: "amount_decimal_9_2", datatype: "DECIMAL(9,2)", value: "5330197.27", filtered: "50.12", updated: "1234567.89"},
+	// every digit of an UNSIGNED DECIMAL, which go-sql-driver reports a digit short on JDBC reads
+	{name: "amount_decimal_unsigned", datatype: "DECIMAL(10,2) UNSIGNED", value: "99999999.99", filtered: "0", updated: "12345678.90"},
+	// iceberg decimals hold 38 digits at any scale; a wider DECIMAL lands as a double
+	{name: "amount_decimal_20_15", datatype: "DECIMAL(20,15)", value: "12345.123456789012345", filtered: "0", updated: "54321.543210987654321"},
+	{name: "amount_decimal_38_30", datatype: "DECIMAL(38,30)", value: "12345678.123456789012345678901234567890", filtered: "0", updated: "87654321.098765432109876543210987654321"},
+	{name: "amount_decimal_39_0", datatype: "DECIMAL(39,0)", value: "123456789012345678901234567890123456789", filtered: "0", updated: "987654321098765432109876543210987654321"},
+	{name: "amount_decimal_65_30", datatype: "DECIMAL(65,30)", value: "12345678901234567890123456789012345.123456789012345678901234567890", filtered: "0", updated: "98765432109876543210987654321098765.098765432109876543210987654321"},
 	{name: "price_double", datatype: "DOUBLE", value: "123.456", filtered: "50.123", updated: "654.321"},
 	{name: "price_double_precision", datatype: "DOUBLE", value: "123.456", filtered: "50.123", updated: "654.321"},
 	{name: "price_float", datatype: "FLOAT", value: "123.45", filtered: "50.0", updated: "543.21"},
@@ -251,18 +259,18 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	case "insert":
 		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, false,
-			map[string]string{"id": "6", "id_cursor": "6", "id_cursor_binary": binaryCursor(6), "excludedColumn": "101"}))
+			map[string]string{"id": "6", "id_cursor": "6", "id_cursor_binary": binaryCursor(6), "id_cursor_decimal": "6", "excludedColumn": "101"}))
 		require.NoError(t, err, "Failed to execute %s operation", operation)
-		// insert a filtered doc; its id_cursor_binary tops every other row's, so a binary-cursor incremental
-		// sync reads it and only the filter decides whether it reaches the destination
+		// insert a filtered doc; its id_cursor_binary and id_cursor_decimal top every other row's, so a binary
+		// or decimal cursor incremental sync reads it and only the filter decides whether it reaches the destination
 		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, true,
-			map[string]string{"id": "999", "id_cursor_binary": "X'FFFF'", "excludedColumn": "200"}))
+			map[string]string{"id": "999", "id_cursor_binary": "X'FFFF'", "id_cursor_decimal": "9999999999999999.9999", "excludedColumn": "200"}))
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
 	case "insert_2pc":
 		query = insertRowQuery(integrationTestTable, seedCols, false,
-			map[string]string{"id": "7", "id_cursor": "7", "id_cursor_binary": binaryCursor(7)})
+			map[string]string{"id": "7", "id_cursor": "7", "id_cursor_binary": binaryCursor(7), "id_cursor_decimal": "7"})
 
 	case "update":
 		query = updateRowQuery(integrationTestTable, seedCols, primaryKey)
@@ -305,7 +313,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "evolve-schema":
-		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
+		// price_decimal widens its precision, which iceberg promotes in place, its identity partitions included
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, MODIFY COLUMN price_decimal DECIMAL(20,4), ADD COLUMN includedColumn INT;", integrationTestTable)
 
 	case "ddl-create", "ddl-drop":
 		for _, table := range ddlTables {
@@ -499,7 +508,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 	seedCols := filterSeedColumns(t, excludedColumns)
 	for i := 1; i <= 5; i++ {
 		_, err := db.ExecContext(ctx, insertRowQuery(tableName, seedCols, false,
-			map[string]string{"id": strconv.Itoa(i), "id_cursor": strconv.Itoa(i), "id_cursor_binary": binaryCursor(i), "excludedColumn": "100"}))
+			map[string]string{"id": strconv.Itoa(i), "id_cursor": strconv.Itoa(i), "id_cursor_binary": binaryCursor(i), "id_cursor_decimal": strconv.Itoa(i), "excludedColumn": "100"}))
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
 	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
@@ -558,12 +567,17 @@ var ExpectedMySQLData = map[string]interface{}{
 	"id_bigint_unsigned":            int64(5003),
 	"id_bigint_unsigned_signbit":    int64(math.MinInt64), // should be 9223372036854775808 (2^63)
 	"id_bigint_unsigned_max":        int64(-1),            // should be 18446744073709551615 (2^64-1)
-	"price_decimal":                 float64(123.45),
-	"amount_decimal_9_2":            float64(5330197.27),
+	"price_decimal":                 testutils.Decimal("123.4500"),
+	"amount_decimal_9_2":            testutils.Decimal("5330197.27"),
+	"amount_decimal_unsigned":       testutils.Decimal("99999999.99"),
+	"amount_decimal_20_15":          testutils.Decimal("12345.123456789012345"),
+	"amount_decimal_38_30":          testutils.Decimal("12345678.123456789012345678901234567890"),
+	"amount_decimal_39_0":           float64(123456789012345678901234567890123456789),
+	"amount_decimal_65_30":          float64(12345678901234567890123456789012345.123456789012345678901234567890),
 	"price_double":                  float64(123.456),
 	"price_double_precision":        float64(123.456),
 	"price_float":                   float32(123.45),
-	"price_numeric":                 float64(123.45),
+	"price_numeric":                 testutils.Decimal("123.45"),
 	"price_real":                    float64(123.456),
 	"name_char":                     "c",
 	"name_varchar":                  "varchar_val",
@@ -614,6 +628,11 @@ var ExpectedFilteredData = map[string]interface{}{
 	"id_bigint_unsigned":            int64(0),
 	"id_bigint_unsigned_signbit":    int64(0),
 	"id_bigint_unsigned_max":        int64(0),
+	"amount_decimal_unsigned":       testutils.Decimal("0.00"),
+	"amount_decimal_20_15":          testutils.Decimal("0.000000000000000"),
+	"amount_decimal_38_30":          testutils.Decimal("0.000000000000000000000000000000"),
+	"amount_decimal_39_0":           float64(0),
+	"amount_decimal_65_30":          float64(0),
 	"name_char":                     "x",
 	"name_varchar":                  "filtered_val",
 	"name_text":                     "filtered text",
@@ -663,12 +682,17 @@ func ExpectedUpdatedData() map[string]interface{} {
 		"id_bigint_unsigned":            int64(6003),
 		"id_bigint_unsigned_signbit":    int64(math.MinInt64 + 1), // should be 9223372036854775809 (2^63+1)
 		"id_bigint_unsigned_max":        int64(-2),                // should be 18446744073709551614 (2^64-2)
-		"price_decimal":                 float64(543.21),
-		"amount_decimal_9_2":            float64(1234567.89),
+		"price_decimal":                 testutils.Decimal("12345678901234.5678"),
+		"amount_decimal_9_2":            testutils.Decimal("1234567.89"),
+		"amount_decimal_unsigned":       testutils.Decimal("12345678.90"),
+		"amount_decimal_20_15":          testutils.Decimal("54321.543210987654321"),
+		"amount_decimal_38_30":          testutils.Decimal("87654321.098765432109876543210987654321"),
+		"amount_decimal_39_0":           float64(987654321098765432109876543210987654321),
+		"amount_decimal_65_30":          float64(98765432109876543210987654321098765.098765432109876543210987654321),
 		"price_double":                  float64(654.321),
 		"price_double_precision":        float64(654.321),
 		"price_float":                   float64(543.21),
-		"price_numeric":                 float64(543.21),
+		"price_numeric":                 testutils.Decimal("543.21"),
 		"price_real":                    float64(654.321),
 		"name_char":                     "X",
 		"name_varchar":                  "updated varchar",
@@ -705,6 +729,7 @@ var MySQLToDestinationSchema = map[string]string{
 	"id_int":                "int",
 	"id_cursor":             "int",
 	"id_cursor_binary":      "binary(16)",
+	"id_cursor_decimal":     "decimal(20,4)",
 	"id_int_unsigned":       "bigint",
 	"id_integer":            "int",
 	"id_integer_unsigned":   "bigint",
@@ -723,12 +748,17 @@ var MySQLToDestinationSchema = map[string]string{
 	"id_bigint_unsigned":            "bigint",
 	"id_bigint_unsigned_signbit":    "bigint",
 	"id_bigint_unsigned_max":        "bigint",
-	"price_decimal":                 "decimal",
-	"amount_decimal_9_2":            "decimal",
+	"price_decimal":                 "decimal(18,4)",
+	"amount_decimal_9_2":            "decimal(9,2)",
+	"amount_decimal_unsigned":       "decimal(10,2)",
+	"amount_decimal_20_15":          "decimal(20,15)",
+	"amount_decimal_38_30":          "decimal(38,30)",
+	"amount_decimal_39_0":           "decimal(39,0)",
+	"amount_decimal_65_30":          "decimal(65,30)",
 	"price_double":                  "double",
 	"price_double_precision":        "double",
 	"price_float":                   "float",
-	"price_numeric":                 "decimal",
+	"price_numeric":                 "decimal(10,2)",
 	"price_real":                    "double",
 	"name_char":                     "char",
 	"name_varchar":                  "varchar",
@@ -763,6 +793,7 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"id_int":                "bigint",
 	"id_cursor":             "int",
 	"id_cursor_binary":      "binary(16)",
+	"id_cursor_decimal":     "decimal(20,4)",
 	"id_int_unsigned":       "bigint",
 	"id_integer":            "int",
 	"id_integer_unsigned":   "bigint",
@@ -781,12 +812,17 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"id_bigint_unsigned":            "bigint",
 	"id_bigint_unsigned_signbit":    "bigint",
 	"id_bigint_unsigned_max":        "bigint",
-	"price_decimal":                 "decimal",
-	"amount_decimal_9_2":            "decimal",
+	"price_decimal":                 "decimal(20,4)",
+	"amount_decimal_9_2":            "decimal(9,2)",
+	"amount_decimal_unsigned":       "decimal(10,2)",
+	"amount_decimal_20_15":          "decimal(20,15)",
+	"amount_decimal_38_30":          "decimal(38,30)",
+	"amount_decimal_39_0":           "decimal(39,0)",
+	"amount_decimal_65_30":          "decimal(65,30)",
 	"price_double":                  "double",
 	"price_double_precision":        "double",
 	"price_float":                   "double",
-	"price_numeric":                 "decimal",
+	"price_numeric":                 "decimal(10,2)",
 	"price_real":                    "double",
 	"name_char":                     "char",
 	"name_varchar":                  "varchar",
@@ -830,7 +866,14 @@ var MySQLTypeMapping = map[string]string{
 	"blob":               "binary",
 	"char":               "string",
 	"datetime":           "timestamp",
-	"decimal":            "double",
+	"decimal(10,2)":      "decimal(10,2)",
+	"decimal(18,4)":      "decimal(18,4)",
+	"decimal(20,4)":      "decimal(20,4)",
+	"decimal(9,2)":       "decimal(9,2)",
+	"decimal(20,15)":     "decimal(20,15)",
+	"decimal(38,30)":     "decimal(38,30)",
+	"decimal(39,0)":      "double",
+	"decimal(65,30)":     "double",
 	"double":             "double",
 	"enum":               "string",
 	"float":              "float",

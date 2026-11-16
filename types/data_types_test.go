@@ -35,6 +35,7 @@ func TestToIceberg(t *testing.T) {
 		{Unknown, "string"},
 		{Binary, "binary"},
 		{FixedBinaryOf(16), "fixed[16]"},
+		{DecimalOf(9, 2), "decimal(9, 2)"},
 		{DataType("undeclared_type"), "string"},
 	}
 
@@ -66,6 +67,10 @@ func TestToNewParquet(t *testing.T) {
 		{Unknown, parquet.Leaf(parquet.ByteArrayType)},
 		{Binary, parquet.Leaf(parquet.ByteArrayType)},
 		{FixedBinaryOf(16), parquet.Leaf(parquet.FixedLenByteArrayType(16))},
+		{DecimalOf(9, 2), parquet.Decimal(2, 9, parquet.Int32Type)},
+		{DecimalOf(18, 2), parquet.Decimal(2, 18, parquet.Int64Type)},
+		{DecimalOf(19, 0), parquet.Decimal(0, 19, parquet.FixedLenByteArrayType(9))},
+		{DecimalOf(38, 10), parquet.Decimal(10, 38, parquet.FixedLenByteArrayType(16))},
 		{DataType("undeclared_type"), parquet.Leaf(parquet.ByteArrayType)},
 	}
 
@@ -95,6 +100,9 @@ func TestIcebergTypeToDatatype(t *testing.T) {
 		{"fixed[0]", String},   // iceberg fixed needs a positive length
 		{"fixed[abc]", String}, // malformed length
 		{"fixed", String},      // length missing
+		{"decimal(9, 2)", DecimalOf(9, 2)},
+		{"decimal(39, 2)", String}, // iceberg caps precision at 38
+		{"decimal(9,2)", String},   // iceberg always prints the space
 		{"undeclared_type", String},
 	}
 
@@ -182,10 +190,12 @@ func declaredIcebergDataTypes(t *testing.T) []string {
 func declaredDataTypes(t *testing.T) []DataType {
 	t.Helper()
 
-	// ignoreDeclaredTypes are data types that we don't need tests on. They are defined for fallback cases
+	// ignoreDeclaredTypes are data types that we don't need tests on. They are defined for fallback cases,
+	// or, like BigDecimal, only as a decimal column's ValueType: no column or value has that type.
 	ignoreDeclaredTypes := map[DataType]struct{}{
-		Null:    {},
-		Unknown: {},
+		Null:       {},
+		Unknown:    {},
+		BigDecimal: {},
 	}
 
 	var dataTypes []DataType

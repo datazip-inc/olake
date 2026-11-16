@@ -256,16 +256,19 @@ func (p *Property) DataType() DataType {
 
 // applyStateVersionChecks rewrites the property's types for the state version this sync is pinned at.
 func (p *Property) applyStateVersionChecks() {
-	switch {
-	case !utils.IsBinarySupported():
-		types := p.Type.Array()
-		for i, d := range types {
-			if d.ValueType() == Binary {
-				types[i] = String
-			}
-		}
-		p.Type = NewSet(types...)
+	if utils.IsBinarySupported() && utils.IsDecimalSupported() {
+		return
 	}
+	types := p.Type.Array()
+	for i, d := range types {
+		switch {
+		case d.ValueType() == Binary && !utils.IsBinarySupported():
+			types[i] = String
+		case d.ValueType() == BigDecimal && !utils.IsDecimalSupported():
+			types[i] = Float64
+		}
+	}
+	p.Type = NewSet(types...)
 }
 
 func (p *Property) Nullable() bool {
@@ -337,6 +340,9 @@ func lowestCommonAncestor(
 	if t1 == t2 {
 		return t1
 	}
+	if wider, ok := widerDecimal(t1, t2); ok {
+		return wider
+	}
 
 	wt1, t1Exist := typeWeight(t1)
 	wt2, t2Exist := typeWeight(t2)
@@ -365,12 +371,14 @@ func lowestCommonAncestor(
 	return Unknown
 }
 
-// typeWeight is t's weight in typecastTree, a parameterised type weighing as its family. Null,
-// Unknown, Object and Array are not in the tree; they weigh as String, the type they promote to.
+// typeWeight is t's weight in typecastTree, a parameterised type weighing as its family. Types off the
+// tree weigh as the type they promote to: Null, Unknown, Object and Array as String, Decimal as Float64.
 func typeWeight(t DataType) (int, bool) {
-	switch base := BaseOf(t); base {
+	switch base := baseOf(t); base {
 	case Null, Unknown, Object, Array:
 		return TypeWeights[String], true
+	case Decimal:
+		return TypeWeights[Float64], true
 	default:
 		weight, found := TypeWeights[base]
 		return weight, found

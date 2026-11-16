@@ -153,7 +153,7 @@ func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 
 	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
 	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, "")
-	ApplyDestinationDefaults(streams, available, false)
+	ApplyDestinationDefaults(streams, available, AvailableWriteModes(Iceberg, nil))
 	catalog := GetWrappedCatalog(streams)
 
 	assert.Equal(t, UpdateTypePosition, catalog.Streams[0].GetUpdateType())
@@ -168,7 +168,7 @@ func TestGetWrappedCatalogKafkaPositionalYieldsWhenUnreadable(t *testing.T) {
 		}}
 		available, err := AvailableUpdateTypes(engines, &WriterConfig{Type: Iceberg, WriterConfig: map[string]any{}}, kafkaSupported)
 		require.NoError(t, err)
-		ApplyDestinationDefaults(streams, available, false)
+		ApplyDestinationDefaults(streams, available, AvailableWriteModes(Iceberg, nil))
 		return GetWrappedCatalog(streams).Streams[0].Stream
 	}
 
@@ -194,7 +194,7 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 	}}
 
 	available := availableUpdateTypes([]QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, "")
-	ApplyDestinationDefaults(streams, available, false)
+	ApplyDestinationDefaults(streams, available, AvailableWriteModes(Iceberg, nil))
 	catalog := GetWrappedCatalog(streams)
 	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)

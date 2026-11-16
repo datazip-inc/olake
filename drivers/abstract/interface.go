@@ -58,3 +58,9 @@ type DriverInterface interface {
 type UpdateTypeRestricter interface {
 	SupportedUpdateTypes() []types.UpdateType
 }
+
+// WriteModeRestricter is implemented by a driver that allows only some write modes, e.g. Postgres
+// preserve_toast_values allows only upsert.
+type WriteModeRestricter interface {
+	SupportedWriteModes() []types.WriteMode
+}

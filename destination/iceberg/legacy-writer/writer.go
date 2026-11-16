@@ -24,14 +24,14 @@ type LegacyWriter struct {
 	upsertMode  bool
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) *LegacyWriter {
+func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, indexThread *types.StreamIndexThread) *LegacyWriter {
 	return &LegacyWriter{
 		options:     options,
 		schema:      schema,
 		stream:      stream,
 		server:      server,
 		upsertMode:  upsertMode,
-		indexThread: types.NewStreamIndexThread(options.TableIndex),
+		indexThread: indexThread,
 	}
 }
 
