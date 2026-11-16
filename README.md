@@ -38,9 +38,6 @@
 > [!NOTE]
 > 🎉 **OLake Fusion is now live!** — Automate your Apache Iceberg Table Maintenance. Check it out here → [github.com/datazip-inc/olake-fusion](https://github.com/datazip-inc/olake-fusion) 🎉
 
-> [!NOTE]
-> This repository was renamed from `datazip-inc/olake` to `datazip-inc/olake-go`. Old links and git remotes keep working. The Go module path is still `github.com/datazip-inc/olake`.
-
 ## OLake Go — Super-fast Sync to Apache Iceberg
 
 **OLake Go** supports replication from **transactional databases** such as **PostgreSQL, MySQL, MongoDB, Oracle, DB2, and MSSQL**, **event-streaming systems like Apache Kafka** and **Object-store like S3**, into open data lakehouse formats such as **Apache Iceberg** or **Plain Parquet** — delivering blazing-fast performance with minimal infrastructure cost.
@@ -252,3 +249,6 @@ Check out our [Bounty Program](https://olake.io/docs/community/issues-and-prs/#g
 * To contribute to the **OLake Helm**, visit the [OLake Helm Repository](https://github.com/datazip-inc/olake-helm).
 * To contribute to **OLake Fusion**, visit the [OLake Fusion Repository](https://github.com/datazip-inc/olake-fusion).
 * To contribute to our **website and documentation**, visit the [OLake Docs Repository](https://github.com/datazip-inc/olake-docs/).
+
+> [!NOTE]
+> This repository was renamed from `datazip-inc/olake` to `datazip-inc/olake-go`. Old links and git remotes keep working. The Go module path is still `github.com/datazip-inc/olake`.
