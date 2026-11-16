@@ -7,6 +7,17 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
+// DiscoverSampleBuckets are the record counts a SampledSchemaProducer builds a stream's schema from,
+// smallest first. Discover runs one bucket for every stream before starting the next, so when the
+// discover timeout hits after the first bucket, every stream keeps the largest bucket it completed.
+var DiscoverSampleBuckets = []int{1, 100, 10000}
+
+// SampledSchemaProducer is implemented by drivers that infer a stream's schema by reading records.
+type SampledSchemaProducer interface {
+	// ProduceSampledSchema builds the full stream from at most limit records.
+	ProduceSampledSchema(ctx context.Context, streamID types.StreamID, limit int) (*types.Stream, error)
+}
+
 type BackfillMsgFn func(ctx context.Context, message map[string]any, sourceBytes int64) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
@@ -39,4 +50,17 @@ type DriverInterface interface {
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, identifier int, metadataState map[string]any, processFn CDCMsgFn) (any, error)
 	PostCDC(ctx context.Context, identifier int) error // to save state
+}
+
+// UpdateTypeRestricter is implemented by a driver that can feed only some delete formats, e.g.
+// Kafka upserts always write positional deletes. Discover calls it after the config is loaded but
+// before Setup, so it must not need a connection.
+type UpdateTypeRestricter interface {
+	SupportedUpdateTypes() []types.UpdateType
+}
+
+// WriteModeRestricter is implemented by a driver that allows only some write modes, e.g. Postgres
+// preserve_toast_values allows only upsert.
+type WriteModeRestricter interface {
+	SupportedWriteModes() []types.WriteMode
 }

@@ -1,6 +1,6 @@
 name: Detect affected drivers
 description: >
-  Resolves which drivers a change touches. Both driver lists come from the Makefile, so adding a
+  Resolves which drivers a change touches. The driver list comes from the Makefile, so adding a
   driver never needs an edit here. Requires the repo to be checked out already (it runs `make`),
   and `pull-requests: read` on the calling job to list a PR's files.
 
@@ -14,6 +14,10 @@ outputs:
   drivers:
     description: JSON array of drivers to run; empty when a change touches no tested driver.
     value: ${{ steps.resolve.outputs.drivers }}
+  driver-labels:
+    description: >
+      JSON object mapping each driver to its display name
+    value: ${{ steps.resolve.outputs.driver-labels }}
 
 runs:
   using: composite

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"slices"
 	"testing"
@@ -14,8 +15,8 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"github.com/linkedin/goavro/v2"
-	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -28,6 +29,7 @@ const (
 	rebalanceBulkPartition     = int32(0)
 	rebalanceBulkBatchSize     = 500
 	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
+	kafkaAvroIntegrationBroker = "127.0.0.1:29192"
 	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
 	schemaRegistryTopic        = "_schemas"
 	topicDeletionAttempts      = 8
@@ -47,6 +49,7 @@ const (
 			{"name":"string_value","type":"string"},
 			{"name":"int_value","type":"int"},
 			{"name":"float_value","type":"float"},
+			{"name":"decimal_value","type":{"type":"bytes","logicalType":"decimal","precision":20,"scale":4}},
 			{"name":"col_excluded","type":"int"}
 		]
 	}`
@@ -65,6 +68,7 @@ const (
 			{"name":"string_value","type":"string"},
 			{"name":"int_value","type":"long"},
 			{"name":"float_value","type":"double"},
+			{"name":"decimal_value","type":{"type":"bytes","logicalType":"decimal","precision":20,"scale":4}},
 			{"name":"col_excluded","type":"int"},
 			{"name":"col_included","type":"int","default": 102}
 		]
@@ -78,9 +82,17 @@ var (
 
 	// JSON
 	jsonKey          = []byte(`{"key":"json-key"}`)
-	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
-	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101}`)
+	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
+
+	upsertKey          = []byte(`{"key":"upsert-key"}`)
+	upsertAdd          = jsonValue
+	upsertUpdate       = jsonUpdatedValue
+	upsertColumnAdd    = []byte(`{"customer_id":"c1","order_id":"o1","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101}`)
+	upsertColumnUpdate = []byte(`{"customer_id":"c1","order_id":"o1","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	upsertOutOfFilter  = []byte(`{"int_value": 100,"float_value": 150.0,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	upsertRepartition  = []byte(`{"int_value": 200,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 
 	// Avro
 	avroKey   = []byte(`{"key":"avro-key"}`)
@@ -94,6 +106,7 @@ var (
 		"string_value":    "test_string",
 		"int_value":       int32(100),
 		"float_value":     float32(64.6464),
+		"decimal_value":   big.NewRat(123456789012345678, 10_000),
 		"col_excluded":    int32(101),
 	}
 
@@ -107,6 +120,7 @@ var (
 		"string_value":    "",
 		"int_value":       int32(100),
 		"float_value":     float32(64.6464),
+		"decimal_value":   big.NewRat(123456789012345678, 10_000),
 		"col_excluded":    int32(101),
 	}
 
@@ -120,6 +134,7 @@ var (
 		"string_value":    "test_string",
 		"int_value":       int64(100),
 		"float_value":     float64(64.6464),
+		"decimal_value":   big.NewRat(-987654321098765432, 10_000),
 		"col_excluded":    int32(101),
 		"col_included":    int32(102),
 	}
@@ -129,13 +144,8 @@ var (
 func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	topic := testutils.TestTableName(conf)
-	var kafkaJSONBroker string
-	if conf.SourceBaseConfig != nil {
-		kafkaJSONBroker = conf.SourceBaseConfig.String("bootstrap_servers")
-	} else {
-		kafkaJSONBroker = kafkaJSONIntegrationBroker
-	}
+	topic := conf.GetTableName()
+	kafkaJSONBroker := kafkaJSONIntegrationBroker
 
 	// kafka client
 	client, err := kgo.NewClient(
@@ -184,11 +194,64 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestCon
 
 	case "insert_rebalance":
 		addRebalanceBulkMessages(ctx, t, client, topic)
-		startRebalanceTrigger(ctx, t, suiteConsumerGroup(t, conf), topic, conf.HostStatsPath)
+		startRebalanceTrigger(ctx, t, suiteConsumerGroup(t, conf), topic, conf.GetFilePath("stats.json"))
 
 	case "stop_rebalance":
 		stopRebalanceTrigger()
 		t.Logf("stopped rebalance trigger consumer")
+
+	case "upsert_add":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertAdd, Partition: 0})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_update":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertUpdate, Partition: 0})
+		t.Logf("Added 1 updated message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_tombstone":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: nil, Partition: 0})
+		t.Logf("Deleted 1 message from topic '%s' on partition %d", topic, 0)
+
+	case "upsert_column_add":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertColumnAdd, Partition: 0})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_column_update":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertColumnUpdate, Partition: 0})
+		t.Logf("Added 1 updated message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_update_out_of_filter":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertOutOfFilter, Partition: 0})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_update_repartition":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertRepartition, Partition: 0})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_same_key_batch":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertAdd, Partition: 0})
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertUpdate, Partition: 0})
+		t.Logf("Added 2 messages for the same key on topic '%s'", topic)
+
+	case "upsert_update_partition_1":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertUpdate, Partition: 1})
+		t.Logf("Added 1 updated message to topic '%s' on partition %d", topic, 1)
+
+	case "upsert_empty":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{
+			Key:       upsertKey,
+			Value:     []byte(`{"customer_id":"","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101}`),
+			Partition: 0,
+		})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_null":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{
+			Key:       upsertKey,
+			Value:     []byte(`{"customer_id":null,"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101}`),
+			Partition: 0,
+		})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
 
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
@@ -220,8 +283,8 @@ func addRebalanceBulkMessages(ctx context.Context, t *testing.T, client *kgo.Cli
 
 func suiteConsumerGroup(t *testing.T, conf *testutils.TestConfig) string {
 	t.Helper()
-	consumerGroupID := testutils.ReadSourceConfig(t, conf.HostSourcePath).String("consumer_group_id")
-	require.NotEmpty(t, consumerGroupID, "no consumer_group_id in %s", conf.HostSourcePath)
+	consumerGroupID := conf.SourceBaseConfig.String("consumer_group_id")
+	require.NotEmpty(t, consumerGroupID, "no consumer_group_id in the source config of suite %q", conf.Suite)
 	return consumerGroupID
 }
 
@@ -290,13 +353,8 @@ func stopRebalanceTrigger() {
 func ExecuteQueryAvro(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	topic := testutils.TestTableName(conf)
-	var kafkaAvroBroker string
-	if conf.SourceBaseConfig != nil {
-		kafkaAvroBroker = conf.SourceBaseConfig.String("bootstrap_servers")
-	} else {
-		kafkaAvroBroker = "127.0.0.1:29192"
-	}
+	topic := conf.GetTableName()
+	kafkaAvroBroker := kafkaAvroIntegrationBroker
 	// kafka client
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(kafkaAvroBroker),
@@ -339,6 +397,26 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, conf *testutils.TestCon
 		// avro message written with new schema
 		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroUpdatedValue, topic)
 		t.Logf("Added 1 updated message to topic '%s'", topic)
+
+	case "upsert_add":
+		codec, err := goavro.NewCodec(avroSchema)
+		require.NoError(t, err)
+		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, topic, avroSchema)
+
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroValue, topic)
+		t.Logf("Added 1 message to topic '%s'", topic)
+
+	case "upsert_update":
+		codec, err := goavro.NewCodec(updatedAvroSchema)
+		require.NoError(t, err)
+		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, topic, updatedAvroSchema)
+
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroUpdatedValue, topic)
+		t.Logf("Added 1 updated message to topic '%s'", topic)
+
+	case "upsert_tombstone":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: avroKey, Value: nil})
+		t.Logf("Deleted 1 message from topic '%s'", topic)
 
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
@@ -560,37 +638,51 @@ func ensureTopicDeletion(ctx context.Context, t *testing.T, client *kgo.Client, 
 
 // JSON data format resources
 var ExpectedKafkaJSONData = map[string]interface{}{
-	"int_value":       int64(100),
-	"float_value":     float64(99.99),
-	"boolean":         true,
-	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"string_value":    "test_string",
+	"int_value":             int64(100),
+	"float_value":           float64(99.99),
+	"boolean":               true,
+	"timestamp_value":       arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"timestamp_micro_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"string_value":          "test_string",
 }
 
 var KafkaToDestinationJSONSchema = map[string]string{
-	"int_value":       "bigint",
-	"float_value":     "double",
-	"boolean":         "boolean",
-	"timestamp_value": "timestamp",
-	"string_value":    "string",
+	"int_value":             "bigint",
+	"float_value":           "double",
+	"boolean":               "boolean",
+	"timestamp_value":       "timestamp",
+	"timestamp_micro_value": "timestamp",
+	"string_value":          "string",
 }
 
 var ExpectedKafkaUpdatedJSONData = map[string]interface{}{
-	"int_value":       int64(100),
-	"float_value":     float64(99.99),
-	"boolean":         true,
-	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"string_value":    "test_string",
-	"col_included":    int64(102),
+	"int_value":             int64(100),
+	"float_value":           float64(99.99),
+	"boolean":               true,
+	"timestamp_value":       arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"timestamp_micro_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"string_value":          "test_string",
+	"col_included":          int64(102),
+}
+
+var ExpectedKafkaRepartitionJSONData = map[string]interface{}{
+	"int_value":             int64(200),
+	"float_value":           float64(99.99),
+	"boolean":               true,
+	"timestamp_value":       arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"timestamp_micro_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"string_value":          "test_string",
+	"col_included":          int64(102),
 }
 
 var UpdatedKafkaToDestinationJSONSchema = map[string]string{
-	"int_value":       "bigint",
-	"float_value":     "double",
-	"boolean":         "boolean",
-	"timestamp_value": "timestamp",
-	"string_value":    "string",
-	"col_included":    "bigint",
+	"int_value":             "bigint",
+	"float_value":           "double",
+	"boolean":               "boolean",
+	"timestamp_value":       "timestamp",
+	"timestamp_micro_value": "timestamp",
+	"string_value":          "string",
+	"col_included":          "bigint",
 }
 
 // AVRO data format resources
@@ -604,6 +696,8 @@ var ExpectedKafkaAvroData = map[string]interface{}{
 	"string_value":    "test_string",
 	"int_value":       int32(100),
 	"float_value":     float32(64.6464),
+	// an avro decimal lands as a double, so its 18 digits round
+	"decimal_value": float64(12345678901234.5678),
 }
 
 var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
@@ -616,7 +710,8 @@ var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
 	"string_value":    "test_string",
 	"int_value":       int64(100),       // promoted from int → long
 	"float_value":     float64(64.6464), // promoted from float → double
-	"col_included":    int32(102),       // new field
+	"decimal_value":   float64(-98765432109876.5432),
+	"col_included":    int32(102), // new field
 }
 
 var KafkaToDestinationAvroSchema = map[string]string{
@@ -628,6 +723,7 @@ var KafkaToDestinationAvroSchema = map[string]string{
 	"timestamp_value": "timestamp",
 	"int_value":       "int",
 	"float_value":     "float",
+	"decimal_value":   "double",
 	"string_value":    "string",
 }
 
@@ -641,6 +737,7 @@ var UpdatedKafkaToDestinationAvroSchema = map[string]string{
 	"string_value":    "string",
 	"int_value":       "bigint",
 	"float_value":     "double",
+	"decimal_value":   "double",
 	"col_included":    "int",
 }
 
@@ -653,4 +750,16 @@ var ExpectedKafkaDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp":   "timestamp",
 	"_olake_id":        "string",
 	"_olake_timestamp": "timestamp",
+}
+
+// KafkaTypeMapping maps the source types the Kafka JSON and Avro schemas declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var KafkaTypeMapping = map[string]string{
+	"bigint":    "bigint",
+	"boolean":   "boolean",
+	"double":    "double",
+	"float":     "float",
+	"int":       "int",
+	"string":    "string",
+	"timestamp": "timestamp",
 }

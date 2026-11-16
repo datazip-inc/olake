@@ -33,6 +33,8 @@ type Iceberg struct {
 	server        *serverInstance          // shared Java server instance (per-process singleton)
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
+	// unavailableValues recovers values the source could not send; nil unless the stream keeps a row index (pos or dv)
+	unavailableValues *unavailableValuesResolver
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
 	// It defines when to complete the Java writer and when schema evolution is required.
@@ -95,20 +97,24 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	}
 
 	upsertMode := isUpsertMode(stream, options.Backfill)
+	deleteMode := stream.GetUpdateType()
 
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	// Row-identity column, sent even where the catalog forbids declaring it.
+	identifierField := constants.OlakeID
 	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 	requestPayload := proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			Schema:               iceSchema,
-			DestTableName:        stream.GetDestinationTable(),
-			ThreadId:             options.ThreadID,
-			IdentifierField:      &identifierField,
-			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
-			Upsert:               upsertMode,
-			UsePositionalDeletes: options.TableIndex != nil,
-			PartitionFields:      icebergPartFields,
+			Schema:          iceSchema,
+			DestTableName:   stream.GetDestinationTable(),
+			ThreadId:        options.ThreadID,
+			IdentifierField: &identifierField,
+			// Unity Catalog rejects identifier columns; only equality deletes need them declared.
+			DeclareIdentifierFields: !i.config.NoIdentifierFields,
+			Namespace:               stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:                  upsertMode,
+			DeleteMode:              protoDeleteMode(deleteMode),
+			PartitionFields:         icebergPartFields,
 		},
 	}
 
@@ -139,21 +145,39 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		return schema, nil, err
 	}
 
+	// nil in equality mode; shared by the writer, which buffers this thread's row locations
+	// in it, and the unavailable values resolver, which looks rows up in it
+	indexThread := types.NewStreamIndexThread(options.TableIndex)
 	if i.config.UseArrowWrites {
-		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode)
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode, indexThread)
 		if err != nil {
 			return nil, nil, destination.WriteFailure(fmt.Errorf("failed to create arrow writer: %w", err))
 		}
 	} else {
-		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode)
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode, indexThread)
+	}
+
+	// Recovery needs the row's previous location, which only a thread with a stream index
+	// has. Equality mode keeps the placeholder; backfill records never carry one.
+	if indexThread != nil {
+		i.unavailableValues = newUnavailableValuesResolver(options.ThreadID, i.stream, i.writer, indexThread, i.server.tableIndexClient)
 	}
 
 	return schema, &metadataState, nil
 }
 
-// note: java server parses time from long value which will in milliseconds
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
+}
+
+// RecoverUnavailableValues fills the values the source could not send into a prefix of records
+// whose values stay within MaxDestinationBatchBytes, so no write exceeds the 2 GB message limit
+// and recovered values are written before more are read.
+func (i *Iceberg) RecoverUnavailableValues(ctx context.Context, records []types.RawRecord) (int, error) {
+	if i.unavailableValues == nil {
+		return len(records), nil
+	}
+	return i.unavailableValues.RecoverUnavailableValues(ctx, records, constants.MaxDestinationBatchBytes)
 }
 
 func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error) {
@@ -177,6 +201,10 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error)
 		}
 	}()
 
+	if i.unavailableValues != nil {
+		i.unavailableValues.Close()
+	}
+
 	select {
 	case <-ctx.Done():
 		// skip commit in case of context cancellation
@@ -196,7 +224,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	// Row-identity column, sent even where the catalog forbids declaring it.
+	identifierField := constants.OlakeID
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
@@ -206,6 +235,12 @@ func (i *Iceberg) Check(ctx context.Context) error {
 			Namespace:       destinationDB,
 			Upsert:          false,
 			IdentifierField: &identifierField,
+			// Unity Catalog rejects identifier columns; only equality deletes need them declared.
+			DeclareIdentifierFields: !i.config.NoIdentifierFields,
+			// The check table is written once, appended, and never updated, so no
+			// delete mode is meaningful here. Equality is the one that constrains the
+			// table least: it creates at format version 2 and needs no table index.
+			DeleteMode: proto.IcebergPayload_DELETE_MODE_EQUALITY,
 		},
 	}
 
@@ -220,7 +255,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
 	protoSchema := types.GetIcebergRawSchema()
-	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime})
+	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime}, nil)
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return destination.WriteFailure(fmt.Errorf("failed to create raw data column buffer: %w", err))
@@ -269,7 +304,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				detectedIcebergType := detectedType.ToIceberg()
 				if _, existInIceberg := threadSchema[key]; existInIceberg {
 					// Column exists in iceberg table: restrict to valid promotions only
-					valid := isValidTransition(finalSchema[key], detectedIcebergType)
+					valid := isValidTypeForColumn(finalSchema[key], detectedIcebergType)
 					if !valid {
 						return false, fmt.Errorf(
 							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
@@ -384,7 +419,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if filterErr != nil {
 			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %w", filterErr)
 		}
-		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName, i.options.KeepDeletesThroughFilter)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %w", err)
 		}
@@ -509,24 +544,30 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 	return partitionInfo, nil
 }
 
-// isValidTransition checks if type transition is valid using lookup table
-func isValidTransition(oldType, newType string) bool {
-	if oldType == newType {
+// isValidTypeForColumn reports whether a column of iceberg type columnType can take a value of
+// iceberg type valueType, as its value type or through an iceberg promotion. A fixed[n] value of
+// the wrong length fails on write.
+func isValidTypeForColumn(columnType, valueType string) bool {
+	if types.IcebergValueType(columnType) == valueType ||
+		validTypeTransitions[columnType][valueType] ||
+		isPromotionRequired(columnType, valueType) {
 		return true
 	}
-	if transitions, ok := validTypeTransitions[oldType]; ok {
-		if transitions[newType] {
-			return true
-		}
-	}
-
-	return getCommonAncestorType(oldType, newType) == oldType
+	return getCommonAncestorType(columnType, valueType) == columnType
 }
 
 // isPromotionRequired checks if promotion is needed using lookup table
 func isPromotionRequired(oldType, newType string) bool {
 	if transitions, ok := promotionTransitions[oldType]; ok {
 		return transitions[newType]
+	}
+
+	switch {
+	case types.IsIcebergDecimal(oldType) && types.IsIcebergDecimal(newType):
+		oldPrecision, oldScale, _ := types.IcebergDecimalParams(oldType)
+		newPrecision, newScale, _ := types.IcebergDecimalParams(newType)
+		// an iceberg spec rule in every format version: decimal(P,S) promotes only to decimal(P',S) with P' > P
+		return oldScale == newScale && newPrecision > oldPrecision
 	}
 
 	return false
@@ -595,9 +636,10 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 		name := strings.TrimSpace(parts[1])
 		typeInfo := strings.TrimSpace(parts[2])
 
-		// typeInfo will contain `required type (id)` or `optional type`
-		types := strings.Split(typeInfo, " ")
-		fields[name] = types[1]
+		// typeInfo will contain `required type (id)` or `optional type`; decimal(P, S) holds a space
+		_, fieldType, _ := strings.Cut(typeInfo, " ")
+		fieldType, _, _ = strings.Cut(fieldType, " (")
+		fields[name] = fieldType
 	}
 	return fields, nil
 }
@@ -615,7 +657,23 @@ func getCommonAncestorType(d1, d2 string) string {
 }
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
-	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
+	return utils.Ternary(stream.AppendModeEnabled(), false, !backfill).(bool)
+}
+
+// protoDeleteMode maps the config-facing delete mode onto the wire enum. An
+// unknown mode reaches the server as UNSPECIFIED, which it rejects; config is
+// validated by types.UpdateType.Validate() long before this point.
+func protoDeleteMode(mode types.UpdateType) proto.IcebergPayload_DeleteMode {
+	switch mode {
+	case types.UpdateTypeEquality:
+		return proto.IcebergPayload_DELETE_MODE_EQUALITY
+	case types.UpdateTypePosition:
+		return proto.IcebergPayload_DELETE_MODE_POSITION
+	case types.UpdateTypeDeletionVector:
+		return proto.IcebergPayload_DELETE_MODE_DELETION_VECTOR
+	default:
+		return proto.IcebergPayload_DELETE_MODE_UNSPECIFIED
+	}
 }
 
 func init() {

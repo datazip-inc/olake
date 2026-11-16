@@ -1,0 +1,125 @@
+package testutils
+
+import (
+	"cmp"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+
+	"github.com/datazip-inc/olake/tests/testutils/constants"
+)
+
+var (
+	stateVersionOnce  sync.Once
+	stateVersionValue stateVersionManifest
+	stateVersionErr   error
+)
+
+type stateVersionManifest struct {
+	LatestStateVersion int                    `json:"latest_state_version"`
+	Baselines          []StateVersionBaseline `json:"baselines"`
+}
+
+type StateVersionBaseline struct {
+	StateVersion int    `json:"state_version"`
+	ReleaseTag   string `json:"release_tag"`
+	Drivers      string `json:"drivers"`
+	Note         string `json:"note"`
+}
+
+// Gates reports whether this release's bump changed driver's semantics: the manifest names the
+// drivers it touched, comma-separated, or "*" for all.
+func (b StateVersionBaseline) Gates(driver string) bool {
+	for gated := range strings.SplitSeq(b.Drivers, ",") {
+		if gated = strings.TrimSpace(gated); gated == "*" || gated == driver {
+			return true
+		}
+	}
+	return false
+}
+
+// stateVersionManifestPath names the manifest file, for messages that point readers at it
+func stateVersionManifestPath() (string, error) {
+	root, err := RepoRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to locate the repo holding the product state versions: %w", err)
+	}
+	return filepath.Join(root, "constants", "state-versions.json"), nil
+}
+
+func readStateVersionManifest() (stateVersionManifest, error) {
+	stateVersionOnce.Do(func() {
+		path, err := stateVersionManifestPath()
+		if err != nil {
+			stateVersionErr = err
+			return
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			stateVersionErr = fmt.Errorf("failed to read the product state versions at %s: %w", path, err)
+			return
+		}
+		if err := json.Unmarshal(data, &stateVersionValue); err != nil {
+			stateVersionErr = fmt.Errorf("failed to parse %s: %w", path, err)
+			return
+		}
+		if stateVersionValue.LatestStateVersion <= 0 {
+			stateVersionErr = fmt.Errorf("%s does not set latest_state_version to a positive integer", path)
+			return
+		}
+		if len(stateVersionValue.Baselines) == 0 {
+			stateVersionErr = fmt.Errorf("%s carries no baselines; the compatibility tests would silently skip all the older releases with a state version update", path)
+			return
+		}
+		releaseByVersion := make(map[int]string, len(stateVersionValue.Baselines))
+		for _, baseline := range stateVersionValue.Baselines {
+			if strings.TrimSpace(baseline.ReleaseTag) == "" {
+				stateVersionErr = fmt.Errorf("%s has a baseline with no release_tag; the compatibility tests would have no release to run it against", path)
+				return
+			}
+			if baseline.StateVersion < 0 {
+				stateVersionErr = fmt.Errorf("%s baseline %s has a negative state_version %d", path, baseline.ReleaseTag, baseline.StateVersion)
+				return
+			}
+			if earlier, duplicate := releaseByVersion[baseline.StateVersion]; duplicate {
+				stateVersionErr = fmt.Errorf("%s gives state version %d two baselines, %s and %s; each state version is introduced by one release", path, baseline.StateVersion, earlier, baseline.ReleaseTag)
+				return
+			}
+			releaseByVersion[baseline.StateVersion] = baseline.ReleaseTag
+			if strings.TrimSpace(baseline.Drivers) == "" {
+				stateVersionErr = fmt.Errorf("%s baseline %s gates no drivers; the compatibility tests would silently skip it for every driver", path, baseline.ReleaseTag)
+				return
+			}
+			for gated := range strings.SplitSeq(baseline.Drivers, ",") {
+				if gated = strings.TrimSpace(gated); gated != "*" && !slices.Contains(constants.Drivers, constants.DriverType(gated)) {
+					stateVersionErr = fmt.Errorf("%s baseline %s gates unknown driver %q; the compatibility tests would silently skip it for that driver", path, baseline.ReleaseTag, gated)
+					return
+				}
+			}
+		}
+		slices.SortFunc(stateVersionValue.Baselines, func(a, b StateVersionBaseline) int {
+			return cmp.Compare(a.StateVersion, b.StateVersion)
+		})
+		if newest := stateVersionValue.Baselines[len(stateVersionValue.Baselines)-1]; newest.StateVersion != stateVersionValue.LatestStateVersion {
+			stateVersionErr = fmt.Errorf("%s sets latest_state_version to %d, but its newest baseline %s is state version %d; a state version bump adds its baseline in the same change",
+				path, stateVersionValue.LatestStateVersion, newest.ReleaseTag, newest.StateVersion)
+		}
+	})
+	return stateVersionValue, stateVersionErr
+}
+
+// LatestStateVersion is the state-file version the product writes today.
+func LatestStateVersion() (int, error) {
+	manifest, err := readStateVersionManifest()
+	return manifest.LatestStateVersion, err
+}
+
+// StateVersionBaselines is the manifest's release history, oldest state version first.
+func StateVersionBaselines() ([]StateVersionBaseline, error) {
+	manifest, err := readStateVersionManifest()
+	return manifest.Baselines, err
+}

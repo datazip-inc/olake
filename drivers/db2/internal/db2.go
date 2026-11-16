@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +14,6 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
@@ -79,7 +79,6 @@ func (d *DB2) Setup(ctx context.Context) error {
 	}
 
 	d.client = client
-	d.config.RetryCount = utils.Ternary(d.config.RetryCount <= 0, 1, d.config.RetryCount+1).(int)
 	return nil
 }
 
@@ -208,11 +207,13 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName types.StreamID) (*ty
 			var (
 				columnName string
 				dataType   string
+				precision  sql.NullInt64
+				scale      sql.NullInt64
 				isNullable string
 				pkColumn   *string
 			)
 
-			if err := rows.Scan(&columnName, &dataType, &isNullable, &pkColumn); err != nil {
+			if err := rows.Scan(&columnName, &dataType, &precision, &scale, &isNullable, &pkColumn); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 
@@ -221,6 +222,10 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName types.StreamID) (*ty
 
 			if val, found := db2TypeToDataTypes[strings.ToLower(dataType)]; found {
 				datatype = val
+				// LENGTH is a DECIMAL's precision; for other types it is their length in bytes
+				if strings.EqualFold(dataType, "DECIMAL") && precision.Valid && scale.Valid {
+					datatype = types.NumericOf(precision.Int64, scale.Int64)
+				}
 			} else {
 				logger.Debugf("unsupported DB2 type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				datatype = types.String

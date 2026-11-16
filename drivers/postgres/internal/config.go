@@ -2,12 +2,13 @@ package driver
 
 import (
 	"crypto/tls"
+	"database/sql"
 	"fmt"
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 type Config struct {
@@ -32,23 +33,36 @@ type CDC struct {
 	InitialWaitTime int    `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
 	Publication string `json:"publication"`
+	// PreserveToastValues keeps the values Postgres leaves out of an UPDATE (unchanged TOAST) by
+	// reading the row's previous version from the destination. Iceberg with a row index (pos or dv) only.
+	PreserveToastValues bool `json:"preserve_toast_values"`
 }
 
 func (c *Config) Validate() error {
 	if c.Host == "" {
-		return fmt.Errorf("empty host name")
+		return errs.Precondition(errs.ConfigInvalid, codeHostMissing, fmt.Errorf("empty host name"))
 	} else if strings.Contains(c.Host, "https") || strings.Contains(c.Host, "http") {
-		return fmt.Errorf("host should not contain http or https")
+		return errs.Precondition(errs.ConfigInvalid, codeHostSchemeIncluded,
+			fmt.Errorf("host should not contain http or https"))
 	}
 
 	// Validate port
 	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port number: must be between 1 and 65535")
+		return errs.Precondition(errs.ConfigInvalid, codePortInvalid,
+			fmt.Errorf("invalid port number: must be between 1 and 65535"))
 	}
 
-	// default number of threads
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if c.Database == "" {
+		return errs.Precondition(errs.ConfigInvalid, codeDatabaseMissing,
+			fmt.Errorf("database name is required"))
+	}
+
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
+	}
+
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	// Add the connection parameters to the url
@@ -89,7 +103,8 @@ func (c *Config) Validate() error {
 
 	for i, s := range c.Schemas {
 		if strings.TrimSpace(s) == "" {
-			return fmt.Errorf("schemas[%d] must not be blank", i)
+			return errs.Precondition(errs.ConfigInvalid, codeSchemaBlank,
+				fmt.Errorf("schemas[%d] must not be blank", i))
 		}
 	}
 
@@ -109,4 +124,7 @@ type ColumnDetails struct {
 	Name       string  `db:"column_name"`
 	DataType   *string `db:"data_type"`
 	IsNullable *string `db:"is_nullable"`
+	// a numeric column's declared precision and scale, both NULL when it is unconstrained
+	NumericPrecision sql.NullInt64 `db:"numeric_precision"`
+	NumericScale     sql.NullInt64 `db:"numeric_scale"`
 }

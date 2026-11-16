@@ -1,11 +1,14 @@
 package typeutils
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/datazip-inc/olake/utils"
 )
 
 // return 0 for equal, -1 if a < b else 1 if a>b
@@ -66,6 +69,14 @@ func Compare(a, b any) int {
 			return 1
 		}
 		return 0
+	case []byte:
+		bBytes, bIsBytes := b.([]byte)
+		switch {
+		case !utils.IsBinarySupported() || !bIsBytes:
+			return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
+		default:
+			return bytes.Compare(aVal, bBytes)
+		}
 	case json.Number:
 		// Try int64 first, float64 then fallback to string comparison
 		if aInt, errA := ReformatInt64(aVal); errA == nil {
@@ -77,6 +88,11 @@ func Compare(a, b any) int {
 			if bFloat, errB := ReformatFloat64(b); errB == nil {
 				return Compare(aFloat, bFloat)
 			}
+		}
+		return strings.Compare(aVal.String(), fmt.Sprintf("%v", b))
+	case Decimal:
+		if bVal, err := exactDecimal(b); err == nil {
+			return aVal.Cmp(bVal)
 		}
 		return strings.Compare(aVal.String(), fmt.Sprintf("%v", b))
 	default:

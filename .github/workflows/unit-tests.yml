@@ -2,6 +2,12 @@ name: Unit Tests
 
 on:
   pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
 
 jobs:
   unit-tests:
@@ -21,6 +27,13 @@ jobs:
 
       - name: Run All Unit Tests
         run: make test.unit
+
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'push'
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   java-unit-tests:
     name: Run Java Unit Tests

@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/datazip-inc/olake/constants"
@@ -23,8 +25,7 @@ func NewTypeSchema() *TypeSchema {
 	}
 }
 
-// ColumnNames returns the list of column names currently present in the schema.
-// Note: ordering is not guaranteed because sync.Map iteration order is not defined.
+// ColumnNames returns the column names currently present in the schema, sorted in byte order.
 func (t *TypeSchema) ColumnNames() []string {
 	var columns []string
 	t.Properties.Range(func(col, _ interface{}) bool {
@@ -33,6 +34,7 @@ func (t *TypeSchema) ColumnNames() []string {
 		}
 		return true
 	})
+	slices.Sort(columns)
 	return columns
 }
 
@@ -94,19 +96,22 @@ func (t *TypeSchema) UnmarshalJSON(data []byte) error {
 
 	// Populate sync.Map with the data from temporary map
 	for key, value := range aux.Properties {
+		value.applyStateVersionChecks()
 		t.Properties.Store(key, value)
 	}
 
 	return nil
 }
 
+// GetType returns the type a column's values are handled as, so a fixed_binary(n) column reads
+// as binary.
 func (t *TypeSchema) GetType(column string) (DataType, error) {
 	column = utils.Ternary(t.HasDestinationColumnName(), column, utils.Reformat(column)).(string)
 	p, found := t.Properties.Load(column)
 	if !found {
 		return "", fmt.Errorf("column [%s] missing from type schema", column)
 	}
-	return p.(*Property).DataType(), nil
+	return p.(*Property).DataType().ValueType(), nil
 }
 
 func (t *TypeSchema) AddTypes(column string, isOlakeColumn bool, types ...DataType) {
@@ -175,7 +180,7 @@ func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface, incl
 		colName := key.(string)
 		outName := stream.ResolveColumnName(colName)
 		// skip non-olake columns in defaultColumns mode unless explicitly included (e.g. partition columns)
-		if !isSelected(outName) || (defaultColumns && !prop.OlakeColumn && !includeSet.Exists(colName)) {
+		if !prop.OlakeColumn && (!isSelected(outName) || (defaultColumns && !includeSet.Exists(colName))) {
 			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
@@ -211,6 +216,20 @@ type Property struct {
 	OlakeColumn           bool           `json:"olake_column,omitempty"`
 }
 
+// MarshalJSON writes Type in sorted order so catalog files are stable across runs.
+func (p *Property) MarshalJSON() ([]byte, error) {
+	var types []DataType
+	if p.Type != nil {
+		types = p.Type.Array()
+		slices.SortFunc(types, func(a, b DataType) int { return strings.Compare(string(a), string(b)) })
+	}
+	type alias Property // alias to avoid recursive call
+	return json.Marshal(&struct {
+		*alias
+		Type []DataType `json:"type,omitempty"`
+	}{alias: (*alias)(p), Type: types})
+}
+
 // returns datatype according to typecast tree if multiple type present
 func (p *Property) DataType() DataType {
 	types := p.Type.Array()
@@ -235,6 +254,23 @@ func (p *Property) DataType() DataType {
 	return commonType
 }
 
+// applyStateVersionChecks rewrites the property's types for the state version this sync is pinned at.
+func (p *Property) applyStateVersionChecks() {
+	if utils.IsBinarySupported() && utils.IsDecimalSupported() {
+		return
+	}
+	types := p.Type.Array()
+	for i, d := range types {
+		switch {
+		case d.ValueType() == Binary && !utils.IsBinarySupported():
+			types[i] = String
+		case d.ValueType() == BigDecimal && !utils.IsDecimalSupported():
+			types[i] = Float64
+		}
+	}
+	p.Type = NewSet(types...)
+}
+
 func (p *Property) Nullable() bool {
 	_, found := utils.ArrayContains(p.Type.Array(), func(elem DataType) bool {
 		return elem == Null
@@ -251,34 +287,42 @@ type typeNode struct {
 	right *typeNode
 }
 
+// Binary sits above String as every value can be carried as raw bytes; FixedBinary widens only to
+// Binary, never to text.
 var typecastTree = &typeNode{
-	t: String,
+	t: Binary,
 	left: &typeNode{
-		t: Float64,
+		t: String,
 		left: &typeNode{
-			t: Int64,
+			t: Float64,
 			left: &typeNode{
-				t: Int32,
+				t: Int64,
 				left: &typeNode{
-					t: Bool,
+					t: Int32,
+					left: &typeNode{
+						t: Bool,
+					},
 				},
+			},
+			right: &typeNode{
+				t: Float32,
 			},
 		},
 		right: &typeNode{
-			t: Float32,
-		},
-	},
-	right: &typeNode{
-		t: TimestampNano,
-		left: &typeNode{
-			t: TimestampMicro,
+			t: TimestampNano,
 			left: &typeNode{
-				t: TimestampMilli,
+				t: TimestampMicro,
 				left: &typeNode{
-					t: Timestamp,
+					t: TimestampMilli,
+					left: &typeNode{
+						t: Timestamp,
+					},
 				},
 			},
 		},
+	},
+	right: &typeNode{
+		t: FixedBinary,
 	},
 }
 
@@ -287,24 +331,30 @@ func GetCommonAncestorType(t1, t2 DataType) DataType {
 	return lowestCommonAncestor(typecastTree, t1, t2)
 }
 
+// lowestCommonAncestor walks down from root to the node where t1 and t2 split. A type without a weight,
+// one OLake does not declare, falls back to fallbackType.
 func lowestCommonAncestor(
 	root *typeNode,
 	t1, t2 DataType,
 ) DataType {
+	if t1 == t2 {
+		return t1
+	}
+	if wider, ok := widerDecimal(t1, t2); ok {
+		return wider
+	}
+
+	wt1, t1Exist := typeWeight(t1)
+	wt2, t2Exist := typeWeight(t2)
+	if !t1Exist || !t2Exist {
+		return fallbackType
+	}
+
 	node := root
-
 	for node != nil {
-		wt1, t1Exist := TypeWeights[t1]
-		wt2, t2Exist := TypeWeights[t2]
 		rootW, rootExist := TypeWeights[node.t]
-
 		if !rootExist {
 			return Unknown
-		}
-
-		// If any type is not found in weights map, return Unknown
-		if !t1Exist || !t2Exist {
-			return node.t
 		}
 
 		if wt1 > rootW && wt2 > rootW {
@@ -319,4 +369,18 @@ func lowestCommonAncestor(
 		}
 	}
 	return Unknown
+}
+
+// typeWeight is t's weight in typecastTree, a parameterised type weighing as its family. Types off the
+// tree weigh as the type they promote to: Null, Unknown, Object and Array as String, Decimal as Float64.
+func typeWeight(t DataType) (int, bool) {
+	switch base := baseOf(t); base {
+	case Null, Unknown, Object, Array:
+		return TypeWeights[String], true
+	case Decimal:
+		return TypeWeights[Float64], true
+	default:
+		weight, found := TypeWeights[base]
+		return weight, found
+	}
 }

@@ -19,6 +19,11 @@ var uiSchemaMap = map[string]string{
 }
 
 const MongoDBUISchema = `{
+    "ui:sections": [
+      {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "toggle", "fields": ["update_method"]},
+      {"id": "connection", "title": "Connection details", "fields": ["hosts", "database", "authdb", "username", "password", "replica_set", "read_preference", "srv", "chunking_strategy", "use_iam", "ssl", "additional_params"]},
+      {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "backoff_retry_count", "ssh_config"]}
+    ],
     "ui:grid": [
         { "hosts": 12, "database": 12 },
         { "authdb": 12, "username": 12 },
@@ -27,10 +32,20 @@ const MongoDBUISchema = `{
         { "max_threads": 12, "backoff_retry_count": 12 },
         { "chunking_strategy": 12, "use_iam": 12 },
         { "ssl": 12, "additional_params": 12 },
-        { "ssh_config": 12 }
+        { "update_method": 12, "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
+    },
+    "update_method": {
+        "ui:widget": "radio",
+        "ui:options": {
+            "title": false,
+            "description": false
+        },
+        "type": {
+            "ui:widget": "hidden"
+        }
     },
     "use_iam": {
         "ui:widget": "boolean"
@@ -41,11 +56,17 @@ const MongoDBUISchema = `{
         },
         "ui:grid": [
             { "mode": 24 },
-            { "server_ca": 24 },
-            { "client_cert": 12, "client_key": 12 }
+            { "cert_source": 24 },
+            { "server_ca": 24, "server_ca_path": 24 },
+            { "client_cert": 12, "client_key": 12 },
+            { "client_cert_path": 12, "client_key_path": 12 }
         ],
         "mode": {
             "ui:widget": "select"
+        },
+        "cert_source": {
+            "ui:widget": "radio",
+            "ui:docLink": "https://olake.io/docs/connectors/mongodb/#connection-details"
         },
         "server_ca": {
             "ui:widget": "textarea",
@@ -60,6 +81,24 @@ const MongoDBUISchema = `{
             }
         },
         "client_key": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "server_ca_path": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_cert_path": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_key_path": {
             "ui:widget": "textarea",
             "ui:options": {
                 "rows": 1
@@ -91,6 +130,11 @@ const MongoDBUISchema = `{
 }`
 
 const PostgresUISchema = `{
+      "ui:sections": [
+        {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "toggle", "fields": ["update_method"]},
+        {"id": "connection", "title": "Connection details", "fields": ["host", "database", "schemas", "username", "password", "port", "jdbc_url_params", "ssl"]},
+        {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "retry_count", "ssh_config"]}
+      ],
       "ui:grid": [
         { "host": 12, "database": 12 },
         { "schemas": 12, "username": 12 },
@@ -110,11 +154,17 @@ const PostgresUISchema = `{
         },
         "ui:grid": [
           { "mode": 24 },
-          { "server_ca": 24 },
-          { "client_cert": 12, "client_key": 12 }
+          { "cert_source": 24 },
+          { "server_ca": 24, "server_ca_path": 24 },
+          { "client_cert": 12, "client_key": 12 },
+          { "client_cert_path": 12, "client_key_path": 12 }
         ],
         "mode": {
           "ui:widget": "select"
+        },
+        "cert_source": {
+          "ui:widget": "radio",
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/#connection-details"
         },
         "server_ca": {
           "ui:widget": "textarea",
@@ -133,14 +183,44 @@ const PostgresUISchema = `{
           "ui:options": {
             "rows": 1
           }
+        },
+        "server_ca_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_cert_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_key_path": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
         }
       },
       "update_method": {
         "ui:widget": "radio",
-        "ui:grid": [{ "replication_slot": 12, "initial_wait_time": 12}, { "publication": 12 }],
+        "ui:grid": [{ "replication_slot": 12, "publication": 12 }, { "initial_wait_time": 12, "preserve_toast_values": 12 }],
         "ui:options": {
           "title": false,
           "description": false
+        },
+        "preserve_toast_values": {
+          "ui:widget": "boolean"
+        },
+        "type": {
+          "ui:widget": "hidden"
+        },
+        "replication_slot": {
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/setup/generic/#8-create-logical-replication-slot"
+        },
+        "publication": {
+          "ui:docLink": "https://olake.io/docs/connectors/postgres/setup/generic/#7-create-publication"
         }
       },
       "ssh_config": {
@@ -163,6 +243,11 @@ const PostgresUISchema = `{
     }`
 
 const MySQLUISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "toggle", "fields": ["update_method"]},
+    {"id": "connection", "title": "Connection details", "fields": ["hosts", "database", "username", "password", "port", "jdbc_url_params", "ssl"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "backoff_retry_count", "ssh_config"]}
+  ],
   "ui:grid": [
     { "hosts": 12, "database": 12 },
     { "username": 12, "password": 12 },
@@ -175,11 +260,17 @@ const MySQLUISchema = `{
     "ui:options": { "description": false, "label": false },
     "ui:grid": [
       { "mode": 24 },
-      { "server_ca": 24 },
-      { "client_cert": 12, "client_key": 12 }
+      { "cert_source": 24 },
+      { "server_ca": 24, "server_ca_path": 24 },
+      { "client_cert": 12, "client_key": 12 },
+      { "client_cert_path": 12, "client_key_path": 12 }
     ],
     "mode": {
       "ui:widget": "select"
+    },
+    "cert_source": {
+      "ui:widget": "radio",
+      "ui:docLink": "https://olake.io/docs/connectors/mysql/#connection-details"
     },
     "server_ca": {
       "ui:widget": "textarea",
@@ -190,6 +281,18 @@ const MySQLUISchema = `{
       "ui:options": { "rows": 1 }
     },
     "client_key": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "server_ca_path": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_cert_path": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_key_path": {
       "ui:widget": "textarea",
       "ui:options": { "rows": 1 }
     }
@@ -224,6 +327,11 @@ const MySQLUISchema = `{
 }`
 
 const MSSQLUISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "toggle", "fields": ["update_method"]},
+    {"id": "connection", "title": "Connection details", "fields": ["host", "database", "username", "password", "port", "jdbc_url_params", "ssl", "manage_capture_instances", "primary_config"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "retry_count", "ssh_config"]}
+  ],
   "ui:grid": [
     { "host": 12, "database": 12 },
     { "username": 12, "password": 12 },
@@ -244,6 +352,9 @@ const MSSQLUISchema = `{
     "ui:options": {
       "title": false,
       "description": false
+    },
+    "type": {
+      "ui:widget": "hidden"
     }
   },
   "manage_capture_instances": {
@@ -282,6 +393,11 @@ const MSSQLUISchema = `{
 }`
 
 const OracleUISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "not_supported"},
+    {"id": "connection", "title": "Connection details", "fields": ["host", "connection_type", "username", "sid", "service_name", "password", "port", "jdbc_url_params", "ssl"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "backoff_retry_count", "ssh_config"]}
+  ],
   "ui:grid": [
     { "host": 12, "connection_type": 12 },
     { "username": 12, "sid": 12, "service_name": 12 },
@@ -325,6 +441,11 @@ const OracleUISchema = `{
 }`
 
 const S3UISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "not_supported"},
+    {"id": "connection", "title": "Connection details", "fields": ["bucket_name", "region", "access_key_id", "secret_access_key", "path_prefix", "endpoint", "file_pattern", "compression", "file_format", "csv", "parquet", "json", "xml"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["retry_count", "max_threads"]}
+  ],
   "ui:grid": [
     { "bucket_name": 12, "region": 12 },
     { "access_key_id": 12, "secret_access_key": 12 },
@@ -391,6 +512,11 @@ const S3UISchema = `{
 }`
 
 const KafkaUISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "not_supported"},
+    {"id": "connection", "title": "Connection details", "fields": ["bootstrap_servers", "consumer_group_id", "topic_pattern", "protocol", "use_schema_registry", "schema_registry"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["threads_equal_total_partitions", "max_threads", "backoff_retry_count"]}
+  ],
   "ui:grid": [
     { "bootstrap_servers": 24 },
     { "consumer_group_id": 12, "topic_pattern": 12 },
@@ -420,9 +546,14 @@ const KafkaUISchema = `{
         "description": false
       },
       "ui:grid": [
-        { "server_ca": 12, "client_cert": 12 },
-        { "client_key": 12 }
+        { "cert_source": 24 },
+        { "server_ca": 12, "client_cert": 12, "server_ca_path": 12, "client_cert_path": 12 },
+        { "client_key": 12, "client_key_path": 12 }
       ],
+      "cert_source": {
+        "ui:widget": "radio",
+        "ui:docLink": "https://olake.io/docs/connectors/kafka/#connection-details"
+      },
       "server_ca": {
         "ui:widget": "textarea",
         "ui:options": {
@@ -436,6 +567,24 @@ const KafkaUISchema = `{
         }
       },
       "client_key": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "server_ca_path": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "client_cert_path": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
+      },
+      "client_key_path": {
         "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
@@ -476,11 +625,37 @@ const ParquetUISchema = `{
   },
   "writer": {
     "ui:grid": [
+      { "storage_type": 12, "azure_auth_type": 12 },
       { "s3_bucket": 12, "s3_region": 12 },
       { "s3_endpoint": 12, "s3_access_key": 12 },
       { "s3_secret_key": 12, "s3_path": 12 },
+      { "azure_storage_account_name": 12, "azure_container_name": 12 },
+      { "azure_path": 12, "azure_endpoint": 12 },
+      { "azure_storage_account_key": 12, "azure_sas_token": 12 },
+      { "azure_connection_string": 12, "azure_client_id": 12 },
       { "max_file_size_mb": 12 }
     ],
+    "azure_auth_type": {
+      "ui:enumNames": [
+        "Shared Key",
+        "SAS Token",
+        "Connection String",
+        "Managed Identity/Workload Identity"
+      ]
+    },
+    "azure_storage_account_key": {
+      "ui:widget": "password"
+    },
+    "azure_sas_token": {
+      "ui:widget": "password"
+    },
+    "azure_connection_string": {
+      "ui:widget": "password",
+      "ui:help": "This string needs AccountName or BlobEndpoint, and AccountKey or SharedAccessSignature. UseDevelopmentStorage=true is not supported."
+    },
+    "azure_client_id": {
+      "ui:help": "Overrides the AKS ServiceAccount annotation and the VM identity. It does not fall back."
+    },
     "ui:options": {
       "label": false
     }
@@ -554,7 +729,8 @@ const IcebergUISchema = `{
         "S3 Tables",
         "Unity",
         "Polaris",
-        "Big Lake"
+        "Big Lake",
+        "Horizon"
       ]
     },
     "ui:options": {
@@ -564,6 +740,11 @@ const IcebergUISchema = `{
 }`
 
 const DB2UISchema = `{
+  "ui:sections": [
+    {"id": "cdc", "title": "Change data capture (CDC)", "cdc": "not_supported"},
+    {"id": "connection", "title": "Connection details", "fields": ["host", "port", "database", "username", "password", "jdbc_url_params", "ssl"]},
+    {"id": "additional", "title": "Additional configuration", "fields": ["max_threads", "retry_count", "ssh_config"]}
+  ],
   "ui:grid": [
     { "host": 12, "port": 12 },
     { "database": 12, "max_threads": 12 },

@@ -54,6 +54,10 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %w", err)
 	}
+	unsignedDecimals, err := m.unsignedDecimals(ctx, stream)
+	if err != nil {
+		return err
+	}
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
 		// Build query for the chunk
@@ -75,7 +79,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
-		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlColumnSizer)
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlColumnSizer, mysqlColumnTypeName(unsignedDecimals))
 	})
 }
 
@@ -156,7 +160,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 		// 1. Try Numeric Strategy
 		// Prefer an arithmetic split for evenly distributed numeric keys.
-		numericChunkBounds = isNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType)
+		numericChunkBounds = isNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType, m.typeMapping)
 		if numericChunkBounds == nil {
 			// 2. If not numeric, check for supported String strategy
 			stringChunkBounds = isStringSupportedPK(minVal, maxVal, dataMaxLength, dataType)
@@ -439,9 +443,9 @@ func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterfa
 	return minVal, maxVal, err
 }
 
-// isNumericAndEvenDistributed checks if the pk column is numeric and evenly distributed
-func isNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64, dataType string) *NumericChunkBounds {
-	destinationDataType := mysqlTypeToDataTypes[strings.ToLower(dataType)]
+// isNumericAndEvenDistributed checks if the pk column, typed through typeMapping, is numeric and evenly distributed
+func isNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64, dataType string, typeMapping map[string]types.DataType) *NumericChunkBounds {
+	destinationDataType := typeMapping[strings.ToLower(dataType)]
 	if destinationDataType != types.Int32 && destinationDataType != types.Int64 {
 		logger.Debugf("Current pk is not a supported numeric column")
 		return nil

@@ -39,6 +39,13 @@ const (
 	maxEventPropsFileSize = 1 << 20 // 1 MiB
 )
 
+// PropsFiles returns optional job-dir files S3 mode should fetch so Init can read them.
+func PropsFiles() []*string {
+	eventProps := eventPropsFile
+	userID := userIDFile + ".txt"
+	return []*string{&eventProps, &userID}
+}
+
 // Event names, qualified with the event source at send time, e.g. "Sync Started - CLI".
 const (
 	eventDiscover      = "Discover"
@@ -231,7 +238,7 @@ func TrackSyncStarted(syncID string, mix types.StreamMix, sourceType string, des
 	})
 }
 
-func TrackSyncCompleted(syncID string, mix types.StreamMix, destinationConfig *types.WriterConfig, status bool, records, bytesRead int64) {
+func TrackSyncCompleted(syncID string, mix types.StreamMix, sourceType string, destinationConfig *types.WriterConfig, status bool, records, bytesRead int64) {
 	destinationType, catalogType := destinationShape(destinationConfig)
 
 	send("sync completed", func() {
@@ -241,6 +248,7 @@ func TrackSyncCompleted(syncID string, mix types.StreamMix, destinationConfig *t
 			"sync_status":      utils.Ternary(status, "SUCCESS", "FAILED").(string),
 			"records_synced":   records,
 			"bytes_read":       bytesRead,
+			"source_type":      sourceType,
 			"destination_type": destinationType,
 			"catalog_type":     catalogType,
 		}

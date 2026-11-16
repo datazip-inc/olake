@@ -86,6 +86,9 @@ type Config struct {
 	// Required by BigLake for request routing/billing (sent as the x-goog-user-project header).
 	GCPProjectID string `json:"gcp_project_id,omitempty"`
 
+	// Horizon
+	RESTAccessDelegation string `json:"rest_access_delegation,omitempty"`
+
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
 }
 
@@ -115,6 +118,10 @@ func (c *Config) Validate() error {
 	// BigLake requires GoogleAuthManager for authentication
 	if c.CatalogType == "biglake" {
 		c.RestAuthType = "org.apache.iceberg.gcp.auth.GoogleAuthManager"
+	}
+	// Horizon requires access delegation
+	if c.CatalogType == "horizon" {
+		c.RESTAccessDelegation = "vended-credentials"
 	}
 	c.RestAuthType = olakeAuthTypeToIcebergAuthType(c.RestAuthType)
 	if slices.Contains(constants.RESTCatalogs, string(c.CatalogType)) {
@@ -207,7 +214,8 @@ func (c *Config) Validate() error {
 func olakeAuthTypeToIcebergAuthType(authType string) string {
 	switch strings.ToLower(strings.TrimSpace(authType)) {
 	case "oauth2", "oauth2 u2m", "oauth2 m2m", "token", "token federation",
-		"personal access token (pat)", "pat":
+		"personal access token (pat)", "pat", "external oauth",
+		"key-pair authentication", "programmatic access token (pat)":
 		return "oauth2"
 	case "none":
 		return "none"

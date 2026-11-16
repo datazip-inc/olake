@@ -13,10 +13,12 @@ type StreamInterface interface {
 	Cursor() (string, string)
 	Validate(source *Stream) error
 	NormalizationEnabled() bool
+	AppendModeEnabled() bool
 	GetDestinationDatabase(icebergDB *string) string
 	GetDestinationTable() string
 	GetPartitionRegex() string
 	GetUpdateType() UpdateType
+	ResolveUpsertOp() bool
 	// Column selection helpers (driven by StreamMetadata.SelectedColumns)
 	RetainSelectedColumns() func(map[string]interface{}) map[string]interface{}
 	IsSelectedColumn() func(string) bool

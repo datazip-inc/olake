@@ -2,15 +2,18 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/paulmach/orb/encoding/wkb"
 	"github.com/paulmach/orb/encoding/wkt"
@@ -19,6 +22,8 @@ import (
 
 var (
 	ErrNullValue = fmt.Errorf("null value")
+	// nanAsNull warns once a sync, not once a row, that a NaN decimal is written as null.
+	nanAsNull sync.Once
 )
 
 var DateTimeFormats = []string{
@@ -60,7 +65,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	if v == nil {
 		return v, nil
 	}
-	switch dataType {
+	switch dataType.ValueType() {
 	case types.Null:
 		return nil, ErrNullValue
 	case types.Bool:
@@ -72,22 +77,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		return ReformatDate(v, true)
 	case types.String:
-		switch v := v.(type) {
-		case int, int8, int16, int32, int64:
-			return fmt.Sprintf("%d", v), nil
-		case uint, uint8, uint16, uint32, uint64:
-			return fmt.Sprintf("%d", v), nil
-		case float32, float64:
-			return fmt.Sprintf("%v", v), nil
-		case string:
-			return v, nil
-		case bool:
-			return fmt.Sprintf("%t", v), nil
-		case []byte: // byte slice
-			return string(v), nil
-		default:
-			return fmt.Sprintf("%v", v), nil
-		}
+		return reformatString(v), nil
 	case types.Float32:
 		return ReformatFloat32(v)
 	case types.Float64:
@@ -98,6 +88,15 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		}
 		// make it an array
 		return []any{v}, nil
+	case types.Binary:
+		return ReformatBytes(v)
+	case types.BigDecimal:
+		value, err := ReformatDecimal(dataType, v)
+		if err == errNaN {
+			nanAsNull.Do(func() { logger.Warn("writing NaN as null in decimal columns, which cannot hold it") })
+			return nil, ErrNullValue
+		}
+		return value, err
 	default:
 		return v, nil
 	}
@@ -106,12 +105,60 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 // ParseFilterValue parses v into dataType strictly and returns the typed value.
 // For timestamp types, an unparseable string always returns an error
 // ReformatValue which silently falls back to epoch when isTimestampInDB=true).
+// A binary value is hex from state version 8, as JSON cannot carry bytes; a decimal keeps its scale.
 func ParseFilterValue(dataType types.DataType, v any) (any, error) {
-	switch dataType {
+	switch dataType.ValueType() {
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		return ReformatDate(v, false)
+	case types.BigDecimal:
+		return ReformatValue(types.BigDecimal, v)
 	default:
-		return ReformatValue(dataType, v)
+		value, err := ReformatValue(dataType, v)
+		hexValue, isString := v.(string)
+		if _, isBinary := value.([]byte); isBinary && isString && utils.IsBinarySupported() {
+			if value, err = hex.DecodeString(hexValue); err != nil {
+				return nil, fmt.Errorf("binary filter value[%s] is not hex: %w", hexValue, err)
+			}
+		}
+		return value, err
+	}
+}
+
+// reformatString renders any value as the text a string column holds.
+func reformatString(v any) string {
+	switch v := v.(type) {
+	case int, int8, int16, int32, int64:
+		return fmt.Sprintf("%d", v)
+	case uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%d", v)
+	case float32, float64:
+		return fmt.Sprintf("%v", v)
+	case string:
+		return v
+	case bool:
+		return fmt.Sprintf("%t", v)
+	case []byte:
+		return string(v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// ReformatBytes converts v to bytes. Byte slices pass through, and any other value becomes the bytes
+// of the text a string column would hold for it.
+func ReformatBytes(v any) ([]byte, error) {
+	switch val := v.(type) {
+	case nil:
+		return nil, ErrNullValue
+	case []byte:
+		return val, nil
+	case *[]byte:
+		if val == nil {
+			return nil, ErrNullValue
+		}
+		return *val, nil
+	default:
+		return []byte(reformatString(v)), nil
 	}
 }
 
@@ -447,6 +494,8 @@ func ReformatFloat64(v interface{}) (float64, error) {
 			return float64(0), fmt.Errorf("failed to change string %v to float64: %v", v, err)
 		}
 		return f, nil
+	case Decimal:
+		return v.Float64(), nil
 	}
 
 	return float64(0), fmt.Errorf("failed to change %v (type:%T) to float64", v, v)

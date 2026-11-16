@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -11,10 +10,10 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/pkg/waljs"
+	"github.com/datazip-inc/olake/drivers/postgres/internal/waljs"
+	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pgx/v5"
@@ -47,7 +46,7 @@ const (
 	getPrivilegedTablesFilteredTmpl = getPrivilegedTablesTmpl + `
 		AND nspname = ANY($1)`
 	// get table schema
-	getTableSchemaTmpl = `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
+	getTableSchemaTmpl = `SELECT column_name, data_type, is_nullable, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
 	// get primary key columns, query copied from pgjdbc's PgDatabaseMetaData.getPrimaryKeys() with the always-NULL TABLE_CAT column omitted
 	// ref: https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java#L2134
 	getTablePrimaryKey = `SELECT result.column_name
@@ -73,6 +72,8 @@ const (
 
 type Postgres struct {
 	client     *sqlx.DB
+	version    int // server_version_num of the connected server (e.g. 140005), read in Setup
+	sizer      ctidSizer
 	sshClient  *ssh.Client
 	config     *Config // postgres driver connection config
 	CDCSupport bool    // indicates if the Postgres instance supports CDC
@@ -80,6 +81,9 @@ type Postgres struct {
 	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
 	streams    []types.StreamInterface
+	// prerequisites holds the CDC setup checks evaluated in Setup; when the config selects CDC,
+	// unmet required checks fail Setup via abstract.RequireCDCPrerequisites.
+	prerequisites types.PrerequisiteResults
 }
 
 func (p *Postgres) CDCSupported() bool {
@@ -134,6 +138,12 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 	p.client = pgClient
+	p.version, err = serverVersionNum(ctx, pgClient)
+	if err != nil {
+		return fmt.Errorf("failed to detect postgres server version: %w", err)
+	}
+	p.sizer = newCTIDSizer(p.version)
+	logger.Infof("Connected to Postgres server_version_num=%d", p.version)
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
 	if found {
@@ -148,27 +158,25 @@ func (p *Postgres) Setup(ctx context.Context) error {
 			cdc.InitialWaitTime = defaultCDCInitialWaitTime
 		}
 
-		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication, p.config.Database)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return errs.Precondition(errs.CDCPreconditionFailed, codeReplicationSlotMissing,
-					fmt.Errorf("failed to validate cdc configuration for slot %s: no record found", cdc.ReplicationSlot))
-			}
-			return fmt.Errorf("failed to validate cdc configuration for slot %s: %w", cdc.ReplicationSlot, err)
+		// The config selects CDC, so an unmet requirement fails the connection test rather than
+		// leaving a source that cannot sync.
+		p.prerequisites = abstract.RunPrerequisites(ctx, p.prerequisiteChecks(cdc))
+		if err := abstract.RequireCDCPrerequisites(p.Type(), p.prerequisites); err != nil {
+			return err
 		}
-
-		if !exists {
-			return errs.Precondition(errs.CDCPreconditionFailed, codeReplicationSlotMissing,
-				fmt.Errorf("replication slot '%s' does not exist in the current database '%s'", cdc.ReplicationSlot, p.config.Database))
-		}
-		// no use of it if check not being called while sync run
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
 	} else {
 		logger.Info("Standard Replication is selected")
 	}
-	p.config.RetryCount = utils.Ternary(p.config.RetryCount <= 0, 1, p.config.RetryCount+1).(int)
 	return nil
+}
+
+// serverVersionNum returns the server's server_version_num, e.g. 140005 for PG 14.5.
+func serverVersionNum(ctx context.Context, db *sqlx.DB) (int, error) {
+	var version int
+	err := db.QueryRowContext(ctx, jdbc.PostgresServerVersionNum()).Scan(&version)
+	return version, err
 }
 
 func (p *Postgres) StateType() types.StateType {
@@ -187,6 +195,26 @@ func (p *Postgres) GetConfigRef() abstract.Config {
 
 func (p *Postgres) Spec() any {
 	return Config{}
+}
+
+// SupportedUpdateTypes excludes equality when preserve_toast_values is on: unchanged TOAST values
+// are read back through the destination's table index, which only pos and dv maintain.
+func (p *Postgres) SupportedUpdateTypes() []types.UpdateType {
+	// p.cdcConfig is filled in Setup, which discover runs after this, so parse the raw config
+	cdc := &CDC{}
+	if err := utils.Unmarshal(p.config.UpdateMethod, cdc); err != nil || !cdc.PreserveToastValues {
+		return nil // no restriction: every update type is supported
+	}
+	return []types.UpdateType{types.UpdateTypePosition, types.UpdateTypeDeletionVector}
+}
+
+// SupportedWriteModes excludes append when preserve_toast_values is on: unchanged TOAST values are
+// copied from the row an upsert replaces, and an append replaces none.
+func (p *Postgres) SupportedWriteModes() []types.WriteMode {
+	if !p.cdcConfig.PreserveToastValues {
+		return nil // no restriction: every write mode is supported
+	}
+	return []types.WriteMode{types.WriteModeUpsert}
 }
 
 func (p *Postgres) CloseConnection() {
@@ -257,6 +285,11 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 			var datatype types.DataType
 			if val, found := pgTypeToDataTypes[*column.DataType]; found {
 				datatype = val
+				// numeric_precision is also set for integer and float columns, in binary digits; numeric_scale is
+				// the type modifier's unsigned scale bits, 2046 for a scale of -2
+				if *column.DataType == "numeric" && column.NumericPrecision.Valid && column.NumericScale.Valid {
+					datatype = types.NumericOf(column.NumericPrecision.Int64, waljs.NumericScale(column.NumericScale.Int64))
+				}
 			} else {
 				logger.Debugf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
 				datatype = types.String

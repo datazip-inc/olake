@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 // Config represents the configuration for connecting to a MySQL database
@@ -89,22 +89,24 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 // Validate checks the configuration for any missing or invalid fields
 func (c *Config) Validate() error {
 	if c.Host == "" {
-		return fmt.Errorf("empty host name")
+		return errs.Precondition(errs.ConfigInvalid, codeHostMissing, fmt.Errorf("empty host name"))
 	} else if strings.Contains(c.Host, "https") || strings.Contains(c.Host, "http") {
-		return fmt.Errorf("host should not contain http or https: %s", c.Host)
+		return errs.Precondition(errs.ConfigInvalid, codeHostSchemeIncluded,
+			fmt.Errorf("host should not contain http or https: %s", c.Host))
 	}
 
 	// Validate port
 	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port number: must be between 1 and 65535")
+		return errs.Precondition(errs.ConfigInvalid, codePortInvalid,
+			fmt.Errorf("invalid port number: must be between 1 and 65535"))
 	}
 
 	// Validate required fields
 	if c.Username == "" {
-		return fmt.Errorf("username is required")
+		return errs.Precondition(errs.ConfigInvalid, codeUsernameMissing, fmt.Errorf("username is required"))
 	}
 	if c.Password == "" {
-		return fmt.Errorf("password is required")
+		return errs.Precondition(errs.ConfigInvalid, codePasswordMissing, fmt.Errorf("password is required"))
 	}
 
 	// Optional database name, default to 'mysql'
@@ -112,14 +114,12 @@ func (c *Config) Validate() error {
 		c.Database = "mysql"
 	}
 
-	// Set default number of threads if not provided
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	// Set default retry count if not provided
-	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	// Validate SSL configuration if provided
@@ -127,13 +127,7 @@ func (c *Config) Validate() error {
 		if err := c.SSLConfiguration.Validate(); err != nil {
 			return fmt.Errorf("failed to validate SSL config: %w", err)
 		}
-
-		if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA || c.SSLConfiguration.Mode == utils.SSLModeVerifyFull {
-			if c.SSLConfiguration.ServerCA == "" {
-				return fmt.Errorf("'ssl.server_ca' is required for verify-ca and verify-full modes")
-			}
-		}
 	}
 
-	return utils.Validate(c)
+	return errs.Precondition(errs.ConfigInvalid, codeConfigValidationFailed, utils.Validate(c))
 }

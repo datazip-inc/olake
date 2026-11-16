@@ -1,6 +1,6 @@
 services:
   init-keyfile:
-    image: mongo:8.0   
+    image: mongo:9.0   
     container_name: init_keyfile                    
     command: >
       sh -c "
@@ -22,7 +22,7 @@ services:
   # Primary MongoDB container that sets up a replica set and creates an admin user.
   primary_mongo:
     container_name: primary_mongo                     
-    image: mongo:8.0
+    image: mongo:9.0
     hostname: primary_mongo                           
     extra_hosts:
       - "host.docker.internal:host-gateway"

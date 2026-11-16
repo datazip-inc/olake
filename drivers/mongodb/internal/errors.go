@@ -14,8 +14,13 @@ import (
 // Codes for conditions this driver detects itself; the resume token is the only state it
 // validates before asking the server.
 const (
-	codeResumeTokenMissing = "mongodb.resume_token_missing" // #nosec G101 -- a failure code, not a credential
-	codeResumeTokenInvalid = "mongodb.resume_token_invalid" // #nosec G101 -- a failure code, not a credential
+	codeResumeTokenMissing     = "mongodb.resume_token_missing" // #nosec G101 -- a failure code, not a credential
+	codeResumeTokenInvalid     = "mongodb.resume_token_invalid" // #nosec G101 -- a failure code, not a credential
+	codeHostsMissing           = "mongodb.hosts_missing"
+	codeDatabaseMissing        = "mongodb.database_missing"
+	codeUsernameMissing        = "mongodb.username_missing"
+	codeAuthDBMissing          = "mongodb.authdb_missing"
+	codeConfigValidationFailed = "mongodb.config_validation_failed"
 )
 
 // commandCodeCategories maps a MongoDB server error code to a failure category. Codes marked

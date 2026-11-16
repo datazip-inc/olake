@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/schema"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -28,6 +30,8 @@ const (
 	fileTypePositionalDelete = "positionalDelete"
 	targetDataFileSize       = int64(512 * 1024 * 1024) // 512 MB
 	targetDeleteFileSize     = int64(64 * 1024 * 1024)  // 64 MB
+	// deletionVectorBatchSize is how many positions accumulate before being sent to the server for encoding as deletion vectors.
+	deletionVectorBatchSize = 100_000
 )
 
 func getDefaultWriterProps() []parquet.WriterProperty {
@@ -60,6 +64,10 @@ func getDefaultWriterProps() []parquet.WriterProperty {
 
 		// iceberg writes root name as "table" in parquet's meta
 		parquet.WithRootName("table"),
+
+		// Page index: lets a reader fetch the page holding one row instead of the whole
+		// column. parquet-java writes it by default; query engines use it to skip pages.
+		parquet.WithPageIndexEnabled(true),
 	}
 }
 
@@ -155,6 +163,8 @@ func (fw *parquetWriter) RowGroupTotalBytesWritten() int64 {
 	return 0
 }
 
+// toArrowType maps an iceberg column type to its arrow type; a fixed[n] column takes its width
+// and a decimal(P, S) column its precision and scale from the type.
 func toArrowType(icebergType string) arrow.DataType {
 	switch icebergType {
 	case "boolean":
@@ -169,7 +179,15 @@ func toArrowType(icebergType string) arrow.DataType {
 		return arrow.PrimitiveTypes.Float64
 	case "timestamptz":
 		return arrow.FixedWidthTypes.Timestamp_us
+	case "binary":
+		return arrow.BinaryTypes.Binary
 	default:
+		if width, isFixed := types.IcebergFixedWidth(icebergType); isFixed {
+			return &arrow.FixedSizeBinaryType{ByteWidth: width}
+		}
+		if precision, scale, isDecimal := types.IcebergDecimalParams(icebergType); isDecimal {
+			return &arrow.Decimal128Type{Precision: precision, Scale: scale}
+		}
 		return arrow.BinaryTypes.String
 	}
 }
@@ -333,6 +351,28 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 		} else {
 			return err
 		}
+	case *array.BinaryBuilder:
+		b, err := typeutils.ReformatBytes(val)
+		if err != nil {
+			return err
+		}
+		builder.Append(b)
+	case *array.FixedSizeBinaryBuilder:
+		b, err := typeutils.ReformatBytes(val)
+		if err != nil {
+			return err
+		}
+		if width := builder.Type().(*arrow.FixedSizeBinaryType).ByteWidth; len(b) != width {
+			return fmt.Errorf("fixed[%d] holds exactly %d bytes, got %d", width, width, len(b))
+		}
+		builder.Append(b)
+	case *array.Decimal128Builder:
+		decimalType := builder.Type().(*arrow.Decimal128Type)
+		unscaled, err := typeutils.DecimalUnscaled(val, decimalType.Precision, decimalType.Scale)
+		if err != nil {
+			return err
+		}
+		builder.Append(unscaled)
 	case *array.StringBuilder:
 		// OLake converts the data column to json format for a denormalized table
 		if mapVal, ok := val.(map[string]interface{}); ok {
@@ -342,7 +382,7 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 			}
 			builder.Append(string(jsonBytes))
 		} else {
-			builder.Append(fmt.Sprintf("%v", val))
+			builder.Append(utils.ConvertToString(val))
 		}
 	default:
 		return fmt.Errorf("unsupported builder type: %T", builder)
@@ -412,11 +452,35 @@ func arrowFieldsToParquet(field arrow.Field) (schema.Node, error) {
 		pqType = parquet.Types.ByteArray
 		logicalType = schema.StringLogicalType{}
 
+	case arrow.BINARY:
+		pqType = parquet.Types.ByteArray
+
+	case arrow.FIXED_SIZE_BINARY:
+		pqType = parquet.Types.FixedLenByteArray
+		width := field.Type.(*arrow.FixedSizeBinaryType).ByteWidth
+		if width < 0 || width > math.MaxInt32 {
+			return nil, fmt.Errorf("fixed binary column %s is %d bytes wide, which parquet cannot store", field.Name, width)
+		}
+		typeLength = int32(width)
+
 	case arrow.TIMESTAMP:
 		pqType = parquet.Types.Int64
 		tsType := field.Type.(*arrow.TimestampType)
 		adjustedToUTC := tsType.TimeZone != ""
 		logicalType = schema.NewTimestampLogicalType(adjustedToUTC, schema.TimeUnitMicros)
+
+	case arrow.DECIMAL128:
+		decimalType := field.Type.(*arrow.Decimal128Type)
+		logicalType = schema.NewDecimalLogicalType(decimalType.Precision, decimalType.Scale)
+		switch {
+		case decimalType.Precision <= 9:
+			pqType = parquet.Types.Int32
+		case decimalType.Precision <= 18:
+			pqType = parquet.Types.Int64
+		default:
+			pqType = parquet.Types.FixedLenByteArray
+			typeLength = types.DecimalBytes(decimalType.Precision)
+		}
 
 	default:
 		// Default to string for any unsupported types

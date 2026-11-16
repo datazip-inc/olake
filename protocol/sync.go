@@ -35,34 +35,29 @@ type StreamClassification struct {
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Olake sync command",
-	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+	PersistentPreRunE: func(_ *cobra.Command, _ []string) (err error) {
 		if configPath == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
-		} else if destinationConfigPath == "" {
-			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
-		} else if streamsPath == "" {
-			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--catalog not passed"))
+		} else if err := validateCatalogFlags(true); err != nil {
+			return err
 		}
 
 		// unmarshal source config
-		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
+		if err = utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
 
 		// unmarshal destination config
-		destinationConfig = &types.WriterConfig{}
-		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
+		if !destinationPassed() {
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
+		}
+		if err := loadDestinationConfig(); err != nil {
 			return err
 		}
 
 		// to set prefix for "test_olake" db created by OLake
 		if destinationDatabasePrefix != "" {
 			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
-		}
-
-		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
-			return err
 		}
 
 		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
@@ -81,6 +76,12 @@ var syncCmd = &cobra.Command{
 		// set state version to global variable to use throughout olake cli instance
 		constants.LoadedStateVersion = state.Version
 
+		// must stay after LoadedStateVersion is set: catalog decoding applies its state-version checks
+		catalog, err = types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
+		if err != nil {
+			return err
+		}
+
 		state.RWMutex = &sync.RWMutex{}
 
 		//version
@@ -96,14 +97,19 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Get Source Streams, sending 0 max discover threads to discover
-		streams, err := connector.Discover(cmd.Context(), 0, true)
+		if discoverSchema {
+			logger.Infof("Schema discovery enabled for sync; validating configured streams against source")
+		}
+
+		// Default: skip ProduceSchema (fast path). With --discover-schema, full
+		// Get Source Streams. Pass --discover-schema to re-discover and validate.
+		streams, err := connector.Discover(cmd.Context(), maxDiscoverThreads, !discoverSchema)
 		if err != nil {
 			return err
 		}
 
 		// get all types of selected streams
-		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
+		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state, destinationConfig.Type)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
@@ -158,7 +164,7 @@ var syncCmd = &cobra.Command{
 			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.Mix, connector.Type(), destinationConfig, len(catalog.Streams))
 			defer func() {
 				stats := pool.GetStats()
-				telemetry.TrackSyncCompleted(syncID, selectedStreamsMetadata.Mix, destinationConfig, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+				telemetry.TrackSyncCompleted(syncID, selectedStreamsMetadata.Mix, connector.Type(), destinationConfig, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 				logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 				time.Sleep(5 * time.Second)
 			}()
@@ -188,7 +194,7 @@ var syncCmd = &cobra.Command{
 	},
 }
 
-func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
+func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State, destinationType types.DestinationType) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
 		SelectedStreams:    []types.StreamInterface{},
@@ -211,8 +217,13 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
 	}
 
+	var failure error
+	matchedSelected := make(map[string]struct{}, len(selectedStreamsMap))
 	_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 		sMetadata, selected := selectedStreamsMap[elem.ID()]
+		if selected {
+			matchedSelected[elem.ID()] = struct{}{}
+		}
 		// Check if the stream is in the selectedStreamMap
 		if !(catalog.SelectedStreams == nil || selected) {
 			logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
@@ -227,8 +238,6 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
-			// TODO: addition of validation of fields during sync
-			// along with option to discover schema during sync
 			err := elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
@@ -236,9 +245,15 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
-		if err := elem.GetUpdateType().Validate(); err != nil {
-			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
-			return false
+		if err := elem.ValidateUpdateType(destinationType); err != nil {
+			failure = errs.Precondition(errs.ConfigInvalid, codeUpdateTypeInvalid,
+				fmt.Errorf("stream %s has an invalid update type: %w", elem.ID(), err))
+			return true
+		}
+		if err := elem.ValidateWriteMode(destinationType); err != nil {
+			// ValidateWriteMode classifies each failure with its own code
+			failure = fmt.Errorf("stream %s has an invalid write mode: %w", elem.ID(), err)
+			return true
 		}
 
 		filter, isLegacy, err := elem.GetFilter()
@@ -274,7 +289,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		// Past every skip branch, so the mix describes what this run actually syncs rather
 		// than everything the catalog configured.
 		classifications.Mix.Selected++
-		if elem.StreamMetadata.Normalization {
+		if elem.NormalizationEnabled() {
 			classifications.Mix.Normalized++
 		}
 
@@ -286,10 +301,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			classifications.Mix.StreamWithPosUpdateType++
 		}
 
-		switch elem.Stream.SyncMode {
+		syncMode := elem.GetSyncMode()
+		switch syncMode {
 		case types.CDC, types.STRICTCDC:
 			// One read path, two counters: the sync treats them alike, telemetry does not.
-			if elem.Stream.SyncMode == types.STRICTCDC {
+			if syncMode == types.STRICTCDC {
 				classifications.Mix.StrictCDC++
 			} else {
 				classifications.Mix.CDC++
@@ -313,6 +329,17 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 
 		return false
 	})
+	if failure != nil {
+		return nil, failure
+	}
+
+	// available_streams.json and selected_streams.json are edited separately, so a selected
+	// stream can be missing from streams[].
+	for id := range selectedStreamsMap {
+		if _, ok := matchedSelected[id]; !ok {
+			logger.Warnf("Skipping; selected stream %s has no matching entry in streams[]. Rediscover or check the streams file.", id)
+		}
+	}
 	// Clear previous state streams for non-selected streams.
 	// Must not be called during clear destination to retain the global and stream state. (clear dest. -> when streams == nil)
 	if streams != nil {

@@ -1,6 +1,7 @@
 package arrowwriter
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -11,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow/decimal128"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/twmb/murmur3"
 )
@@ -21,9 +24,12 @@ import (
 //
 // Supported Transforms:
 //   - Identity, Void: 			All data types
-//   - Bucket: 				int, long, string, timestamptz
-//   - Truncate: 				int, long, string
+//   - Bucket: 				int, long, string, timestamptz, binary, fixed, decimal
+//   - Truncate: 				int, long, string, binary, decimal
 //   - Year, Month, Day, Hour: 	timestamptz
+//
+// Bytes partition the way Iceberg reads them: a bucket hashes the stored bytes, a truncate keeps
+// their first width bytes, and the path carries the base64 Iceberg prints for a binary value.
 
 const NULL = "null"
 
@@ -59,6 +65,19 @@ func hashInt[T ~int32 | ~int64 | ~int](v T) uint32 {
 
 func hashString(s string) uint32 {
 	return murmur3.Sum32([]byte(s))
+}
+
+// minBigEndian is the fewest big endian two's complement bytes of n, as java's BigInteger.toByteArray
+// gives the decimal bucket hash.
+func minBigEndian(n decimal128.Num) []byte {
+	var b [16]byte
+	_, _ = binary.Encode(b[:8], binary.BigEndian, n.HighBits()) // writes the int64's own bits; 8 bytes always fit
+	binary.BigEndian.PutUint64(b[8:], n.LowBits())
+	i := 0
+	for i < len(b)-1 && (b[i] == 0x00 && b[i+1]&0x80 == 0 || b[i] == 0xff && b[i+1]&0x80 != 0) {
+		i++
+	}
+	return b[i:]
 }
 
 func identityTransform(val any, colType string) (pathStr string, typedVal any, err error) {
@@ -112,6 +131,21 @@ func identityTransform(val any, colType string) (pathStr string, typedVal any, e
 		typedVal = t.UnixMicro()
 		return pathStr, typedVal, nil
 	default:
+		if isBytes, _ := types.IsIcebergBytes(colType); isBytes {
+			b, err := typeutils.ReformatBytes(val)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to read bytes for identity transform (colType %q, valType %T): %s", colType, val, err)
+			}
+			return base64.StdEncoding.EncodeToString(b), b, nil
+		}
+		if precision, scale, isDecimal := types.IcebergDecimalParams(colType); isDecimal {
+			unscaled, err := typeutils.DecimalUnscaled(val, precision, scale)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to read decimal for identity transform (colType %q, valType %T): %s", colType, val, err)
+			}
+			text := typeutils.DecimalText(unscaled, scale)
+			return text, decimalText(text), nil
+		}
 		return fmt.Sprintf("%v", val), val, nil
 	}
 }
@@ -185,7 +219,22 @@ func bucketTransform(val any, num int, colType string) (pathStr string, typedVal
 		}
 		h = hashString(str)
 	default:
-		return "", nil, fmt.Errorf("unsupported colType %q for bucket transform", colType)
+		if precision, scale, isDecimal := types.IcebergDecimalParams(colType); isDecimal {
+			unscaled, err := typeutils.DecimalUnscaled(val, precision, scale)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to read decimal for bucket transform (colType %q, valType %T): %s", colType, val, err)
+			}
+			h = murmur3.Sum32(minBigEndian(unscaled))
+			break
+		}
+		if isBytes, _ := types.IsIcebergBytes(colType); !isBytes {
+			return "", nil, fmt.Errorf("unsupported colType %q for bucket transform", colType)
+		}
+		b, err := typeutils.ReformatBytes(val)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to read bytes for bucket transform (colType %q, valType %T): %s", colType, val, err)
+		}
+		h = murmur3.Sum32(b)
 	}
 
 	masked := int(h & 0x7FFFFFFF)
@@ -231,7 +280,28 @@ func truncateTransform(val any, n int, colType string) (pathStr string, typedVal
 		truncated := string(runes[:n])
 		return truncated, truncated, nil
 	default:
-		return "", nil, fmt.Errorf("unsupported colType %q for truncate transform", colType)
+		if precision, scale, isDecimal := types.IcebergDecimalParams(colType); isDecimal {
+			unscaled, err := typeutils.DecimalUnscaled(val, precision, scale)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to read decimal for truncate transform (colType %q, valType %T): %s", colType, val, err)
+			}
+			width := decimal128.FromI64(int64(n))
+			_, remainder := unscaled.Div(width)
+			_, floorRemainder := remainder.Add(width).Div(width)
+			text := typeutils.DecimalText(unscaled.Sub(floorRemainder), scale)
+			return text, decimalText(text), nil
+		}
+		if isBytes, isFixed := types.IsIcebergBytes(colType); !isBytes || isFixed {
+			return "", nil, fmt.Errorf("unsupported colType %q for truncate transform", colType)
+		}
+		b, err := typeutils.ReformatBytes(val)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to read bytes for truncate transform (colType %q, valType %T): %s", colType, val, err)
+		}
+		if len(b) > n {
+			b = b[:n]
+		}
+		return base64.StdEncoding.EncodeToString(b), b, nil
 	}
 }
 
@@ -285,6 +355,9 @@ func TransformValue(val any, transform string, colType string) (pathStr string, 
 	}
 }
 
+// decimalText is a decimal partition value's exact text, sent as decimal_value so Java reads a BigDecimal.
+type decimalText string
+
 func toProtoPartitionValues(values []any) ([]*proto.ArrowPayload_FileMetadata_PartitionValue, error) {
 	result := make([]*proto.ArrowPayload_FileMetadata_PartitionValue, len(values))
 
@@ -310,6 +383,10 @@ func toProtoPartitionValues(values []any) ([]*proto.ArrowPayload_FileMetadata_Pa
 			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_StringValue{StringValue: v}
 		case bool:
 			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_BoolValue{BoolValue: v}
+		case []byte:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_BytesValue{BytesValue: v}
+		case decimalText:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_DecimalValue{DecimalValue: string(v)}
 		default:
 			return nil, fmt.Errorf("unsupported partition value type: %T", v)
 		}

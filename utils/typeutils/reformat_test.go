@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -118,7 +119,20 @@ func TestReformatRecord(t *testing.T) {
 	}
 }
 
-// TestReformatValue tests the ReformatValue function
+func TestFieldsProcessBinary(t *testing.T) {
+	fields := Fields{"digest": NewField(types.FixedBinaryOf(4)), "blob": NewField(types.Binary)}
+
+	changed, typeChanged, mutations := fields.Process(types.Record{"digest": []byte{1, 2, 3, 4}, "blob": []byte{0xff}})
+	assert.False(t, changed)
+	assert.False(t, typeChanged, "a value cannot reveal a width, so it does not widen the column")
+	assert.Empty(t, mutations)
+	assert.Equal(t, types.FixedBinaryOf(4), fields["digest"].getType())
+
+	changed, _, mutations = fields.Process(types.Record{"digest": []byte{1, 2, 3, 4}, "extra": []byte{0x00}})
+	assert.True(t, changed)
+	assert.Equal(t, types.Binary, mutations["extra"].getType(), "a column seen only through values is plain binary")
+}
+
 func TestReformatValue(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -411,6 +425,178 @@ func TestReformatValue(t *testing.T) {
 			expectedErr: nil,
 		},
 
+		// ===== Binary =====
+		{
+			name:        "nil value on a binary column",
+			dataType:    types.Binary,
+			value:       nil,
+			expected:    nil,
+			expectedErr: nil,
+		},
+		{
+			name:        "binary keeps its bytes",
+			dataType:    types.Binary,
+			value:       []byte{0xff, 0x00},
+			expected:    []byte{0xff, 0x00},
+			expectedErr: nil,
+		},
+		{
+			name:        "fixed_binary is handled as binary",
+			dataType:    types.FixedBinaryOf(3),
+			value:       "abc",
+			expected:    []byte("abc"),
+			expectedErr: nil,
+		},
+		{
+			name:        "a string column still turns bytes into text",
+			dataType:    types.String,
+			value:       []byte("abc"),
+			expected:    "abc",
+			expectedErr: nil,
+		},
+
+		// ===== Decimal =====
+		{
+			name:        "decimal from text",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "123.45",
+			expected:    newDecimal(types.DecimalOf(10, 2), "12345"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal pads a short scale",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "123.4",
+			expected:    newDecimal(types.DecimalOf(10, 2), "12340"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal drops zeros that change nothing",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "+00012.300000",
+			expected:    newDecimal(types.DecimalOf(10, 2), "1230"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal negative zero is zero",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "-0",
+			expected:    newDecimal(types.DecimalOf(10, 2), "0"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from an exponent",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "1.2E+3",
+			expected:    newDecimal(types.DecimalOf(10, 2), "120000"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from database bytes",
+			dataType:    types.DecimalOf(10, 2),
+			value:       []byte("-0.5"),
+			expected:    newDecimal(types.DecimalOf(10, 2), "-50"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from a json number",
+			dataType:    types.DecimalOf(10, 2),
+			value:       json.Number("12.3"),
+			expected:    newDecimal(types.DecimalOf(10, 2), "1230"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from an integer",
+			dataType:    types.DecimalOf(10, 2),
+			value:       int64(-42),
+			expected:    newDecimal(types.DecimalOf(10, 2), "-4200"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from the shortest text of a float",
+			dataType:    types.DecimalOf(10, 2),
+			value:       0.1,
+			expected:    newDecimal(types.DecimalOf(10, 2), "10"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from a narrower decimal",
+			dataType:    types.DecimalOf(10, 2),
+			value:       newDecimal(types.DecimalOf(5, 1), "15"),
+			expected:    newDecimal(types.DecimalOf(10, 2), "150"),
+			expectedErr: nil,
+		},
+		{
+			name:        "big decimal keeps the value's own scale",
+			dataType:    types.BigDecimal,
+			value:       "100.555",
+			expected:    newDecimal(types.DecimalOf(6, 3), "100555"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal rejects a digit past its scale",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "123.456",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("value[123.456] has more than the 2 digits after the point a decimal(10,2) keeps"),
+		},
+		{
+			name:        "decimal rejects a value past its precision",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "123456789",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("value[123456789] does not fit a decimal(10,2)"),
+		},
+		{
+			name:        "decimal rejects more than 38 significant digits",
+			dataType:    types.DecimalOf(38, 0),
+			value:       "123456789012345678901234567890123456789",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("value[123456789012345678901234567890123456789] has more than 38 significant digits"),
+		},
+		{
+			name:        "decimal rejects an exponent past any decimal",
+			dataType:    types.DecimalOf(38, 0),
+			value:       "1e39",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("value[1e39] has more than 38 digits"),
+		},
+		{
+			name:        "decimal rejects text that is not a number",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "1.2.3",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("failed to change %q to decimal", "1.2.3"),
+		},
+		{
+			name:        "decimal writes NaN as null",
+			dataType:    types.DecimalOf(10, 2),
+			value:       math.NaN(),
+			expected:    nil,
+			expectedErr: ErrNullValue,
+		},
+		{
+			name:        "decimal writes the NaN text postgres sends as null",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "NaN",
+			expected:    nil,
+			expectedErr: ErrNullValue,
+		},
+		{
+			name:        "decimal rejects an unsupported type",
+			dataType:    types.DecimalOf(10, 2),
+			value:       true,
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("failed to change true (type:bool) to decimal"),
+		},
+		{
+			name:        "a string column prints a decimal exactly",
+			dataType:    types.String,
+			value:       newDecimal(types.DecimalOf(38, 10), "-12345678901234567890123456780123456789"),
+			expected:    "-1234567890123456789012345678.0123456789",
+			expectedErr: nil,
+		},
+
 		// ===== Default =====
 		{
 			name:        "default passthrough",
@@ -515,6 +701,36 @@ func TestParseFilterValue(t *testing.T) {
 			expectedErr: nil,
 		},
 
+		// ===== Decimal keeps the literal's own scale =====
+		{
+			name:        "decimal past the column's scale",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "100.555",
+			expected:    newDecimal(types.DecimalOf(6, 3), "100555"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal from a number",
+			dataType:    types.DecimalOf(10, 2),
+			value:       10,
+			expected:    newDecimal(types.DecimalOf(2, 0), "10"),
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal null stays null",
+			dataType:    types.DecimalOf(10, 2),
+			value:       nil,
+			expected:    nil,
+			expectedErr: nil,
+		},
+		{
+			name:        "decimal rejects text that is not a number",
+			dataType:    types.DecimalOf(10, 2),
+			value:       "abc",
+			expected:    Decimal{},
+			expectedErr: fmt.Errorf("failed to change %q to decimal", "abc"),
+		},
+
 		// ===== Default → ReformatValue =====
 		{
 			name:        "int64",
@@ -545,7 +761,131 @@ func TestParseFilterValue(t *testing.T) {
 	}
 }
 
+// TestParseFilterValueBinary tests that a binary filter value is hex from state version 8 only
+func TestParseFilterValueBinary(t *testing.T) {
+	tests := []struct {
+		name         string
+		stateVersion int
+		dataType     types.DataType
+		value        any
+		expected     any
+		expectedErr  error
+	}{
+		{
+			name:         "hex",
+			stateVersion: 8,
+			dataType:     types.Binary,
+			value:        "00ff10fe",
+			expected:     []byte{0x00, 0xff, 0x10, 0xfe},
+		},
+		{
+			name:         "fixed binary hex",
+			stateVersion: 8,
+			dataType:     types.FixedBinaryOf(2),
+			value:        "FFFE",
+			expected:     []byte{0xff, 0xfe},
+		},
+		{
+			name:         "not hex",
+			stateVersion: 8,
+			dataType:     types.Binary,
+			value:        "update12",
+			expectedErr:  fmt.Errorf("binary filter value[update12] is not hex: %w", hex.InvalidByteError('u')),
+		},
+		{
+			name:         "text before state version 8",
+			stateVersion: 7,
+			dataType:     types.Binary,
+			value:        "update12",
+			expected:     []byte("update12"),
+		},
+	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			result, err := ParseFilterValue(tc.dataType, tc.value)
+			assert.Equal(t, tc.expectedErr, err)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 // TestReformatBool tests the ReformatBool function
+func TestReformatBytes(t *testing.T) {
+	raw := []byte{0xff, 0x00, 0x80, 0x41}
+	ptr := &raw
+	var nilPtr *[]byte
+
+	testCases := []struct {
+		name     string
+		input    any
+		expected []byte
+		wantErr  error
+	}{
+		{
+			name:     "byte slice passes through",
+			input:    raw,
+			expected: raw,
+		},
+		{
+			name:     "pointer to byte slice",
+			input:    ptr,
+			expected: raw,
+		},
+		{
+			name:    "nil pointer is a null value",
+			input:   nilPtr,
+			wantErr: ErrNullValue,
+		},
+		{
+			name:     "string contributes its utf8 bytes",
+			input:    "héllo",
+			expected: []byte("héllo"),
+		},
+		{
+			name:     "empty slice stays empty",
+			input:    []byte{},
+			expected: []byte{},
+		},
+		{
+			name:    "nil is a null value",
+			input:   nil,
+			wantErr: ErrNullValue,
+		},
+		{
+			name:     "a number becomes the bytes of its text",
+			input:    int64(42),
+			expected: []byte("42"),
+		},
+		{
+			name:     "a bool becomes the bytes of its text",
+			input:    true,
+			expected: []byte("true"),
+		},
+		{
+			name:     "a map becomes the bytes of its text",
+			input:    map[string]any{"a": 1},
+			expected: []byte("map[a:1]"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ReformatBytes(tc.input)
+			if tc.wantErr != nil {
+				assert.Equal(t, tc.wantErr, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
 func TestReformatBool(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -2152,6 +2492,14 @@ func TestReformatFloat64(t *testing.T) {
 			v:           " 123",
 			expected:    float64(0),
 			expectedErr: fmt.Errorf("failed to change string %v to float64: %v", " 123", &strconv.NumError{Func: "ParseFloat", Num: " 123", Err: strconv.ErrSyntax}),
+		},
+
+		// ===== decimal =====
+		{
+			name:        "decimal is the nearest float64",
+			v:           newDecimal(types.DecimalOf(38, 10), "-12345678901234567890123456780123456789"),
+			expected:    float64(-1234567890123456789012345678.0123456789),
+			expectedErr: nil,
 		},
 
 		// ===== unsupported =====

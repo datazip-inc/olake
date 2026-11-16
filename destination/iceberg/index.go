@@ -25,16 +25,17 @@ func (i *Iceberg) reconcileTableIndex(ctx context.Context, index types.StreamInd
 	table := fmt.Sprintf("%s.%s", i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.GetDestinationTable())
 
 	if hasEqualityDeletes {
-		// first check for equality deletes and migrate them to positional deletes
+		// Rewrite straight into the stream's target encoding, one commit, not eq -> pos -> dv.
 		migrated, err := i.server.tableIndexClient.MigrateEqualityDeletes(ctx, &proto.MigrateEqualityDeletesRequest{
-			ThreadId: i.options.ThreadID,
+			ThreadId:   i.options.ThreadID,
+			TargetMode: protoDeleteMode(i.stream.GetUpdateType()),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to migrate equality deletes of table[%s]: %s", table, err)
 		}
 
-		logger.Infof("Table[%s]: rewrote %d equality delete file(s) as %d positional delete(s)",
-			table, migrated.GetRewrittenDeleteFiles(), migrated.GetPositionalDeletesWritten())
+		logger.Infof("Table[%s]: rewrote %d equality delete file(s) as %d %s delete(s)",
+			table, migrated.GetRewrittenDeleteFiles(), migrated.GetPositionalDeletesWritten(), i.stream.GetUpdateType())
 	}
 
 	indexedSnapshotID, err := index.LastCommittedSnapshot()

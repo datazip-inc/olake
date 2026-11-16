@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,9 @@ type MSSQL struct {
 	isReadReplica bool
 	sshClient     *ssh.Client
 	primaryClient *sqlx.DB
+	// prerequisites holds the CDC setup checks evaluated in Setup; when the config selects CDC,
+	// unmet required checks fail Setup via abstract.RequireCDCPrerequisites.
+	prerequisites types.PrerequisiteResults
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -74,17 +78,6 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to MSSQL: %w", err)
 	}
 
-	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
-	// Enable CDC support if database-level CDC is enabled
-	cdcSupported, err := m.isDatabaseCDCEnabled(ctx)
-	if err != nil {
-		logger.Warnf("failed to check CDC support: %s", err)
-	}
-	if !cdcSupported {
-		logger.Warnf("CDC is not supported")
-	}
-	m.cdcSupported = cdcSupported
-
 	m.isReadReplica = m.detectReadReplica(ctx)
 	if m.isReadReplica {
 		logger.Info("Connected to a read-only MSSQL replica; agent catch-up wait will be skipped")
@@ -103,6 +96,33 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		}
 		logger.Info("connected to primary node successfully for capture instance management")
 	}
+
+	var cdcSelected bool
+	switch utils.UpdateMethodType(m.config.UpdateMethod) {
+	case constants.UpdateMethodStandalone:
+		logger.Info("Standard Replication is selected")
+		return nil
+	case constants.UpdateMethodCDC:
+		logger.Info("Found CDC Configuration")
+		cdcSelected = true
+	default:
+		// Config predates update_method: CDC stays available, and the prerequisites are
+		// reported without blocking anything (legacy sources must keep syncing).
+		logger.Info("No update method configured, keeping CDC available for this source")
+	}
+	// needs isReadReplica and primaryClient, both set above
+	m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks(cdcSelected))
+	if cdcSelected {
+		// The config selects CDC, so an unmet requirement fails the connection test rather than
+		// leaving a source that cannot sync.
+		if err := abstract.RequireCDCPrerequisites(m.Type(), m.prerequisites); err != nil {
+			return err
+		}
+	}
+	// Reached once the required checks pass (CDC selected), or for a legacy config whose checks
+	// are advisory. Legacy sources keep CDC only when the database has it enabled, so discovery
+	// defaults to incremental instead of a CDC mode that would fail in PreCDC.
+	m.cdcSupported = cdcSelected || legacyCDCSupported(m.prerequisites)
 	return nil
 }
 
@@ -244,6 +264,8 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 		type columnInfo struct {
 			name         string
 			dataType     string
+			precision    sql.NullInt64
+			scale        sql.NullInt64
 			isNullable   string
 			isPrimaryKey bool
 		}
@@ -251,7 +273,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 		var columns []columnInfo
 		for rows.Next() {
 			var colInfo columnInfo
-			if err := rows.Scan(&colInfo.name, &colInfo.dataType, &colInfo.isNullable, &colInfo.isPrimaryKey); err != nil {
+			if err := rows.Scan(&colInfo.name, &colInfo.dataType, &colInfo.precision, &colInfo.scale, &colInfo.isNullable, &colInfo.isPrimaryKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			columns = append(columns, colInfo)
@@ -266,6 +288,11 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 			var datatype types.DataType
 			if val, found := mssqlTypeToDataTypes[strings.ToLower(column.dataType)]; found {
 				datatype = val
+				// money and smallmoney report their fixed DECIMAL(19,4) and DECIMAL(10,4); integer and float
+				// columns carry a NUMERIC_PRECISION too
+				if slices.Contains(exactNumericTypes, strings.ToLower(column.dataType)) && column.precision.Valid && column.scale.Valid {
+					datatype = types.NumericOf(column.precision.Int64, column.scale.Int64)
+				}
 			} else {
 				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
 				datatype = types.String
