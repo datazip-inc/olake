@@ -65,11 +65,20 @@ func TestPostgresDiscover(t *testing.T) {
 	cfg.TestDiscover(t)
 }
 
+func TestPostgresUnchangedToastRecovery(t *testing.T) {
+	t.Parallel()
+	cfg := postgresBaseConfig(t)
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+	createReplicationSlot(t, cfg.TestConfig)
+	cfg.TestUnchangedToastRecovery(t)
+}
+
 // postgresSyncConfig adds to postgresBaseConfig what the sync suites verify after the update sync, and
 // the replication slot the suite's source config points at.
 func postgresSyncConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
 	cfg := postgresBaseConfig(t, opts...)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.ExpectedCDCUpdatedData = ExpectedCDCUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
 	createReplicationSlot(t, cfg.TestConfig)
 	return cfg
@@ -78,6 +87,81 @@ func postgresSyncConfig(t *testing.T, opts ...testutils.TestConfigOption) *integ
 func TestPostgresSync(t *testing.T) {
 	t.Parallel()
 	postgresSyncConfig(t).TestSync(t)
+}
+
+// TestPostgresDecimalSync partitions and filters on a NUMERIC(18,4) column that evolve-schema widens to NUMERIC(20,4).
+// The filter cases use the decimal cursor so incremental reads the filtered insert row too; the 18 digit filter value is a string.
+func TestPostgresDecimalSync(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name      string
+		configure func(cfg *integration.TestHandler)
+	}{
+		{
+			name: "partition",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.PartitionRegex = "/{col_decimal,identity}"
+			},
+		},
+		{
+			// keeps only the filtered rows and the updated row the update phase asserts; each bound sits a
+			// ten-thousandth from a kept value
+			name: "filter_inclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "col_cursor_decimal:col_int"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "col_decimal",
+                            "operator": "<",
+                            "value": 50.1231
+                        },
+                        {
+                            "column": "col_decimal",
+                            "operator": ">",
+                            "value": 543.2099
+                        }
+                    ]
+                }`
+				cfg.ExpectedData = ExpectedFilteredData
+			},
+		},
+		{
+			// drops the filtered rows; the 18 digit updated row drops out too if its filter value rounds
+			// through a double
+			name: "filter_exclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "col_cursor_decimal:col_int"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "col_decimal",
+                            "operator": "=",
+                            "value": "123.4500"
+                        },
+                        {
+                            "column": "col_decimal",
+                            "operator": "=",
+                            "value": "12345678901234.5678"
+                        }
+                    ]
+                }`
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := postgresSyncConfig(t)
+			tc.configure(cfg)
+			cfg.TestCommonSync(t)
+			if !testutils.KeepTestData() {
+				cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+			}
+		})
+	}
 }
 
 func TestPostgres2PC(t *testing.T) {

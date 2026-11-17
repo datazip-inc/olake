@@ -1,5 +1,7 @@
 package io.olake.iceberg;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -127,6 +129,10 @@ public class SchemaConvertor {
               case FIXED:
                   if (value.hasBytesValue()) return value.getBytesValue().toByteArray();
                   return null;
+              case DECIMAL:
+                  // Exact text; a narrower scale pads with zeros, a wider one throws rather than round.
+                  if (value.hasStringValue()) return new BigDecimal(value.getStringValue()).setScale(((Types.DecimalType) field.type()).scale(), RoundingMode.UNNECESSARY);
+                  return null;
               case TIMESTAMP:
                   // Epoch micros, matching what the Go legacy writer encodes for timestamptz.
                   if (value.hasLongValue()) return DateTimeUtil.timestamptzFromMicros(value.getLongValue());
@@ -154,11 +160,16 @@ public class SchemaConvertor {
   }
 
   private static final Pattern FIXED_TYPE = Pattern.compile("^fixed\\[(\\d+)\\]$");
+  private static final Pattern DECIMAL_TYPE = Pattern.compile("^decimal\\((\\d+),\\s*(\\d+)\\)$");
 
   private static Type.PrimitiveType icebergPrimitiveField(String fieldType) {
     Matcher fixed = FIXED_TYPE.matcher(fieldType);
     if (fixed.matches()) {
       return Types.FixedType.ofLength(Integer.parseInt(fixed.group(1)));
+    }
+    Matcher decimal = DECIMAL_TYPE.matcher(fieldType);
+    if (decimal.matches()) {
+      return Types.DecimalType.of(Integer.parseInt(decimal.group(1)), Integer.parseInt(decimal.group(2)));
     }
     switch (fieldType) {
       case "int": // int 4 bytes

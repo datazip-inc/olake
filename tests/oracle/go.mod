@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/tests/oracle
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/apache/arrow-go/v18 v18.2.0

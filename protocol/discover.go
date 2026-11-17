@@ -102,7 +102,8 @@ var discoverCmd = &cobra.Command{
 				errors.New("no streams found in connector"))
 		}
 
-		types.ApplyDestinationDefaults(streams, availableUpdateTypes, !types.UpsertSupported(destinationConfig.Type))
+		availableWriteModes := types.AvailableWriteModes(destinationConfig.Type, connector.SupportedWriteModes())
+		types.ApplyDestinationDefaults(streams, availableUpdateTypes, availableWriteModes)
 		types.LogCatalog(streams, catalog, availableUpdateTypes)
 
 		// Discover Telemetry Tracking

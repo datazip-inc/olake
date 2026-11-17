@@ -151,7 +151,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					constants.OlakeTimestamp: time.Now().UTC(),
 				}
 				filteredData := filterDataBySelectedColumnsFn(record)
-				return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns), sourceBytes)
+				return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns, nil), sourceBytes)
 			})
 		})
 		return nil
@@ -235,6 +235,9 @@ func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 		return v.UTC().Format(constants.DefaultStateTimestampFormat)
 	case primitive.ObjectID:
 		return v.Hex()
+	case typeutils.Decimal:
+		// exact text: a JSON number reads back from state as a float64, rounding the cursor
+		return v.String()
 	case []byte:
 		switch {
 		case !utils.IsBinarySupported():

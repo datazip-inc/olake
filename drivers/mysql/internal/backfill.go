@@ -54,6 +54,10 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	if err != nil {
 		return fmt.Errorf("failed to parse filter during chunk iteration: %w", err)
 	}
+	unsignedDecimals, err := m.unsignedDecimals(ctx, stream)
+	if err != nil {
+		return err
+	}
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
 		// Build query for the chunk
@@ -75,7 +79,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
-		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlColumnSizer)
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlColumnSizer, mysqlColumnTypeName(unsignedDecimals))
 	})
 }
 

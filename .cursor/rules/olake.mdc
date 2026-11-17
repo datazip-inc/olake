@@ -10,7 +10,7 @@ alwaysApply: true
 
 OLake is an open-source, high-performance **EL (Extract-Load)** tool that replicates data from databases, Kafka, and S3 into **Apache Iceberg** tables or **plain Parquet** files.
 
-- **Languages:** Go 1.26.10 (primary) + Java 17 (Iceberg writer)
+- **Languages:** Go 1.26.11 (primary) + Java 17 (Iceberg writer)
 - **Go workspace:** `go.work` links the root module with 8 driver sub-modules
 - **CLI:** Cobra-based commands: `spec`, `check`, `discover`, `sync`, `clear`
 - **Sources:** Postgres, MongoDB, MySQL, Oracle, MSSQL, DB2, Kafka, S3
@@ -43,7 +43,7 @@ OLake is an open-source, high-performance **EL (Extract-Load)** tool that replic
 │   └── parquet/                     # Plain Parquet destination
 ├── types/                           # Core types (Stream, Catalog, State, Record, DataType)
 ├── utils/                           # Concurrency, flattening, type resolution, logging, telemetry
-├── pkg/                             # Protocol packages (waljs, binlog, jdbc, kafka, parser)
+├── pkg/                             # Shared packages (jdbc, kafka, indexdb, objstorage)
 └── constants/                       # Global constants, DriverType enum
 ```
 
