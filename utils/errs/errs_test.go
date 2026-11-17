@@ -274,6 +274,11 @@ func TestStandard(t *testing.T) {
 			expectedCategory: TLSFailed,
 		},
 
+		// address and network configuration errors
+		{name: "address error", err: &net.AddrError{Err: "missing port in address", Addr: "localhost"}, expectedCategory: ConfigInvalid, expectedCode: "invalid_address"},
+		{name: "address error wrapped in op error", err: &net.OpError{Op: "dial", Err: &net.AddrError{Err: "invalid port", Addr: "localhost:99999"}}, expectedCategory: ConfigInvalid, expectedCode: "invalid_address"},
+		{name: "unknown network error", err: net.UnknownNetworkError("custom_proto"), expectedCategory: ConfigInvalid, expectedCode: "unknown_network"},
+
 		// DNS, split by what a reader would do about it
 		{name: "dns not found", err: &net.DNSError{IsNotFound: true}, expectedCategory: DNSResolutionFailed, expectedCode: "host_not_found"},
 		{name: "dns resolver timeout", err: &net.DNSError{IsTimeout: true}, expectedCategory: DNSResolutionFailed, expectedCode: "resolver_timeout"},

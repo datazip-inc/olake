@@ -304,6 +304,22 @@ func standard(err error) Failure {
 		return stdlib(Timeout)
 	}
 
+	// Address and protocol configuration errors: a malformed host:port or unsupported
+	// network name is an invalid configuration, not a connectivity problem.
+	var addrErr *net.AddrError
+	if errors.As(err, &addrErr) {
+		f := stdlib(ConfigInvalid)
+		f.Code = "invalid_address"
+		return f
+	}
+
+	var unknownNetErr net.UnknownNetworkError
+	if errors.As(err, &unknownNetErr) {
+		f := stdlib(ConfigInvalid)
+		f.Code = "unknown_network"
+		return f
+	}
+
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		f := stdlib(NetworkUnreachable)
