@@ -21,13 +21,34 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
+// additiveCategories are the categories where the upgrade may carry keys the reference lacks: a new
+// table property or a new olake_2pc field describes the table without changing what was written.
+// Everywhere else a key only the upgrade has is extra output -- another delete file, another
+// partition, another commit -- so keys must match both ways.
+var additiveCategories = []string{testutils.MetaProperties, testutils.MetaOlake2PC}
+
 // compareDestinationMetadata asserts both sides' metadata match outside the skipped categories. It
-// runs after compareDestinationOutputs, so the rows already match.
+// runs after compareDestinationOutputs, so the rows already match. Every reference key must hold the
+// same value after the upgrade; a key only the upgrade has passes in additiveCategories alone.
 func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgraded testutils.DestinationMetadata, opaque bool, skip []string) {
 	referenceFlat, upgradedFlat := flatten(reference, opaque, skip), flatten(upgraded, opaque, skip)
+	var added []string
+	maps.DeleteFunc(upgradedFlat, func(key, _ string) bool {
+		_, inReference := referenceFlat[key]
+		category, _, _ := strings.Cut(key, ".")
+		if inReference || !slices.Contains(additiveCategories, category) {
+			return false
+		}
+		added = append(added, key)
+		return true
+	})
 	if !maps.Equal(referenceFlat, upgradedFlat) {
 		diag.fatalf(t, "destination metadata differs between the reference and upgrade runs.\n%s",
 			indent(require.MapDiff("metadata key", "reference run", "post olake upgrade", referenceFlat, upgradedFlat), "  "))
+	}
+	if len(added) > 0 {
+		slices.Sort(added)
+		t.Logf("metadata the upgrade added, allowed as additive: %v", added)
 	}
 	t.Logf("metadata identical: %d keys compared, categories skipped by rule: %v", len(referenceFlat), skip)
 }
@@ -52,28 +73,33 @@ func flatten(m testutils.DestinationMetadata, opaque bool, skip []string) map[st
 			continue
 		}
 		for partition, partitionCounts := range partitions {
-			if !opaque {
-				for key, n := range partitionCounts {
-					counts[category+"."+strings.ReplaceAll(key, "%p", partition)] += n
-				}
+			if opaque {
+				counts[category+".partitions["+partitionSignature(partitionCounts)+"]"]++
 				continue
 			}
-			var signature []string
 			for key, n := range partitionCounts {
-				label := strings.Join(strings.Fields(strings.ReplaceAll(key, "%p", "")), " ")
-				if label == "" {
-					label = "records"
-				}
-				signature = append(signature, fmt.Sprintf("%s=%d", label, n))
+				counts[category+"."+strings.ReplaceAll(key, "%p", partition)] += n
 			}
-			slices.Sort(signature)
-			counts[category+".partitions["+strings.Join(signature, ", ")+"]"]++
 		}
 	}
 	for key, n := range counts {
 		flat[key] = strconv.FormatInt(n, 10)
 	}
 	return flat
+}
+
+// partitionSignature is a partition's counts without the partition, e.g. "data=2, delete position parquet []=1".
+func partitionSignature(counts map[string]int64) string {
+	signature := make([]string, 0, len(counts))
+	for key, n := range counts {
+		label := strings.Join(strings.Fields(strings.ReplaceAll(key, "%p", "")), " ")
+		if label == "" {
+			label = "records"
+		}
+		signature = append(signature, fmt.Sprintf("%s=%d", label, n))
+	}
+	slices.Sort(signature)
+	return strings.Join(signature, ", ")
 }
 
 // opaquePartitions reports whether any partition source column is compared by type only, so its

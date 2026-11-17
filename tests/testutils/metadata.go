@@ -12,10 +12,7 @@ package testutils
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
-	"slices"
 	"strconv"
-	"strings"
 )
 
 // Metadata categories: the unit a compatibility metadata rule exempts. Not every destination fills
@@ -86,7 +83,8 @@ func (m DestinationMetadata) addPartition(category, partition, key string, n int
 
 // normalizeOlake2PC keeps what of an olake_2pc document two runs share: which fields it carries,
 // dedup_inserts, and how many full-refresh commits it recorded. The thread id and the source
-// position in state differ between two runs by construction.
+// position in state differ between two runs by construction. Each field is its own key, so a field
+// a newer build adds is a new key rather than a changed value.
 func normalizeOlake2PC(m DestinationMetadata, raw string) {
 	if raw == "" {
 		m.set(MetaOlake2PC, "present", "false")
@@ -98,7 +96,9 @@ func normalizeOlake2PC(m DestinationMetadata, raw string) {
 		m.set(MetaOlake2PC, "parse_error", err.Error())
 		return
 	}
-	m.set(MetaOlake2PC, "fields", strings.Join(slices.Sorted(maps.Keys(doc)), ","))
+	for field := range doc {
+		m.set(MetaOlake2PC, "field."+field, "present")
+	}
 	if v, ok := doc["dedup_inserts"]; ok {
 		m.set(MetaOlake2PC, "dedup_inserts", fmt.Sprint(v))
 	}
