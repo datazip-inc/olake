@@ -152,6 +152,9 @@ func From(err error) (f Failure) {
 // maxUnwrapDepth bounds the walk so a cyclic chain cannot hang a failure report.
 const maxUnwrapDepth = 100
 
+// codeDNSResolverTimeout marks a DNS lookup that timed out, as opposed to a name that does not exist.
+const codeDNSResolverTimeout = "resolver_timeout"
+
 // walk searches err for the answer accept recognizes. Two chain shapes exist: %w unwraps one
 // error at a time, so the walk keeps descending and a deeper answer replaces a shallower one;
 // errors.Join unwraps to a slice, which errors.Unwrap does not follow, so branches are searched
@@ -293,7 +296,7 @@ func standard(err error) Failure {
 		case dnsErr.IsNotFound:
 			f.Code = "host_not_found"
 		case dnsErr.IsTimeout:
-			f.Code = "resolver_timeout"
+			f.Code = codeDNSResolverTimeout
 		}
 		return f
 	}
@@ -383,7 +386,7 @@ func IsTransient(err error) bool {
 		return true
 	case DNSResolutionFailed:
 		// a resolver that timed out is infrastructure; a name that does not exist is a typo
-		return f.Code == "resolver_timeout"
+		return f.Code == codeDNSResolverTimeout
 	}
 	return false
 }

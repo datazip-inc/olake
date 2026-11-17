@@ -149,8 +149,9 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		utils.ConcurrentInGroup(a.GlobalConnGroup, streams, func(ctx context.Context, _ int, stream types.StreamID) (err error) {
 			var streamSchema *types.Stream
 			err = a.retryTransient(ctx, func(ctx context.Context) error {
-				streamSchema, err = a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
-				return err
+				var produceErr error
+				streamSchema, produceErr = a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
+				return produceErr
 			})
 			if err != nil {
 				return fmt.Errorf("failed to produce schema for stream %s: %w", stream, err)
@@ -231,8 +232,9 @@ func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler Samp
 		utils.ConcurrentInGroup(a.GlobalConnGroup, streams, func(ctx context.Context, _ int, streamID types.StreamID) (err error) {
 			var stream *types.Stream
 			err = a.retryTransient(ctx, func(ctx context.Context) error {
-				stream, err = sampler.ProduceSampledSchema(ctx, streamID, limit)
-				return err
+				var produceErr error
+				stream, produceErr = sampler.ProduceSampledSchema(ctx, streamID, limit)
+				return produceErr
 			})
 			// a sample that returns after the timeout may be cut short without an error (Kafka
 			// reads a poll deadline as "caught up"), so it never replaces the previous bucket
