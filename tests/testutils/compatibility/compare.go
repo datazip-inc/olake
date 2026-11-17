@@ -74,7 +74,7 @@ func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicie
 		upgradedMetadata = testutils.ReadParquetMetadata(ctx, t, upgradedDB, upgradedTable)
 		partitionColumns = reference.PartitionColumns()
 	}
-	compareDestinationMetadata(t, diag, referenceMetadata, upgradedMetadata, opaquePartitions(partitionColumns, policies.typeOnly), policies.metadataSkip)
+	compareDestinationMetadata(t, diag, referenceMetadata, upgradedMetadata, opaquePartitions(partitionColumns, policies.typeOnly))
 }
 
 // icebergTable refreshes and returns the fully-qualified name of an Iceberg table: the shared

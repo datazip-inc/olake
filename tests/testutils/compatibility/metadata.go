@@ -6,8 +6,8 @@ package compatibility
 // rows and still differ where readers and resumes look: one more snapshot per sync, equality deletes
 // where the other wrote positional ones, a column without stats, an olake_2pc a later sync cannot
 // resume from. testutils reads and normalizes each side's metadata (testutils.ReadIcebergMetadata,
-// testutils.ReadParquetMetadata); this file applies the suite's rules to both and compares the rest
-// as one flat map, so a difference reads as one line per key.
+// testutils.ReadParquetMetadata); this file compares the two as one flat map, so a difference reads
+// as one line per key.
 
 import (
 	"fmt"
@@ -21,15 +21,15 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// compareDestinationMetadata asserts the reference's metadata survives the upgrade outside the
-// skipped categories. It runs after compareDestinationOutputs, so the rows already match.
+// compareDestinationMetadata asserts the reference's metadata survives the upgrade. It runs after
+// compareDestinationOutputs, so the rows already match.
 //
 // The reference must be a subset of the upgrade: every key it has must hold the same value after the
 // upgrade, since a removed or changed key is what an older reader or resume trips on. A key only the
 // upgrade has is an addition, which is not incompatible, so it is logged rather than failed. Extra
 // output still fails, because every count also feeds a total the reference has (see flatten).
-func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgraded testutils.DestinationMetadata, opaque bool, skip []string) {
-	referenceFlat, upgradedFlat := flatten(reference, opaque, skip), flatten(upgraded, opaque, skip)
+func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgraded testutils.DestinationMetadata, opaque bool) {
+	referenceFlat, upgradedFlat := flatten(reference, opaque), flatten(upgraded, opaque)
 	var added []string
 	maps.DeleteFunc(upgradedFlat, func(key, _ string) bool {
 		if _, inReference := referenceFlat[key]; inReference {
@@ -46,7 +46,7 @@ func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgr
 		slices.Sort(added)
 		t.Logf("metadata the upgrade added, not compared: %v", added)
 	}
-	t.Logf("metadata identical: %d keys compared, categories skipped by rule: %v", len(referenceFlat), skip)
+	t.Logf("metadata identical: %d keys compared", len(referenceFlat))
 }
 
 // countedCategories are the per-partition categories flatten totals. A total is written even when
@@ -54,30 +54,22 @@ func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgr
 // changes a key the reference has instead of only adding keys, which the subset comparison allows.
 var countedCategories = []string{testutils.MetaFiles, testutils.MetaDataRecords, testutils.MetaDeleteRecords}
 
-// flatten is the compared form: "category.key" -> value, without the skipped categories. With opaque
-// partitions -- partitioned on a column whose values cannot match across two runs, such as MongoDB's
-// server-generated _id -- each partition is reduced to its counts, and what is compared is how many
-// partitions have each set of counts.
-func flatten(m testutils.DestinationMetadata, opaque bool, skip []string) map[string]string {
+// flatten is the compared form: "category.key" -> value. With opaque partitions -- partitioned on a
+// column whose values cannot match across two runs, such as MongoDB's server-generated _id -- each
+// partition is reduced to its counts, and what is compared is how many partitions have each set of
+// counts.
+func flatten(m testutils.DestinationMetadata, opaque bool) map[string]string {
 	flat := map[string]string{}
 	for category, values := range m.Values {
-		if slices.Contains(skip, category) {
-			continue
-		}
 		for key, value := range values {
 			flat[category+"."+key] = value
 		}
 	}
 	counts := map[string]int64{}
 	for _, category := range countedCategories {
-		if !slices.Contains(skip, category) {
-			counts[category+".total"] = 0
-		}
+		counts[category+".total"] = 0
 	}
 	for category, partitions := range m.Partitions {
-		if slices.Contains(skip, category) {
-			continue
-		}
 		for partition, partitionCounts := range partitions {
 			for _, n := range partitionCounts {
 				counts[category+".total"] += n

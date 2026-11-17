@@ -161,7 +161,7 @@ on `data_types` applies to every writer:
 }
 ```
 
-## Metadata rules
+## Metadata comparison
 
 After the rows match, the tests also compare each side's destination
 metadata: for Iceberg, the table's metadata file and its files table; for
@@ -179,8 +179,7 @@ logged as added and not failed. Extra output still fails: `files`,
 is zero, so another file, delete or partition changes a total the reference
 has.
 
-The rest is grouped into categories, and a metadata rule leaves whole
-categories out:
+Each key starts with its category:
 
 | Category | Iceberg | Parquet |
 | --- | --- | --- |
@@ -199,25 +198,12 @@ categories out:
 | `column_stats` | null count per column | null count per column |
 | `file_schema` | | physical type, logical type and repetition per column |
 
-A metadata rule has three fields:
+`files`, `data_records` and `delete_records` also carry the `total` above.
 
-| Field | Meaning |
-| --- | --- |
-| `keys` | the categories it leaves out |
-| `assert_from` | compare them from this release on; without it, never compare them |
-| `note` | why |
-
-```json
-"*": {
-  "metadata_rules": [
-    {"keys": ["files"], "assert_from": "v0.12.0", "note": "file rolling target changed in v0.12.0"}
-  ]
-}
-```
-
-A metadata rule can go under `"*"` or a driver, like any rule. A baseline
-that is not a release reads as the newest, so only rules without
-`assert_from` apply to it.
+There are no metadata rules: `compatibility_rules.json` cannot exempt a
+category. Metadata an older release legitimately wrote differently is fixed in
+the reader's normalization, or the difference is the incompatibility the suite
+exists to catch.
 
 ## Worked example: mysql against v0.4.1
 

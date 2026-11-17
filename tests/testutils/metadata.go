@@ -15,8 +15,8 @@ import (
 	"strconv"
 )
 
-// Metadata categories: the unit a compatibility metadata rule exempts. Not every destination fills
-// every one.
+// Metadata categories: the first part of every key, grouping what is read. Not every destination
+// fills every one.
 const (
 	MetaSpec             = "spec"              // iceberg: format version, partition spec, sort order
 	MetaIdentifierFields = "identifier_fields" // iceberg: identifier columns
@@ -33,11 +33,6 @@ const (
 	MetaColumnStats      = "column_stats"      // null counts per column, from file statistics
 	MetaFileSchema       = "file_schema"       // parquet: physical and logical type per column
 )
-
-var MetadataCategories = []string{
-	MetaSpec, MetaIdentifierFields, MetaSchemas, MetaFieldIDs, MetaProperties, MetaOlake2PC, MetaStaging,
-	MetaSnapshots, MetaTotals, MetaFiles, MetaDataRecords, MetaDeleteRecords, MetaColumnStats, MetaFileSchema,
-}
 
 // DestinationMetadata is one table's normalized metadata.
 type DestinationMetadata struct {

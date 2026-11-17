@@ -8,7 +8,6 @@ import (
 	"log"
 	"slices"
 
-	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"golang.org/x/mod/semver"
 )
@@ -22,18 +21,9 @@ const allDrivers = "*"
 
 // compatibilityGate bounds which baselines a scope runs against. Empty fields mean no bound.
 type compatibilityGate struct {
-	MinBaseline   string                  `json:"min_baseline"`
-	Note          string                  `json:"note"`
-	Rules         []compatibilityTypeRule `json:"rules"`
-	MetadataRules []metadataRule          `json:"metadata_rules"`
-}
-
-// metadataRule exempts metadata categories (testutils.MetadataCategories) from the metadata
-// comparison: for baselines older than assert_from when it is set, for every baseline when it is not.
-type metadataRule struct {
-	Keys       []string `json:"keys"`
-	AssertFrom string   `json:"assert_from"`
-	Note       string   `json:"note"`
+	MinBaseline string                  `json:"min_baseline"`
+	Note        string                  `json:"note"`
+	Rules       []compatibilityTypeRule `json:"rules"`
 }
 
 // compatibilityRuleScope names the columns a rule applies to: exactly one of data_types (a driver's
@@ -103,27 +93,7 @@ func (g compatibilityGate) validate(scope string) error {
 	if g.MinBaseline != "" && !semver.IsValid(g.MinBaseline) {
 		return fmt.Errorf("%s: %q is not a release tag", scope, g.MinBaseline)
 	}
-	if err := validateRules(scope, g.Rules); err != nil {
-		return err
-	}
-	return validateMetadataRules(scope, g.MetadataRules)
-}
-
-func validateMetadataRules(scope string, rules []metadataRule) error {
-	for i, r := range rules {
-		if len(r.Keys) == 0 {
-			return fmt.Errorf("%s metadata rule %d: names no keys: %s", scope, i, r.Note)
-		}
-		for _, key := range r.Keys {
-			if !slices.Contains(testutils.MetadataCategories, key) {
-				return fmt.Errorf("%s metadata rule %d: unknown key %q (known: %v)", scope, i, key, testutils.MetadataCategories)
-			}
-		}
-		if r.AssertFrom != "" && !semver.IsValid(r.AssertFrom) {
-			return fmt.Errorf("%s metadata rule %d: %q is not a release tag", scope, i, r.AssertFrom)
-		}
-	}
-	return nil
+	return validateRules(scope, g.Rules)
 }
 
 func validateRules(scope string, rules []compatibilityTypeRule) error {
@@ -156,24 +126,16 @@ func (c compatibilityRulesConfig) validateThresholds() error {
 	if err != nil {
 		return err
 	}
-	check := func(threshold, note string) error {
-		if threshold != "" && semver.Compare(threshold, floorTag) <= 0 {
-			return fmt.Errorf("compatibility_rules.json: rule threshold %s is at or below the oldest reachable baseline %s, so it can never fire (%s); drop the rule or record it as a note",
-				threshold, floorTag, note)
-		}
-		return nil
-	}
 	for _, gate := range c {
 		for _, rule := range gate.Rules {
 			for _, threshold := range []string{rule.ExcludeBelow, rule.AssertValueFrom} {
-				if err := check(threshold, rule.Note); err != nil {
-					return err
+				if threshold == "" {
+					continue
 				}
-			}
-		}
-		for _, rule := range gate.MetadataRules {
-			if err := check(rule.AssertFrom, rule.Note); err != nil {
-				return err
+				if semver.Compare(threshold, floorTag) <= 0 {
+					return fmt.Errorf("compatibility_rules.json: rule threshold %s is at or below the oldest reachable baseline %s, so it can never fire (%s); drop the rule or record it as a note",
+						threshold, floorTag, rule.Note)
+				}
 			}
 		}
 	}

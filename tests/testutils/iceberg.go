@@ -241,7 +241,7 @@ func IcebergSchemaTypes(ctx context.Context, spark sql.SparkSession, fullTableNa
 }
 
 // Snapshot summary keys read per commit and on the current snapshot. File counts and sizes are left
-// to MetaFiles, which a compatibility rule can drop on its own.
+// to MetaFiles.
 var (
 	snapshotRecordKeys = []string{"added-records", "deleted-records", "added-position-deletes", "removed-position-deletes", "added-equality-deletes", "removed-equality-deletes"}
 	snapshotTotalKeys  = []string{"total-records", "total-position-deletes", "total-equality-deletes"}
