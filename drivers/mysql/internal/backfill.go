@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -451,13 +452,13 @@ func isNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, c
 		return nil
 	}
 
-	minBoundary, err := typeutils.ReformatInt64(minVal)
+	minBoundary, err := reformatNumericChunkBound(minVal)
 	if err != nil {
 		logger.Debugf("failed to parse minVal: %s", err)
 		return nil
 	}
 
-	maxBoundary, err := typeutils.ReformatInt64(maxVal)
+	maxBoundary, err := reformatNumericChunkBound(maxVal)
 	if err != nil {
 		logger.Debugf("failed to parse maxVal: %s", err)
 		return nil
@@ -477,6 +478,16 @@ func isNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, c
 		MinBoundary: minBoundary,
 		MaxBoundary: maxBoundary,
 	}
+}
+
+// reformatNumericChunkBound handles MySQL extrema returned as ASCII bytes without
+// changing ReformatInt64's state-version-gated conversion behavior. ParseInt also
+// rejects unsigned values outside int64 instead of wrapping them into negative bounds.
+func reformatNumericChunkBound(value any) (int64, error) {
+	if bytes, ok := value.([]byte); ok {
+		return strconv.ParseInt(string(bytes), 10, 64)
+	}
+	return typeutils.ReformatInt64(value)
 }
 
 // isStringSupportedPK checks if the pk column is a supported string column

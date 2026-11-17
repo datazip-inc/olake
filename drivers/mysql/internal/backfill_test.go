@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 )
 
@@ -101,6 +102,9 @@ func TestSplitEvenlyForInt(t *testing.T) {
 }
 
 func TestIsNumericAndEvenDistributed(t *testing.T) {
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+
 	tests := []struct {
 		name           string
 		minVal         any
@@ -108,6 +112,7 @@ func TestIsNumericAndEvenDistributed(t *testing.T) {
 		approxRowCount int64
 		chunkSize      int64
 		dataType       string
+		stateVersion   *int
 		expected       bool
 	}{
 		// accepts numeric primary keys when the estimated distribution is even enough
@@ -118,14 +123,27 @@ func TestIsNumericAndEvenDistributed(t *testing.T) {
 		{name: "invalid minimum", minVal: "not-a-number", maxVal: 100, approxRowCount: 100, chunkSize: 10, dataType: "bigint"},
 		// skips numeric chunking when the maximum value cannot be parsed as int64
 		{name: "invalid maximum", minVal: 1, maxVal: "not-a-number", approxRowCount: 100, chunkSize: 10, dataType: "bigint"},
+		// malformed ASCII byte bounds are rejected on either side of the range
+		{name: "invalid byte minimum", minVal: []byte("not-a-number"), maxVal: 100, approxRowCount: 100, chunkSize: 10, dataType: "bigint", stateVersion: new(0)},
+		{name: "invalid byte maximum", minVal: 1, maxVal: []byte("not-a-number"), approxRowCount: 100, chunkSize: 10, dataType: "bigint", stateVersion: new(0)},
 		// skips numeric chunking for sparse key ranges that would create uneven chunks
 		{name: "sparse distribution", minVal: 1, maxVal: 10002, approxRowCount: 10, chunkSize: 10, dataType: "bigint"},
 		// skips numeric chunking when row-count statistics are unavailable
 		{name: "zero row estimate", minVal: 1, maxVal: 100, approxRowCount: 0, chunkSize: 10, dataType: "bigint"},
+		// MySQL may return unsigned integer extrema as ASCII bytes, including for legacy state.
+		{name: "unsigned integer byte bounds in legacy state", minVal: []byte("8232"), maxVal: []byte("11439"), approxRowCount: 3208, chunkSize: 10, dataType: "unsigned int", stateVersion: new(0), expected: true},
+		// Signed byte bounds keep their sign when parsed by the targeted backfill path.
+		{name: "signed integer byte bounds", minVal: []byte("-10"), maxVal: []byte("10"), approxRowCount: 21, chunkSize: 5, dataType: "bigint", stateVersion: new(0), expected: true},
+		// Values outside int64 cannot be represented as numeric chunk bounds and must not wrap.
+		{name: "unsigned byte bound beyond int64", minVal: []byte("9223372036854775808"), maxVal: []byte("9223372036854775810"), approxRowCount: 3, chunkSize: 1, dataType: "unsigned bigint", stateVersion: new(0)},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			if tc.stateVersion != nil {
+				constants.LoadedStateVersion = *tc.stateVersion
+			}
 			bounds := isNumericAndEvenDistributed(tc.minVal, tc.maxVal, tc.approxRowCount, tc.chunkSize, tc.dataType, mysqlTypeToDataTypes())
 			if (bounds != nil) != tc.expected {
 				t.Fatalf("expected bounds=%t, got %v", tc.expected, bounds)

@@ -275,32 +275,32 @@ func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 // parseStringTimestamp expects value and isTimestampInDB boolean
 // if this is a timestamp and unable to parse into correct format it will return epoch start time
 // if its a string and unable to parse into correct time format it will be returned as string
-func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error) {
-	// Check if the string starts with a date pattern (YYYY-MM-DD)
-	startsWithDatePattern := func(value string) bool {
-		if len(value) < 10 {
-			return false
-		}
-
-		datePart := value[:10]
-		parts := strings.Split(datePart, "-")
-		if len(parts) != 3 {
-			return false
-		}
-
-		for _, part := range parts {
-			if len(part) < 1 || len(part) > 4 {
-				return false
-			}
-			for _, char := range part {
-				if char < '0' || char > '9' {
-					return false
-				}
-			}
-		}
-		return true
+func startsWithDatePattern(value string) bool {
+	if len(value) < 10 {
+		return false
 	}
 
+	datePart := value[:10]
+	parts := strings.Split(datePart, "-")
+	if len(parts) != 3 {
+		return false
+	}
+
+	for _, part := range parts {
+		if len(part) < 1 || len(part) > 4 {
+			return false
+		}
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error) {
 	if !startsWithDatePattern(value) {
 		return time.Time{}, fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)")
 	}
@@ -320,7 +320,11 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 	if !isTimestampInDB && constants.LoadedStateVersion != 0 {
 		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
-	logger.Debugf("Failed to parse datetime from available formats: %s", err)
+	// A failed probe on an untyped string is expected; keep the legacy epoch
+	// fallback without logging once per value. Typed database timestamps still log.
+	if isTimestampInDB {
+		logger.Debugf("Failed to parse datetime from available formats: %s", err)
+	}
 	return time.Unix(0, 0).UTC(), nil
 }
 

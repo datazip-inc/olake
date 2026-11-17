@@ -153,7 +153,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - ./data/postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     command: postgres -c max_connections=300
 
   hive-metastore:
