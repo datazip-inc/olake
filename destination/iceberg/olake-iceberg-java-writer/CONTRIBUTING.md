@@ -141,4 +141,4 @@ select * from olake_iceberg.olake_iceberg.<table_name>;
 For any questions or issues specifically related to the Iceberg Java Writer, you can:
 1. Check the additional testing information in `./olake-iceberg-java-writer/README.md`
 2. Join the [Olake Slack channel](https://join.slack.com/t/getolake/shared_invite/zt-2usyz3i6r-8I8c9MtfcQUINQbR7vNtCQ) for community support
-3. Submit an issue on the [GitHub repository](https://github.com/datazip-inc/olake/issues)
+3. Submit an issue on the [GitHub repository](https://github.com/datazip-inc/olake-go/issues)

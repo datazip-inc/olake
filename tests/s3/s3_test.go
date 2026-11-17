@@ -67,6 +67,81 @@ func TestS3Sync(t *testing.T) {
 	}
 }
 
+// TestS3DecimalSync partitions and filters on the parquet DECIMAL(18,4) column. S3 seeds no filtered rows, so
+// the filters keep every row and fail when a decimal comparison is inexact.
+func TestS3DecimalSync(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name      string
+		configure func(cfg *integration.TestHandler)
+	}{
+		{
+			name: "partition",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.PartitionRegex = "/{dec64_col, identity}"
+			},
+		},
+		{
+			// each bound is a row's exact value, so the rows drop out if >= or <= compares inexactly
+			name: "filter_inclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.FilterConfig = `{
+	"logical_operator": "Or",
+	"conditions": [
+		{
+			"column": "dec64_col",
+			"operator": ">=",
+			"value": 123.4567
+		},
+		{
+			"column": "dec64_col",
+			"operator": "<=",
+			"value": -765.4321
+		}
+	]
+}`
+			},
+		},
+		{
+			// each excluded value is a ten-thousandth off a row's, so the rows drop out if != rounds
+			name: "filter_exclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.FilterConfig = `{
+	"logical_operator": "And",
+	"conditions": [
+		{
+			"column": "dec64_col",
+			"operator": "!=",
+			"value": 123.4568
+		},
+		{
+			"column": "dec64_col",
+			"operator": "!=",
+			"value": -765.4322
+		}
+	]
+}`
+			},
+		},
+	}
+	for _, variant := range S3TestVariants {
+		if variant.DataFormat != "parquet" {
+			continue
+		}
+		for _, tc := range testCases {
+			t.Run(variant.Name+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+				cfg := s3SyncConfig(t, variant)
+				tc.configure(cfg)
+				cfg.TestCommonSync(t)
+				if !testutils.KeepTestData() {
+					cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+				}
+			})
+		}
+	}
+}
+
 // TestS3Compatibility runs every source format. Each variant owns its testdata directory, source prefix
 // and stream name, so the three share one destination namespace without colliding.
 func TestS3Compatibility(t *testing.T) {

@@ -33,6 +33,8 @@ type Iceberg struct {
 	server        *serverInstance          // shared Java server instance (per-process singleton)
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
+	// unavailableValues recovers values the source could not send; nil unless the stream keeps a row index (pos or dv)
+	unavailableValues *unavailableValuesResolver
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
 	// It defines when to complete the Java writer and when schema evolution is required.
@@ -143,13 +145,22 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		return schema, nil, err
 	}
 
+	// nil in equality mode; shared by the writer, which buffers this thread's row locations
+	// in it, and the unavailable values resolver, which looks rows up in it
+	indexThread := types.NewStreamIndexThread(options.TableIndex)
 	if i.config.UseArrowWrites {
-		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode)
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode, indexThread)
 		if err != nil {
 			return nil, nil, destination.WriteFailure(fmt.Errorf("failed to create arrow writer: %w", err))
 		}
 	} else {
-		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode)
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode, indexThread)
+	}
+
+	// Recovery needs the row's previous location, which only a thread with a stream index
+	// has. Equality mode keeps the placeholder; backfill records never carry one.
+	if indexThread != nil {
+		i.unavailableValues = newUnavailableValuesResolver(options.ThreadID, i.stream, i.writer, indexThread, i.server.tableIndexClient)
 	}
 
 	return schema, &metadataState, nil
@@ -157,6 +168,16 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
+}
+
+// RecoverUnavailableValues fills the values the source could not send into a prefix of records
+// whose values stay within MaxDestinationBatchBytes, so no write exceeds the 2 GB message limit
+// and recovered values are written before more are read.
+func (i *Iceberg) RecoverUnavailableValues(ctx context.Context, records []types.RawRecord) (int, error) {
+	if i.unavailableValues == nil {
+		return len(records), nil
+	}
+	return i.unavailableValues.RecoverUnavailableValues(ctx, records, constants.MaxDestinationBatchBytes)
 }
 
 func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error) {
@@ -179,6 +200,10 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error)
 			}
 		}
 	}()
+
+	if i.unavailableValues != nil {
+		i.unavailableValues.Close()
+	}
 
 	select {
 	case <-ctx.Done():
@@ -230,7 +255,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
 	protoSchema := types.GetIcebergRawSchema()
-	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime})
+	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime}, nil)
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return destination.WriteFailure(fmt.Errorf("failed to create raw data column buffer: %w", err))
@@ -523,7 +548,9 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 // iceberg type valueType, as its value type or through an iceberg promotion. A fixed[n] value of
 // the wrong length fails on write.
 func isValidTypeForColumn(columnType, valueType string) bool {
-	if types.IcebergValueType(columnType) == valueType || validTypeTransitions[columnType][valueType] {
+	if types.IcebergValueType(columnType) == valueType ||
+		validTypeTransitions[columnType][valueType] ||
+		isPromotionRequired(columnType, valueType) {
 		return true
 	}
 	return getCommonAncestorType(columnType, valueType) == columnType
@@ -533,6 +560,14 @@ func isValidTypeForColumn(columnType, valueType string) bool {
 func isPromotionRequired(oldType, newType string) bool {
 	if transitions, ok := promotionTransitions[oldType]; ok {
 		return transitions[newType]
+	}
+
+	switch {
+	case types.IsIcebergDecimal(oldType) && types.IsIcebergDecimal(newType):
+		oldPrecision, oldScale, _ := types.IcebergDecimalParams(oldType)
+		newPrecision, newScale, _ := types.IcebergDecimalParams(newType)
+		// an iceberg spec rule in every format version: decimal(P,S) promotes only to decimal(P',S) with P' > P
+		return oldScale == newScale && newPrecision > oldPrecision
 	}
 
 	return false
@@ -601,9 +636,10 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 		name := strings.TrimSpace(parts[1])
 		typeInfo := strings.TrimSpace(parts[2])
 
-		// typeInfo will contain `required type (id)` or `optional type`
-		types := strings.Split(typeInfo, " ")
-		fields[name] = types[1]
+		// typeInfo will contain `required type (id)` or `optional type`; decimal(P, S) holds a space
+		_, fieldType, _ := strings.Cut(typeInfo, " ")
+		fieldType, _, _ = strings.Cut(fieldType, " (")
+		fields[name] = fieldType
 	}
 	return fields, nil
 }

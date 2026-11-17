@@ -64,6 +64,81 @@ func TestDB2Sync(t *testing.T) {
 	db2SyncConfig(t).TestSync(t)
 }
 
+// TestDB2DecimalSync partitions and filters on a DECIMAL(18,4) column. The filter cases use the decimal
+// cursor so incremental reads the filtered insert row too; the 18 digit filter value is a string.
+func TestDB2DecimalSync(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name      string
+		configure func(cfg *integration.TestHandler)
+	}{
+		{
+			name: "partition",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.PartitionRegex = "/{col_decimal, identity}"
+			},
+		},
+		{
+			// keeps only the filtered rows and the updated row the update phase asserts; each bound sits a
+			// ten-thousandth from a kept value
+			name: "filter_inclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "COL_CURSOR_DECIMAL:COL_TIMESTAMP"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "COL_DECIMAL",
+                            "operator": "<",
+                            "value": 50.1231
+                        },
+                        {
+                            "column": "COL_DECIMAL",
+                            "operator": ">",
+                            "value": 543.2099
+                        }
+                    ]
+                }`
+				cfg.ExpectedData = ExpectedFilteredDB2Data
+			},
+		},
+		{
+			// drops the filtered rows; the 18 digit updated row drops out too if its filter value rounds
+			// through a double
+			name: "filter_exclusive",
+			configure: func(cfg *integration.TestHandler) {
+				cfg.CursorField = "COL_CURSOR_DECIMAL:COL_TIMESTAMP"
+				cfg.FilterConfig = `{
+                    "logical_operator": "Or",
+                    "conditions": [
+                        {
+                            "column": "COL_DECIMAL",
+                            "operator": "=",
+                            "value": "123.4500"
+                        },
+                        {
+                            "column": "COL_DECIMAL",
+                            "operator": "=",
+                            "value": "12345678901234.5678"
+                        }
+                    ]
+                }`
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := db2SyncConfig(t)
+			tc.configure(cfg)
+			cfg.TestCommonSync(t)
+			if !testutils.KeepTestData() {
+				cfg.ExecuteQuery(t.Context(), t, cfg.TestConfig, "drop")
+			}
+		})
+	}
+}
+
 func TestDB22PC(t *testing.T) {
 	t.Parallel()
 	db2BaseConfig(t).Test2PCIntegration(t)

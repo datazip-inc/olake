@@ -220,6 +220,8 @@ const (
 	codeNoStreams                    = "catalog.no_streams_discovered"
 	// codeQueryEngineInvalid marks a target query engine selection the CLI cannot serve.
 	codeQueryEngineInvalid = "catalog.query_engine_invalid"
+	// codeUpdateTypeInvalid marks a selected stream whose update type is unset or not offered for it.
+	codeUpdateTypeInvalid = "catalog.update_type_invalid"
 	// codeDestinationConfigInvalid marks a destination config discover cannot read.
 	codeDestinationConfigInvalid = "config.destination_invalid"
 	// recovered panic as an internal error
