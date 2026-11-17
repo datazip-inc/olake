@@ -277,6 +277,60 @@ func TestHumanDuration(t *testing.T) {
 	}
 }
 
+func TestAddConstantToInterface(t *testing.T) {
+	tests := []struct {
+		name      string
+		val       interface{}
+		increment int
+		wantVal   interface{}
+		wantErr   bool
+	}{
+		{name: "int positive", val: int(10), increment: 5, wantVal: int(15)},
+		{name: "int negative increment", val: int(10), increment: -3, wantVal: int(7)},
+		{name: "int64", val: int64(100), increment: 1, wantVal: int64(101)},
+		{name: "float32", val: float32(1.5), increment: 2, wantVal: float32(3.5)},
+		{name: "float64", val: float64(2.5), increment: 1, wantVal: float64(3.5)},
+		{name: "unsupported string", val: "x", increment: 1, wantErr: true},
+		{name: "unsupported bool", val: true, increment: 1, wantErr: true},
+		{name: "unsupported nil", val: nil, increment: 1, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := AddConstantToInterface(tc.val, tc.increment)
+			if tc.wantErr {
+				assert.Error(t, err)
+				assert.Nil(t, got)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.wantVal, got)
+			}
+		})
+	}
+}
+
+func TestSplitAndTrim(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{name: "empty string", input: "", want: []string{}},
+		{name: "single value", input: "foo", want: []string{"foo"}},
+		{name: "two values", input: "foo,bar", want: []string{"foo", "bar"}},
+		{name: "whitespace around values", input: " foo , bar ", want: []string{"foo", "bar"}},
+		{name: "whitespace-only entry skipped", input: "foo, ,bar", want: []string{"foo", "bar"}},
+		{name: "leading and trailing commas", input: ",foo,", want: []string{"foo"}},
+		{name: "all whitespace", input: "   ", want: []string{}},
+		{name: "consecutive commas", input: "a,,b", want: []string{"a", "b"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SplitAndTrim(tc.input)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestUpdateMethodType(t *testing.T) {
 	tests := []struct {
 		name     string
