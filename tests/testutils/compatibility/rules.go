@@ -8,6 +8,7 @@ import (
 	"log"
 	"slices"
 
+	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"golang.org/x/mod/semver"
 )
@@ -27,8 +28,8 @@ type compatibilityGate struct {
 	MetadataRules []metadataRule          `json:"metadata_rules"`
 }
 
-// metadataRule exempts metadata categories (metadataCategories) from the metadata comparison: for
-// baselines older than assert_from when it is set, for every baseline when it is not.
+// metadataRule exempts metadata categories (testutils.MetadataCategories) from the metadata
+// comparison: for baselines older than assert_from when it is set, for every baseline when it is not.
 type metadataRule struct {
 	Keys       []string `json:"keys"`
 	AssertFrom string   `json:"assert_from"`
@@ -114,8 +115,8 @@ func validateMetadataRules(scope string, rules []metadataRule) error {
 			return fmt.Errorf("%s metadata rule %d: names no keys: %s", scope, i, r.Note)
 		}
 		for _, key := range r.Keys {
-			if !slices.Contains(metadataCategories, key) {
-				return fmt.Errorf("%s metadata rule %d: unknown key %q (known: %v)", scope, i, key, metadataCategories)
+			if !slices.Contains(testutils.MetadataCategories, key) {
+				return fmt.Errorf("%s metadata rule %d: unknown key %q (known: %v)", scope, i, key, testutils.MetadataCategories)
 			}
 		}
 		if r.AssertFrom != "" && !semver.IsValid(r.AssertFrom) {

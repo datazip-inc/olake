@@ -62,17 +62,19 @@ func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicie
 	compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly, baselineRelease)
 
 	// The rows match; now the metadata readers and the next sync's resume rely on.
-	var referenceMetadata, upgradedMetadata destinationMetadata
+	var referenceMetadata, upgradedMetadata testutils.DestinationMetadata
+	var partitionColumns []string
 	switch group.destination {
 	case "iceberg":
-		referenceMetadata = readIcebergMetadata(ctx, t, spark, referenceOutput, policies.typeOnly)
-		upgradedMetadata = readIcebergMetadata(ctx, t, spark, upgradedOutput, policies.typeOnly)
+		referenceMetadata = testutils.ReadIcebergMetadata(ctx, t, spark, referenceOutput)
+		upgradedMetadata = testutils.ReadIcebergMetadata(ctx, t, spark, upgradedOutput)
+		partitionColumns = referenceMetadata.PartitionColumns
 	case "parquet":
-		opaque := opaquePartitions(partitionRegexColumns(reference.PartitionRegex), policies.typeOnly)
-		referenceMetadata = readParquetMetadata(ctx, t, referenceDB, referenceTable, opaque)
-		upgradedMetadata = readParquetMetadata(ctx, t, upgradedDB, upgradedTable, opaque)
+		referenceMetadata = testutils.ReadParquetMetadata(ctx, t, referenceDB, referenceTable)
+		upgradedMetadata = testutils.ReadParquetMetadata(ctx, t, upgradedDB, upgradedTable)
+		partitionColumns = reference.PartitionColumns()
 	}
-	compareDestinationMetadata(t, diag, referenceMetadata, upgradedMetadata, policies.metadataSkip)
+	compareDestinationMetadata(t, diag, referenceMetadata, upgradedMetadata, opaquePartitions(partitionColumns, policies.typeOnly), policies.metadataSkip)
 }
 
 // icebergTable refreshes and returns the fully-qualified name of an Iceberg table: the shared
