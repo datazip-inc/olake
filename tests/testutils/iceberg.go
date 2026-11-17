@@ -311,7 +311,11 @@ func normalizeIcebergMetadata(file icebergMetadataFile, files []icebergFile) (De
 	// schema, and each column's ids across schemas are collected to check it kept one.
 	names := map[int]string{}
 	ids := map[string]map[int]bool{}
-	for _, schema := range file.Schemas {
+	schemas := file.Schemas
+	if len(schemas) == 0 && file.Schema != nil {
+		schemas = []icebergMetadataSchema{*file.Schema} // format version 1 carries a single schema
+	}
+	for _, schema := range schemas {
 		for _, field := range schema.Fields {
 			names[field.ID] = field.Name
 			if ids[field.Name] == nil {

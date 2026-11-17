@@ -221,7 +221,7 @@ func ReadParquetMetadata(ctx context.Context, t *testing.T, parquetDB, tableName
 	for _, key := range keys {
 		object := parquetObject{key: key}
 		// Staging is counted, not read: after a committed sync nothing should be left there.
-		if key == parquetMetadataKey || strings.HasSuffix(key, ".parquet") && !strings.HasPrefix(key, parquetStagingPrefix) {
+		if key == parquetMetadataKey || (strings.HasSuffix(key, ".parquet") && !strings.HasPrefix(key, parquetStagingPrefix)) {
 			object.data, err = ReadParquetTableObject(ctx, client, parquetDB, tableName, key)
 			require.NoErrorf(t, err, "failed to read %s/%s/%s", parquetDB, tableName, key)
 		}

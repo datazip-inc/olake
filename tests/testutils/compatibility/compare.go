@@ -61,7 +61,7 @@ func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicie
 
 	compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly, baselineRelease)
 
-	// The rows match; now the metadata readers and the next sync's resume rely on.
+	// The rows match; the metadata below is what readers and the next sync's resume consume, so it must match too.
 	var referenceMetadata, upgradedMetadata testutils.DestinationMetadata
 	var partitionColumns []string
 	switch group.destination {
