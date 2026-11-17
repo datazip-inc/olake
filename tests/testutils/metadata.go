@@ -83,14 +83,13 @@ func (m DestinationMetadata) addPartition(category, partition, key string, n int
 
 // normalizeOlake2PC keeps what of an olake_2pc document two runs share: which fields it carries,
 // dedup_inserts, and how many full-refresh commits it recorded. The thread id and the source
-// position in state differ between two runs by construction. Each field is its own key, so a field
-// a newer build adds is a new key rather than a changed value.
+// position in state differ between two runs by construction. Each field is its own key and an
+// absent document writes none, so a document or field a newer build adds is a new key rather than a
+// changed value.
 func normalizeOlake2PC(m DestinationMetadata, raw string) {
 	if raw == "" {
-		m.set(MetaOlake2PC, "present", "false")
 		return
 	}
-	m.set(MetaOlake2PC, "present", "true")
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		m.set(MetaOlake2PC, "parse_error", err.Error())

@@ -237,7 +237,6 @@ func ReadParquetMetadata(ctx context.Context, t *testing.T, parquetDB, tableName
 func normalizeParquetMetadata(objects []parquetObject) (DestinationMetadata, error) {
 	m := newDestinationMetadata()
 	m.set(MetaStaging, "objects", "0")
-	normalizeOlake2PC(m, "")
 
 	schemas := map[string]map[string]bool{} // column -> its type in each file
 	codecs := map[string]map[string]bool{}  // column -> its codec in each row group

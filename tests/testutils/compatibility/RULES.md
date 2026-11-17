@@ -170,12 +170,14 @@ file's footer. Values that differ on every run are never compared: snapshot
 ids and order, timestamps, paths, sizes, Iceberg field ids (compared as the
 column names they stand for), and olake_2pc's thread id and source position.
 
-Every metadata key the reference run has must hold the same value after the
-upgrade. A key only the upgrade run has fails the comparison too, except in
-`properties` and `olake_2pc`: a new table property or a new `olake_2pc` field
-describes the table without changing what was written, so it passes and is
-logged as added. Anywhere else a new key is extra output, such as another
-delete file or partition.
+The reference run's metadata must survive the upgrade: every key it has must
+hold the same value after the upgrade, so a removed or changed key fails. A key
+only the upgrade run has is an addition, such as a new table property or a new
+`olake_2pc` field, and adding metadata is not an incompatible change, so it is
+logged as added and not failed. Extra output still fails: `files`,
+`data_records` and `delete_records` each carry a `total`, written even when it
+is zero, so another file, delete or partition changes a total the reference
+has.
 
 The rest is grouped into categories, and a metadata rule leaves whole
 categories out:

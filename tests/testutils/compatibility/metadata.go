@@ -21,22 +21,18 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// additiveCategories are the categories where the upgrade may carry keys the reference lacks: a new
-// table property or a new olake_2pc field describes the table without changing what was written.
-// Everywhere else a key only the upgrade has is extra output -- another delete file, another
-// partition, another commit -- so keys must match both ways.
-var additiveCategories = []string{testutils.MetaProperties, testutils.MetaOlake2PC}
-
-// compareDestinationMetadata asserts both sides' metadata match outside the skipped categories. It
-// runs after compareDestinationOutputs, so the rows already match. Every reference key must hold the
-// same value after the upgrade; a key only the upgrade has passes in additiveCategories alone.
+// compareDestinationMetadata asserts the reference's metadata survives the upgrade outside the
+// skipped categories. It runs after compareDestinationOutputs, so the rows already match.
+//
+// The reference must be a subset of the upgrade: every key it has must hold the same value after the
+// upgrade, since a removed or changed key is what an older reader or resume trips on. A key only the
+// upgrade has is an addition, which is not incompatible, so it is logged rather than failed. Extra
+// output still fails, because every count also feeds a total the reference has (see flatten).
 func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgraded testutils.DestinationMetadata, opaque bool, skip []string) {
 	referenceFlat, upgradedFlat := flatten(reference, opaque, skip), flatten(upgraded, opaque, skip)
 	var added []string
 	maps.DeleteFunc(upgradedFlat, func(key, _ string) bool {
-		_, inReference := referenceFlat[key]
-		category, _, _ := strings.Cut(key, ".")
-		if inReference || !slices.Contains(additiveCategories, category) {
+		if _, inReference := referenceFlat[key]; inReference {
 			return false
 		}
 		added = append(added, key)
@@ -48,10 +44,15 @@ func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgr
 	}
 	if len(added) > 0 {
 		slices.Sort(added)
-		t.Logf("metadata the upgrade added, allowed as additive: %v", added)
+		t.Logf("metadata the upgrade added, not compared: %v", added)
 	}
 	t.Logf("metadata identical: %d keys compared, categories skipped by rule: %v", len(referenceFlat), skip)
 }
+
+// countedCategories are the per-partition categories flatten totals. A total is written even when
+// it is zero, so output the reference never had -- a first delete file, a file in a new partition --
+// changes a key the reference has instead of only adding keys, which the subset comparison allows.
+var countedCategories = []string{testutils.MetaFiles, testutils.MetaDataRecords, testutils.MetaDeleteRecords}
 
 // flatten is the compared form: "category.key" -> value, without the skipped categories. With opaque
 // partitions -- partitioned on a column whose values cannot match across two runs, such as MongoDB's
@@ -68,11 +69,19 @@ func flatten(m testutils.DestinationMetadata, opaque bool, skip []string) map[st
 		}
 	}
 	counts := map[string]int64{}
+	for _, category := range countedCategories {
+		if !slices.Contains(skip, category) {
+			counts[category+".total"] = 0
+		}
+	}
 	for category, partitions := range m.Partitions {
 		if slices.Contains(skip, category) {
 			continue
 		}
 		for partition, partitionCounts := range partitions {
+			for _, n := range partitionCounts {
+				counts[category+".total"] += n
+			}
 			if opaque {
 				counts[category+".partitions["+partitionSignature(partitionCounts)+"]"]++
 				continue
