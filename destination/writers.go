@@ -355,6 +355,8 @@ func (wt *WriterThread) rollbackStats() {
 }
 
 func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) (err error) {
+	defer wt.stats.ThreadCount.Add(-1)
+
 	select {
 	case <-closeCtx.Done():
 		// Wait for in-flight flushes so rollback below can't race their stat updates.
@@ -363,32 +365,35 @@ func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) 
 		// Aborted before commit: writer.Close releases resources without committing,
 		// so nothing this thread pushed reaches the destination — roll its stats back.
 		wt.rollbackStats()
-		if closeErr := wt.writer.Close(closeCtx, finalMetadataState); closeErr != nil {
-			return fmt.Errorf("failed to close writer: %w", closeErr)
-		}
-		return nil
-	default:
-		defer wt.stats.ThreadCount.Add(-1)
 
+		if wt.streamArtifact != nil {
+			wt.streamArtifact.mu.Lock()
+			defer wt.streamArtifact.mu.Unlock()
+		}
+
+		if closeErr := wt.writer.Close(closeCtx, finalMetadataState); closeErr != nil {
+			return fmt.Errorf("%w: failed to close writer: %w", closeCtx.Err(), closeErr)
+		}
+		return closeCtx.Err()
+	default:
 		// for canceling on flush error
 		ctx, cancel := context.WithCancel(closeCtx)
 		defer cancel()
 
 		defer func() {
-			if err != nil {
-				cancel()
+			if wt.streamArtifact != nil {
+				wt.streamArtifact.mu.Lock()
+				defer wt.streamArtifact.mu.Unlock()
 			}
 
-			wt.streamArtifact.mu.Lock()
-			defer wt.streamArtifact.mu.Unlock()
-
-			// if error occurred, cancel the context
-			if err != nil {
-				cancel()
-			}
-
-			if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
-				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%w: flush error: %w", closeErr, err)).(error)
+			// Call writer.Close with closeCtx rather than an already-canceled ctx
+			// to avoid shadowing the root flush error with context.Canceled.
+			if closeErr := wt.writer.Close(closeCtx, finalMetadataState); closeErr != nil {
+				if err == nil {
+					err = closeErr
+				} else {
+					err = fmt.Errorf("%w: close error: %v", err, closeErr)
+				}
 			}
 
 			// Commit is successful only when both the final flush and writer.Close (dest
