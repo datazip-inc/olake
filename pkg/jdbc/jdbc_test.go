@@ -48,3 +48,12 @@ func TestSQLFilterBinary(t *testing.T) {
 		})
 	}
 }
+
+func TestMSSQLCDCGetChangesQuery(t *testing.T) {
+	captureInstance := "dbo_test_table"
+	query := MSSQLCDCGetChangesQuery(captureInstance)
+
+	assert.Contains(t, query, "fn_cdc_get_all_changes_dbo_test_table")
+	assert.Contains(t, query, "'all update old'")
+	assert.Contains(t, query, "ORDER BY [__$start_lsn], [__$seqval], [__$operation]")
+}

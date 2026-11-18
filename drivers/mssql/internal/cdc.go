@@ -6,16 +6,21 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
 const (
+	cdcBinaryMetadataLength = 10
+
 	cdcCursorKey = "lsn"
 
 	CDCStartLSN = "_cdc_start_lsn" // MSSQL start LSN
@@ -32,6 +37,15 @@ type captureInstance struct {
 	table        string
 	instanceName string
 	startLSN     string
+}
+
+// pendingUpdateBefore represents a buffered CDC update before-image (operation 3).
+type pendingUpdateBefore struct {
+	record       map[string]interface{}
+	startLSNHex  string
+	seqvalHex    string
+	extraColumns map[string]any
+	rowBytes     int64
 }
 
 // cdcScanSession represents a completed CDC log scan session from sys.dm_cdc_log_scan_sessions.
@@ -341,6 +355,106 @@ func newestValidInstance(instances []captureInstance, currentLSN string) (int, *
 	return -1, nil
 }
 
+// extractMetadataHex validates and extracts a 10-byte binary CDC metadata column as a lowercase 20-character hex string.
+func extractMetadataHex(record map[string]interface{}, colName string) (string, error) {
+	val, ok := record[colName]
+	if !ok {
+		return "", fmt.Errorf("metadata column %q is missing", colName)
+	}
+	if val == nil {
+		return "", fmt.Errorf("metadata column %q is nil", colName)
+	}
+
+	switch v := val.(type) {
+	case string:
+		if len(v) != cdcBinaryMetadataLength {
+			return "", fmt.Errorf("metadata column %q has invalid byte length %d; expected %d", colName, len(v), cdcBinaryMetadataLength)
+		}
+		return fmt.Sprintf("%x", v), nil
+	case []byte:
+		if len(v) != cdcBinaryMetadataLength {
+			return "", fmt.Errorf("metadata column %q has invalid byte length %d; expected %d", colName, len(v), cdcBinaryMetadataLength)
+		}
+		return fmt.Sprintf("%x", v), nil
+	default:
+		return "", fmt.Errorf("metadata column %q has unsupported type %T; expected string or []byte", colName, val)
+	}
+}
+
+// extractOperationCode validates and extracts the CDC operation code from __$operation.
+// Valid codes are 1 (delete), 2 (insert), 3 (update before-image), and 4 (update after-image).
+func extractOperationCode(record map[string]interface{}) (int32, error) {
+	val, ok := record["__$operation"]
+	if !ok {
+		return 0, errors.New("metadata column \"__$operation\" is missing")
+	}
+	if val == nil {
+		return 0, errors.New("metadata column \"__$operation\" is nil")
+	}
+
+	var code int32
+	switch v := val.(type) {
+	case int32:
+		code = v
+	case int64:
+		if v < math.MinInt32 || v > math.MaxInt32 {
+			return 0, fmt.Errorf("operation code %d overflows int32", v)
+		}
+		code = int32(v)
+	case int:
+		if int64(v) < math.MinInt32 || int64(v) > math.MaxInt32 {
+			return 0, fmt.Errorf("operation code %d overflows int32", v)
+		}
+		code = int32(v)
+	case int16:
+		code = int32(v)
+	case int8:
+		code = int32(v)
+	default:
+		return 0, fmt.Errorf("metadata column \"__$operation\" has unsupported type %T", val)
+	}
+
+	if code < 1 || code > 4 {
+		return 0, fmt.Errorf("unsupported CDC operation code: %d; expected 1 (delete), 2 (insert), 3 (update before), or 4 (update after)", code)
+	}
+
+	return code, nil
+}
+
+// hasPrimaryKeyChanged compares primary key values between before-image and after-image records
+// component-by-component using the repository's existing utils.GetKeysHash key-token behavior.
+func hasPrimaryKeyChanged(oldRecord, newRecord map[string]interface{}, primaryKeyColumns []string) (bool, error) {
+	if len(primaryKeyColumns) == 0 {
+		return false, errors.New("primary key columns list cannot be empty for PK comparison")
+	}
+
+	for _, col := range primaryKeyColumns {
+		oldVal, okOld := oldRecord[col]
+		if !okOld {
+			return false, fmt.Errorf("primary key column %q missing in before-image", col)
+		}
+		if oldVal == nil {
+			return false, fmt.Errorf("primary key column %q is nil in before-image", col)
+		}
+
+		newVal, okNew := newRecord[col]
+		if !okNew {
+			return false, fmt.Errorf("primary key column %q missing in after-image", col)
+		}
+		if newVal == nil {
+			return false, fmt.Errorf("primary key column %q is nil in after-image", col)
+		}
+
+		oldToken := utils.GetKeysHash(oldRecord, col)
+		newToken := utils.GetKeysHash(newRecord, col)
+		if oldToken != newToken {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // fetchTableChangesInLSNRange fetches and emits CDC changes for a single table/capture-instance within an LSN range.
 func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.StreamInterface, capture captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
 	// Move the lower bound forward by one LSN to avoid re-emitting the last processed row.
@@ -367,6 +481,14 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	}
 	defer rows.Close()
 
+	var pkCols []string
+	if stream != nil && stream.GetStream() != nil && stream.GetStream().SourceDefinedPrimaryKey != nil {
+		pkCols = stream.GetStream().SourceDefinedPrimaryKey.Array()
+		sort.Strings(pkCols)
+	}
+
+	var pendingBefore *pendingUpdateBefore
+
 	for rows.Next() {
 		// Use MapScan to properly convert data types including binary types
 		// TODO: check if we can use MapScanConcurrent for mssql
@@ -377,35 +499,96 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 			return fmt.Errorf("failed to scan MSSQL CDC row: %w", err)
 		}
 
-		// Determine operation type from SQL Server CDC operation codes.
-		// For updates, CDC emits "before" (3) and "after" (4); we skip "before".
-		var operationType string
-		if val, ok := record["__$operation"]; ok {
-			var opCode = val.(int32)
-			if opCode == 3 {
-				continue
-			}
-			operationType = operationTypeFromCDCCode(opCode)
+		opCode, err := extractOperationCode(record)
+		if err != nil {
+			return fmt.Errorf("failed to extract CDC operation code: %w", err)
 		}
+
+		startLSNHex, err := extractMetadataHex(record, "__$start_lsn")
+		if err != nil {
+			return fmt.Errorf("failed to extract CDC start LSN: %w", err)
+		}
+
+		seqvalHex, err := extractMetadataHex(record, "__$seqval")
+		if err != nil {
+			return fmt.Errorf("failed to extract CDC seqval: %w", err)
+		}
+
 		extraColumns := map[string]any{
-			CDCStartLSN: fmt.Sprintf("%x", record["__$start_lsn"]),
-			CDCSeqVal:   fmt.Sprintf("%x", record["__$seqval"])}
+			CDCStartLSN: startLSNHex,
+			CDCSeqVal:   seqvalHex,
+		}
+
 		// Remove metadata columns
 		delete(record, "__$operation")
 		delete(record, "__$start_lsn")
 		delete(record, "__$seqval")
 		delete(record, "__$update_mask")
 
-		// Emit one normalized CDC change event.
-		if err := processFn(ctx, abstract.NewCDCChange(stream, time.Now().UTC(), operationType, record,
-			extraColumns, rowBytes, nil)); err != nil {
-			return fmt.Errorf("failed to process MSSQL CDC change: %w", err)
+		now := time.Now().UTC()
+
+		if pendingBefore == nil {
+			switch opCode {
+			case 1:
+				if err := processFn(ctx, abstract.NewCDCChange(stream, now, "delete", record, extraColumns, rowBytes, nil)); err != nil {
+					return fmt.Errorf("failed to process MSSQL CDC delete change: %w", err)
+				}
+			case 2:
+				if err := processFn(ctx, abstract.NewCDCChange(stream, now, "insert", record, extraColumns, rowBytes, nil)); err != nil {
+					return fmt.Errorf("failed to process MSSQL CDC insert change: %w", err)
+				}
+			case 3:
+				pendingBefore = &pendingUpdateBefore{
+					record:       record,
+					startLSNHex:  startLSNHex,
+					seqvalHex:    seqvalHex,
+					extraColumns: extraColumns,
+					rowBytes:     rowBytes,
+				}
+			case 4:
+				return fmt.Errorf("orphan update after-image (operation 4) without preceding before-image (operation 3) at LSN %s, seqval %s", startLSNHex, seqvalHex)
+			default:
+				return fmt.Errorf("unexpected operation code in idle state: %d", opCode)
+			}
+		} else {
+			if opCode != 4 {
+				return fmt.Errorf("expected update after-image (operation 4) following before-image at LSN %s, seqval %s; got operation %d", pendingBefore.startLSNHex, pendingBefore.seqvalHex, opCode)
+			}
+
+			if startLSNHex != pendingBefore.startLSNHex || seqvalHex != pendingBefore.seqvalHex {
+				return fmt.Errorf("update pair metadata mismatch: before-image (LSN %s, seqval %s) vs after-image (LSN %s, seqval %s)", pendingBefore.startLSNHex, pendingBefore.seqvalHex, startLSNHex, seqvalHex)
+			}
+
+			pkChanged, err := hasPrimaryKeyChanged(pendingBefore.record, record, pkCols)
+			if err != nil {
+				return fmt.Errorf("failed to compare primary keys for update pair at LSN %s, seqval %s: %w", startLSNHex, seqvalHex, err)
+			}
+
+			if pkChanged {
+				if err := processFn(ctx, abstract.NewCDCChange(stream, now, "delete", pendingBefore.record, pendingBefore.extraColumns, pendingBefore.rowBytes, nil)); err != nil {
+					return fmt.Errorf("failed to process MSSQL CDC delete change for PK update: %w", err)
+				}
+				if err := processFn(ctx, abstract.NewCDCChange(stream, now, "insert", record, extraColumns, rowBytes, nil)); err != nil {
+					return fmt.Errorf("failed to process MSSQL CDC insert change for PK update: %w", err)
+				}
+			} else {
+				if err := processFn(ctx, abstract.NewCDCChange(stream, now, "update", record, extraColumns, rowBytes, nil)); err != nil {
+					return fmt.Errorf("failed to process MSSQL CDC update change: %w", err)
+				}
+			}
+
+			pendingBefore = nil
 		}
 	}
 
 	if err := rows.Err(); err != nil {
 		return err
 	}
+
+	if pendingBefore != nil {
+		return fmt.Errorf("stream ended with incomplete update pair: unconsumed before-image (operation 3) at LSN %s, seqval %s", pendingBefore.startLSNHex, pendingBefore.seqvalHex)
+	}
+
 	return nil
 }
 
