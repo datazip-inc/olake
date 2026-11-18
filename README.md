@@ -124,17 +124,6 @@
 | Parquet        | ✅         | Filesystem                                                   |
 
 
-##### Interoperability
-
-Interoperability ensures that Iceberg tables written by OLake are correctly readable by any query engine. Different engines support different Iceberg delete formats for CDC; OLake eliminates this complexity by auto-selecting the right delete format based on your declared target engines (`--target-query-engines`). One table, any engine, always correct — no manual configuration, no migration.
-
-| Delete Format | OLake Support |
-|---|---|
-| Equality Deletes | ✅ |
-| Positional Deletes | ✅ |
-| Deletion Vectors | ✅ |
-
-
 ##### Writer Docs
 
 1. Apache Iceberg Docs
@@ -157,6 +146,20 @@ Interoperability ensures that Iceberg tables written by OLake are correctly read
    1. [AWS S3 Docs](https://olake.io/docs/writers/parquet/config/)
    2. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/parquet/config/#using-gcs-compatible-s3-credentials)
    3. Local FileSystem Docs
+
+---
+
+### 🔄 Query Engine Interoperability
+
+OLake Go ensures that Iceberg tables are correctly readable by any query engine. Different engines support different Iceberg delete formats for CDC. OLake Go eliminates this complexity by auto-selecting the right delete format based on your selected target engines (`--target-query-engines`).
+
+#### Delete Format Support
+
+| Delete Format | OLake Go Support |
+|---|---|
+| Equality Deletes | ✅ |
+| Positional Deletes | ✅ |
+| Deletion Vectors | ✅ |
 
 ---
 
@@ -241,7 +244,7 @@ Below are other different ways you can run OLake Go:
 
 ### 🧭 Roadmap Highlights
 
-- [ ] Iceberg V3 — Geo type, Variant type
+- [ ] Iceberg V3: Geo type, Variant type
 - [ ] JSON Flattening
 - [ ] Single Message Transform (SMT)
 - [ ] Continuous CDC Mode
