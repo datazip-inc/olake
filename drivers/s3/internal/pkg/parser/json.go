@@ -94,8 +94,7 @@ func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callba
 			if err := decoder.Decode(&record); err == io.EOF {
 				break
 			} else if err != nil {
-				logger.Warnf("Error reading JSON record %d: %v", recordCount, err)
-				continue
+				return fmt.Errorf("failed to decode JSONL record %d: %w", recordCount, err)
 			}
 
 			if err := callback(ctx, record); err != nil {
@@ -129,8 +128,7 @@ func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callba
 
 			var record map[string]interface{}
 			if err := decoder.Decode(&record); err != nil {
-				logger.Warnf("Error reading JSON record %d: %v", recordCount, err)
-				continue
+				return fmt.Errorf("failed to decode JSON array record %d: %w", recordCount, err)
 			}
 
 			if err := callback(ctx, record); err != nil {
