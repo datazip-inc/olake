@@ -232,3 +232,36 @@ func TestJSONParser_InferSchema_NullableFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.String, nameType, "name should be String")
 }
+
+
+func TestJSONParser_StreamRecords_InvalidJSONLReturnsDecodeError(t *testing.T) {
+	parser := NewJSONParser(JSONConfig{LineDelimited: true}, types.NewStream("test", "test", nil))
+	reader := strings.NewReader("{\"id\": 1}\n{\"id\":")
+
+	records := make([]map[string]any, 0, 1)
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+
+	err := parser.StreamRecords(context.Background(), reader, callback)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to decode JSONL record 1")
+	require.Len(t, records, 1)
+}
+
+func TestJSONParser_StreamRecords_InvalidJSONArrayReturnsDecodeError(t *testing.T) {
+	parser := NewJSONParser(JSONConfig{LineDelimited: false}, types.NewStream("test", "test", nil))
+	reader := strings.NewReader("[{\"id\": 1}, {\"id\": }]")
+
+	records := make([]map[string]any, 0, 1)
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+
+	err := parser.StreamRecords(context.Background(), reader, callback)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to decode JSON array record 1")
+	require.Len(t, records, 1)
+}
