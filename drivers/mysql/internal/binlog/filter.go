@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -87,6 +86,16 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		rowStep = 2
 	}
 
+	// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
+	// otherwise fall back to second-precision header timestamp
+	timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
+	emit := func(kind string, row []any, record map[string]any) error {
+		change := abstract.NewCDCChange(stream, timestamp, kind, record,
+			map[string]any{CDCBinlogFileName: pos.Name, CDCBinlogFilePos: pos.Pos},
+			mysqlCDCRowBytes(row, view.types), nil)
+		return callback(ctx, change)
+	}
+
 	primaryKeys := stream.GetStream().SourceDefinedPrimaryKey.Array()
 	for i := rowStep - 1; i < len(e.Rows); i += rowStep {
 		row := e.Rows[i]
@@ -94,39 +103,23 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		if err != nil {
 			return err
 		}
-		if record == nil {
-			continue
-		}
-
-		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
-		// otherwise fall back to second-precision header timestamp
-		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
-
-		if operationType == "update" && !view.samePrimaryKey(e.Rows[i-1], row, primaryKeys) {
+		if operationType == "update" {
 			oldRow := e.Rows[i-1]
-			oldRecord, err := convertRowToMap(oldRow, view, f.converter)
+			changed, err := f.primaryKeyChanged(view, oldRow, record, primaryKeys)
 			if err != nil {
 				return err
 			}
-			if utils.GetKeysHash(oldRecord, primaryKeys...) != utils.GetKeysHash(record, primaryKeys...) {
-				// Retire the old identity before writing the row under its new key.
-				change := abstract.NewCDCChange(stream, timestamp, "delete", oldRecord,
-					map[string]any{CDCBinlogFileName: pos.Name, CDCBinlogFilePos: pos.Pos},
-					mysqlCDCRowBytes(oldRow, view.types))
-				if err := callback(ctx, change); err != nil {
+			if changed {
+				oldRecord, err := convertRowToMap(oldRow, view, f.converter)
+				if err != nil {
+					return err
+				}
+				if err := emit("delete", oldRow, oldRecord); err != nil {
 					return err
 				}
 			}
 		}
-
-		// Bytes: InnoDB on-disk byte sum for this row, carried on the change and added per record by the writer.
-		change := abstract.NewCDCChange(stream, timestamp, operationType, record,
-			map[string]any{
-				CDCBinlogFileName: pos.Name,
-				CDCBinlogFilePos:  pos.Pos, // Use the event position
-			},
-			mysqlCDCRowBytes(row, view.types))
-		if err := callback(ctx, change); err != nil {
+		if err := emit(operationType, row, record); err != nil {
 			return err
 		}
 	}
@@ -143,19 +136,16 @@ type columnView struct {
 	collations []uint64   // 0 = no charset decoding
 }
 
-// Only differing wire keys need the old row's conversion and destination ID comparison.
-func (view *columnView) samePrimaryKey(oldRow, row []any, keys []string) bool {
-	for _, key := range keys {
-		i := slices.Index(view.names, key)
-		if len(oldRow) != len(row) || i < 0 || !reflect.DeepEqual(oldRow[i], row[i]) {
-			return false
-		}
-		// Go considers +0 and -0 equal, but they render as different destination IDs.
-		if row[i] == float32(0) || row[i] == float64(0) {
-			return false
-		}
+// Decode only the old key until a change requires the rest of the row for the delete.
+func (f ChangeFilter) primaryKeyChanged(view *columnView, oldRow []any, record map[string]any, keys []string) (bool, error) {
+	if len(keys) == 0 {
+		return false, nil
 	}
-	return true
+	oldKey, err := convertRowToMap(oldRow, view, f.converter, keys...)
+	if err != nil {
+		return false, err
+	}
+	return utils.GetKeysHash(oldKey, keys...) != utils.GetKeysHash(record, keys...), nil
 }
 
 // resolveColumns takes each field from the binlog when the server logged it and from
@@ -215,8 +205,12 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 			isUnsigned = meta.Columns[i].Unsigned
 		}
 		view.types[i] = mysqlTypeName(tableMap.ColumnType[i], isUnsigned)
-		if tableMap.ColumnType[i] == mysql.MYSQL_TYPE_STRING && !tableMap.IsEnumColumn(i) && !tableMap.IsSetColumn(i) {
+		switch {
+		case tableMap.ColumnType[i] == mysql.MYSQL_TYPE_STRING && !tableMap.IsEnumColumn(i) && !tableMap.IsSetColumn(i):
 			view.widths[i] = fixedWidth(tableMap.ColumnMeta[i])
+		case tableMap.ColumnType[i] == mysql.MYSQL_TYPE_NEWDECIMAL:
+			// a DECIMAL's meta is its precision<<8 | scale
+			view.types[i] = typeutils.DecimalColumnType(view.types[i], int64(tableMap.ColumnMeta[i]>>8), int64(tableMap.ColumnMeta[i]&0xff))
 		}
 	}
 
@@ -278,15 +272,22 @@ func decodeMembers(raw [][]byte, collationID uint64) []string {
 // convertRowToMap converts a binlog row to a map. A row image drops the trailing 0x00 bytes MySQL
 // pads a BINARY(n) value with, so the value is padded back to its declared width: it then matches
 // what a SELECT returns, and a BINARY(n) key hashes to the same olake id on backfill and CDC.
-func convertRowToMap(row []interface{}, view *columnView, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
+func convertRowToMap(row []interface{}, view *columnView, converter func(value interface{}, columnType string) (interface{}, error), columns ...string) (map[string]interface{}, error) {
 	if len(view.names) != len(row) {
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(view.names), len(row))
 	}
 
 	// NOTE: For MySQL CDC (binlog-based), FLOAT values are read directly from the binlog and may
 	// differ from SELECT output due to SQL-layer formatting/rounding.
-	record := make(map[string]interface{}, len(row))
+	size := len(row)
+	if len(columns) > 0 {
+		size = len(columns)
+	}
+	record := make(map[string]interface{}, size)
 	for i, val := range row {
+		if len(columns) > 0 && !slices.Contains(columns, view.names[i]) {
+			continue
+		}
 		// The converter is told the SQL type, which the binary and text branches below
 		// refine from the wire type; view.types is left untouched for the byte accounting.
 		columnType := view.types[i]

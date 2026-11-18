@@ -153,6 +153,13 @@ per-column values, and the destination schema. Columns that cannot match by
 construction — `_olake_timestamp`, CDC log coordinates, server-generated ids —
 are compared by type only, per `compatibility_rules.json`.
 
+Once the rows match, the destinations' metadata is compared too: Iceberg
+snapshots, delete files, partition spec, identifier columns, column stats and
+`olake_2pc`; Parquet file footers, `metadata.json` and leftover `_olake_2pc`
+staging. Values that differ on every run, such as ids, paths and timestamps,
+are left out. Metadata the upgrade adds passes; metadata it removes or
+changes fails. See "Metadata comparison" in [RULES.md](RULES.md).
+
 ### Example: a failure
 
 ```text

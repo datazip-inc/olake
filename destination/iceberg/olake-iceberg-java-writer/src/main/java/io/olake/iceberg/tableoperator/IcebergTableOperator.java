@@ -9,6 +9,7 @@
 package io.olake.iceberg.tableoperator;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -336,6 +337,16 @@ public class IcebergTableOperator {
     }
   }
 
+  /**
+   * Closes, without committing, the data files among paths that this thread's writer still
+   * has open, so rows written to them can be read. The writer itself stays open.
+   */
+  public void closeOpenDataFiles(Set<String> paths) throws IOException {
+    if (writer instanceof PositionalDeltaWriter delta && delta.closeOpen(paths)) {
+      LOGGER.debug("closed open data files, without committing, to read rows written to them");
+    }
+  }
+
   public void completeWriter() {
     try {
       if (writer == null) {
@@ -645,6 +656,7 @@ public class IcebergTableOperator {
                     case STRING_VALUE -> protoValue.getStringValue();
                     case BOOL_VALUE -> protoValue.getBoolValue();
                     case BYTES_VALUE -> protoValue.getBytesValue().asReadOnlyByteBuffer();
+                    case DECIMAL_VALUE -> new BigDecimal(protoValue.getDecimalValue());
                     case VALUE_NOT_SET -> null;
                };
                partitionData.set(i, value);

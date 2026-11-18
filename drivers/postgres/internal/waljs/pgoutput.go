@@ -20,8 +20,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const olakeUnavailableValue = "__olake_unavailable_value__"
-
 // pgoutputReplicator implements Replicator for pgoutput
 type pgoutputReplicator struct {
 	socket               *Socket
@@ -29,6 +27,7 @@ type pgoutputReplicator struct {
 	txnCommitTime        time.Time                             // transaction commit time
 	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
 	transactionCompleted bool                                  // if both begin and commit message received, then transaction is completed
+	preserveToastValues  bool                                  // mark columns Postgres left out of an UPDATE so the destination can recover them
 }
 
 func (p *pgoutputReplicator) Socket() *Socket {
@@ -43,6 +42,9 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 
 	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
+	if p.preserveToastValues {
+		logger.Info("preserve_toast_values enabled: column values postgres omits from an update are recovered from the destination, for iceberg streams using positional deletes or deletion vectors")
+	}
 
 	cdcStartTime := time.Now()
 	messageReceived := false
@@ -121,7 +123,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
-		if _, relationVisited := p.relationIDToMsgMap[msg.RelationID]; !relationVisited && msg.ReplicaIdentity != 'f' {
+		if _, relationVisited := p.relationIDToMsgMap[msg.RelationID]; !relationVisited && msg.ReplicaIdentity != 'f' && !p.preserveToastValues {
 			logger.Warnf("table[%s.%s] replica identity is not FULL, unchanged TOAST column values may be lost during CDC UPDATE events; set REPLICA IDENTITY FULL to avoid data loss", msg.Namespace, msg.RelationName)
 		}
 		p.relationIDToMsgMap[msg.RelationID] = msg
@@ -144,15 +146,19 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, int64, error) {
+// tupleValuesToMap converts one row's tuple into column values. It also returns the large
+// (TOAST) columns an UPDATE left unchanged, which Postgres does not send; nil unless
+// preserveToastValues is on.
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, int64, []string, error) {
 	data := make(map[string]any)
 	if tuple == nil {
-		return data, 0, nil
+		return data, 0, nil, nil
 	}
 
 	// rowBytes is summed inline below (attached to CDCChange.Bytes by the caller),
 	// so the tuple is walked only once.
 	var rowBytes int64
+	var unchangedToastColumns []string
 
 	for idx, col := range tuple.Columns {
 		if idx >= len(rel.Columns) {
@@ -177,19 +183,26 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		}
 		if col.Data == nil {
 			// If the column is a TOAST column, set the value to __olake_unavailable_value__ otherwise set it to nil
-			data[colName] = utils.Ternary(isUnchangedToast, olakeUnavailableValue, nil)
+			data[colName] = utils.Ternary(isUnchangedToast, constants.UnavailableValue, nil)
+			if isUnchangedToast && p.preserveToastValues {
+				unchangedToastColumns = append(unchangedToastColumns, colName)
+			}
 			continue
 		}
 
 		// Convert according to OID to string
 		typeName := oidToString(colType)
+		if mod := rel.Columns[idx].TypeModifier; colType == pgtype.NumericOID && mod >= 4 {
+			// a constrained numeric's type modifier is (precision<<16 | scale) + 4
+			typeName = typeutils.DecimalColumnType(typeName, int64((mod-4)>>16), NumericScale(int64(mod-4)))
+		}
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		data[colName] = val
 	}
-	return data, rowBytes, nil
+	return data, rowBytes, unchangedToastColumns, nil
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
@@ -203,13 +216,13 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.Tuple, nil)
+	values, rowBytes, _, err := p.tupleValuesToMap(rel, m.Tuple, nil)
 	if err != nil {
 		return err
 	}
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "insert", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes, nil))
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
@@ -223,44 +236,50 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
+	values, rowBytes, unchangedToastColumns, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
 	if err != nil {
 		return err
 	}
 
-	primaryKeys := stream.GetStream().SourceDefinedPrimaryKey.Array()
-	if m.OldTuple != nil && primaryKeyChanged(rel, m, primaryKeys) {
-		oldValues, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
-		if err != nil {
-			return err
-		}
-		// A changed key identifies a new destination row; remove the previous identity first.
-		if utils.GetKeysHash(oldValues, primaryKeys...) != utils.GetKeysHash(values, primaryKeys...) {
-			if err := p.emitDelete(ctx, &pglogrepl.DeleteMessage{
-				RelationID: m.RelationID, OldTupleType: m.OldTupleType, OldTuple: m.OldTuple,
-			}, insertFn); err != nil {
-				return fmt.Errorf("failed to emit delete for primary key change in stream %s: %w", stream.ID(), err)
-			}
+	changed, err := p.primaryKeyChanged(rel, m, stream.GetStream().SourceDefinedPrimaryKey.Array(), values)
+	if err != nil {
+		return err
+	}
+	if changed {
+		// TODO: handle deferred primary key changes across a whole transaction.
+		if err := p.emitDelete(ctx, &pglogrepl.DeleteMessage{
+			RelationID: m.RelationID, OldTupleType: m.OldTupleType, OldTuple: m.OldTuple,
+		}, insertFn); err != nil {
+			return fmt.Errorf("failed to emit delete for primary key change in stream %s: %w", stream.ID(), err)
 		}
 	}
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes, unchangedToastColumns))
 }
 
-// Missing old keys cannot identify a row to delete. Differing wire values still
-// need the destination identity comparison (for example, NUMERIC 1.0 and 1.00).
-func primaryKeyChanged(rel *pglogrepl.RelationMessage, m *pglogrepl.UpdateMessage, keys []string) bool {
+// Only decode the old row when its full key is available and differs on the wire.
+func (p *pgoutputReplicator) primaryKeyChanged(rel *pglogrepl.RelationMessage, m *pglogrepl.UpdateMessage, keys []string, values map[string]any) (bool, error) {
+	if m.OldTuple == nil {
+		return false, nil
+	}
 	changed := false
 	for _, key := range keys {
 		i := slices.IndexFunc(rel.Columns, func(col *pglogrepl.RelationMessageColumn) bool { return col.Name == key })
 		if i < 0 || i >= len(m.OldTuple.Columns) || m.OldTuple.Columns[i].Data == nil {
-			return false
+			return false, nil
 		}
 		newCol := m.NewTuple.Columns[i]
 		changed = changed || (newCol.DataType != pglogrepl.TupleDataTypeToast && !bytes.Equal(m.OldTuple.Columns[i].Data, newCol.Data))
 	}
-	return changed
+	if !changed {
+		return false, nil
+	}
+	oldValues, _, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+	if err != nil {
+		return false, err
+	}
+	return utils.GetKeysHash(oldValues, keys...) != utils.GetKeysHash(values, keys...), nil
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -274,13 +293,19 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+	values, rowBytes, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 	if err != nil {
 		return err
 	}
 
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes, nil))
+}
+
+// NumericScale is the scale a numeric type modifier packs into its low 11 bits, two's complement since Postgres 15
+// allows a negative scale. pgx and the raw modifier both hand those bits over unsigned.
+func NumericScale(packed int64) int64 {
+	return (packed&0x7ff ^ 0x400) - 0x400
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

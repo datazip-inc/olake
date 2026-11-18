@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	pq "github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/deprecated"
 	"github.com/shopspring/decimal"
@@ -570,7 +571,7 @@ func mapParquetTypeToOlake(pqType pq.Type) types.DataType {
 	case logicalType.Date != nil:
 		return types.Timestamp
 	case logicalType.Decimal != nil:
-		return types.Float64
+		return types.NumericOf(int64(logicalType.Decimal.Precision), int64(logicalType.Decimal.Scale))
 	case logicalType.UTF8 != nil, logicalType.Json != nil, logicalType.UUID != nil,
 		logicalType.Enum != nil, logicalType.Bson != nil:
 		return types.String
@@ -712,7 +713,16 @@ func convertLogicalValue(val pq.Value, fieldType pq.Type) (interface{}, bool) {
 			logger.Warnf("decimal decode failed: %v", err)
 			return nil, true
 		}
-		v, _ := dec.Float64()
+		dataType := types.NumericOf(int64(logicalType.Decimal.Precision), int64(logicalType.Decimal.Scale))
+		if dataType == types.Float64 {
+			v, _ := dec.Float64()
+			return v, true
+		}
+		v, err := typeutils.ReformatValue(dataType, dec.String())
+		if err != nil {
+			logger.Warnf("decimal decode failed: %v", err)
+			return nil, true
+		}
 		return v, true
 
 	// UUID (stored as a 16 byte FIXED_LEN_BYTE_ARRAY) as the canonical 8-4-4-4-12 hex string,

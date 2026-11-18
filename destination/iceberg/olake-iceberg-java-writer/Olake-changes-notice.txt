@@ -24,7 +24,7 @@ These changes include but are not limited to:
 Future Modifications:
 All future modifications to this project will be tracked in the commit history of the repository.
 Detailed information about changes can be found by examining commit logs, pull requests,
-and release notes at https://github.com/datazip-inc/olake
+and release notes at https://github.com/datazip-inc/olake-go
 
 This notice is provided in compliance with Section 4(b) of the Apache License, Version 2.0, 
 which requires that any modified files carry prominent notices stating that the files have been changed.

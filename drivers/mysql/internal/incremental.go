@@ -21,6 +21,10 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	if err != nil {
 		return fmt.Errorf("failed to build incremental condition: %w", err)
 	}
+	unsignedDecimals, err := m.unsignedDecimals(ctx, stream)
+	if err != nil {
+		return err
+	}
 
 	var rows *sql.Rows
 	rows, err = m.client.QueryContext(ctx, incrementalQuery, queryArgs...)
@@ -30,9 +34,10 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	defer rows.Close()
 
 	// Scan rows and process
+	columnTypeName := mysqlColumnTypeName(unsignedDecimals)
 	for rows.Next() {
 		record := make(types.Record)
-		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mysqlColumnSizer)
+		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mysqlColumnSizer, columnTypeName)
 		if err != nil {
 			return fmt.Errorf("failed to scan record: %w", err)
 		}

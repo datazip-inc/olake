@@ -23,8 +23,10 @@ type TestHandler struct {
 	// icebergDestination is the destination config the next iceberg sync runs against, which is how
 	// IcebergWriter selects between the legacy and the arrow writer.
 	icebergDestination               string
+	testPrimaryKeyChanges            bool
 	ExpectedData                     map[string]interface{}
 	ExpectedUpdatedData              map[string]interface{}
+	ExpectedCDCUpdatedData           map[string]interface{} // expected row after the CDC update when CDC leaves columns out; nil means use ExpectedUpdatedData
 	DestinationDataTypeSchema        map[string]string
 	UpdatedDestinationDataTypeSchema map[string]string
 	DefaultCDCColumnsSchema          map[string]string

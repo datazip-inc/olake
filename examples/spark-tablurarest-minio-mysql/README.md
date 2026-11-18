@@ -22,7 +22,7 @@ This example demonstrates an end-to-end data lakehouse pipeline:
 ### 1. Start OLake Tech Stack
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose-v1.yml | docker compose -f - up -d
 ```
 
 ### 2. Start the Demo Stack
@@ -179,5 +179,5 @@ docker compose up -d
 docker compose down -v
 
 # Stop base OLake stack (if running separately)
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - down
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose-v1.yml | docker compose -f - down
 ```
