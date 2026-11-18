@@ -265,7 +265,7 @@ func TestJSONParser_StreamRecords_InvalidJSONArrayReturnsDecodeError(t *testing.
 		return nil
 	}
 
-	err := parser.StreamRecords(context.Background(), reader, callback)
+	err := parser.StreamRecords(ctx, reader, callback)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "failed to decode JSON array record 1")
 	require.Len(t, records, 1)
