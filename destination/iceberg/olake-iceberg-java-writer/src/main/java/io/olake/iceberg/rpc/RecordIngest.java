@@ -23859,17 +23859,6 @@ java.lang.String defaultValue) {
      */
     io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.FileRowsOrBuilder getFilesOrBuilder(
         int index);
-
-    /**
-     * <pre>
-     * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
-     * the stream normally; the rows left are read by a later call. 0 means no limit.
-     * </pre>
-     *
-     * <code>int64 max_bytes = 3;</code>
-     * @return The maxBytes.
-     */
-    long getMaxBytes();
   }
   /**
    * Protobuf type {@code io.olake.iceberg.rpc.ReadRowsRequest}
@@ -24684,44 +24673,24 @@ java.lang.String defaultValue) {
           getFilePathBytes();
 
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> 
           getRowsList();
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row getRows(int index);
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       int getRowsCount();
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder> 
           getRowsOrBuilderList();
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder getRowsOrBuilder(
@@ -24807,10 +24776,6 @@ java.lang.String defaultValue) {
       @SuppressWarnings("serial")
       private java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> rows_;
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       @java.lang.Override
@@ -24818,10 +24783,6 @@ java.lang.String defaultValue) {
         return rows_;
       }
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       @java.lang.Override
@@ -24830,10 +24791,6 @@ java.lang.String defaultValue) {
         return rows_;
       }
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       @java.lang.Override
@@ -24841,10 +24798,6 @@ java.lang.String defaultValue) {
         return rows_.size();
       }
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       @java.lang.Override
@@ -24852,10 +24805,6 @@ java.lang.String defaultValue) {
         return rows_.get(index);
       }
       /**
-       * <pre>
-       * Rows to read, in ascending position order.
-       * </pre>
-       *
        * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
        */
       @java.lang.Override
@@ -25347,10 +25296,6 @@ java.lang.String defaultValue) {
             io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder> rowsBuilder_;
 
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row> getRowsList() {
@@ -25361,10 +25306,6 @@ java.lang.String defaultValue) {
           }
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public int getRowsCount() {
@@ -25375,10 +25316,6 @@ java.lang.String defaultValue) {
           }
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row getRows(int index) {
@@ -25389,10 +25326,6 @@ java.lang.String defaultValue) {
           }
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder setRows(
@@ -25410,10 +25343,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder setRows(
@@ -25428,10 +25357,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder addRows(io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row value) {
@@ -25448,10 +25373,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder addRows(
@@ -25469,10 +25390,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder addRows(
@@ -25487,10 +25404,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder addRows(
@@ -25505,10 +25418,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder addAllRows(
@@ -25524,10 +25433,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder clearRows() {
@@ -25541,10 +25446,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public Builder removeRows(int index) {
@@ -25558,10 +25459,6 @@ java.lang.String defaultValue) {
           return this;
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder getRowsBuilder(
@@ -25569,10 +25466,6 @@ java.lang.String defaultValue) {
           return getRowsFieldBuilder().getBuilder(index);
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder getRowsOrBuilder(
@@ -25583,10 +25476,6 @@ java.lang.String defaultValue) {
           }
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public java.util.List<? extends io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.RowOrBuilder> 
@@ -25598,10 +25487,6 @@ java.lang.String defaultValue) {
           }
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder addRowsBuilder() {
@@ -25609,10 +25494,6 @@ java.lang.String defaultValue) {
               io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.getDefaultInstance());
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder addRowsBuilder(
@@ -25621,10 +25502,6 @@ java.lang.String defaultValue) {
               index, io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.getDefaultInstance());
         }
         /**
-         * <pre>
-         * Rows to read, in ascending position order.
-         * </pre>
-         *
          * <code>repeated .io.olake.iceberg.rpc.ReadRowsRequest.Row rows = 2;</code>
          */
         public java.util.List<io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest.Row.Builder> 
@@ -25789,22 +25666,6 @@ java.lang.String defaultValue) {
       return files_.get(index);
     }
 
-    public static final int MAX_BYTES_FIELD_NUMBER = 3;
-    private long maxBytes_ = 0L;
-    /**
-     * <pre>
-     * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
-     * the stream normally; the rows left are read by a later call. 0 means no limit.
-     * </pre>
-     *
-     * <code>int64 max_bytes = 3;</code>
-     * @return The maxBytes.
-     */
-    @java.lang.Override
-    public long getMaxBytes() {
-      return maxBytes_;
-    }
-
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -25825,9 +25686,6 @@ java.lang.String defaultValue) {
       for (int i = 0; i < files_.size(); i++) {
         output.writeMessage(2, files_.get(i));
       }
-      if (maxBytes_ != 0L) {
-        output.writeInt64(3, maxBytes_);
-      }
       getUnknownFields().writeTo(output);
     }
 
@@ -25843,10 +25701,6 @@ java.lang.String defaultValue) {
       for (int i = 0; i < files_.size(); i++) {
         size += com.google.protobuf.CodedOutputStream
           .computeMessageSize(2, files_.get(i));
-      }
-      if (maxBytes_ != 0L) {
-        size += com.google.protobuf.CodedOutputStream
-          .computeInt64Size(3, maxBytes_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -25867,8 +25721,6 @@ java.lang.String defaultValue) {
           .equals(other.getThreadId())) return false;
       if (!getFilesList()
           .equals(other.getFilesList())) return false;
-      if (getMaxBytes()
-          != other.getMaxBytes()) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -25886,9 +25738,6 @@ java.lang.String defaultValue) {
         hash = (37 * hash) + FILES_FIELD_NUMBER;
         hash = (53 * hash) + getFilesList().hashCode();
       }
-      hash = (37 * hash) + MAX_BYTES_FIELD_NUMBER;
-      hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-          getMaxBytes());
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -26028,7 +25877,6 @@ java.lang.String defaultValue) {
           filesBuilder_.clear();
         }
         bitField0_ = (bitField0_ & ~0x00000002);
-        maxBytes_ = 0L;
         return this;
       }
 
@@ -26077,9 +25925,6 @@ java.lang.String defaultValue) {
         int from_bitField0_ = bitField0_;
         if (((from_bitField0_ & 0x00000001) != 0)) {
           result.threadId_ = threadId_;
-        }
-        if (((from_bitField0_ & 0x00000004) != 0)) {
-          result.maxBytes_ = maxBytes_;
         }
       }
 
@@ -26158,9 +26003,6 @@ java.lang.String defaultValue) {
             }
           }
         }
-        if (other.getMaxBytes() != 0L) {
-          setMaxBytes(other.getMaxBytes());
-        }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -26205,11 +26047,6 @@ java.lang.String defaultValue) {
                 }
                 break;
               } // case 18
-              case 24: {
-                maxBytes_ = input.readInt64();
-                bitField0_ |= 0x00000004;
-                break;
-              } // case 24
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -26537,53 +26374,6 @@ java.lang.String defaultValue) {
           files_ = null;
         }
         return filesBuilder_;
-      }
-
-      private long maxBytes_ ;
-      /**
-       * <pre>
-       * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
-       * the stream normally; the rows left are read by a later call. 0 means no limit.
-       * </pre>
-       *
-       * <code>int64 max_bytes = 3;</code>
-       * @return The maxBytes.
-       */
-      @java.lang.Override
-      public long getMaxBytes() {
-        return maxBytes_;
-      }
-      /**
-       * <pre>
-       * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
-       * the stream normally; the rows left are read by a later call. 0 means no limit.
-       * </pre>
-       *
-       * <code>int64 max_bytes = 3;</code>
-       * @param value The maxBytes to set.
-       * @return This builder for chaining.
-       */
-      public Builder setMaxBytes(long value) {
-
-        maxBytes_ = value;
-        bitField0_ |= 0x00000004;
-        onChanged();
-        return this;
-      }
-      /**
-       * <pre>
-       * Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
-       * the stream normally; the rows left are read by a later call. 0 means no limit.
-       * </pre>
-       *
-       * <code>int64 max_bytes = 3;</code>
-       * @return This builder for chaining.
-       */
-      public Builder clearMaxBytes() {
-        bitField0_ = (bitField0_ & ~0x00000004);
-        maxBytes_ = 0L;
-        onChanged();
-        return this;
       }
       @java.lang.Override
       public final Builder setUnknownFields(
@@ -28750,36 +28540,36 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
       "oad.DeleteMode\"y\n\036MigrateEqualityDeletes" +
       "Response\022\023\n\013snapshot_id\030\001 \001(\003\022\036\n\026rewritt" +
       "en_delete_files\030\002 \001(\003\022\"\n\032positional_dele" +
-      "tes_written\030\003 \001(\003\"\370\001\n\017ReadRowsRequest\022\021\n" +
+      "tes_written\030\003 \001(\003\"\345\001\n\017ReadRowsRequest\022\021\n" +
       "\tthread_id\030\001 \001(\t\022=\n\005files\030\002 \003(\0132..io.ola" +
-      "ke.iceberg.rpc.ReadRowsRequest.FileRows\022" +
-      "\021\n\tmax_bytes\030\003 \001(\003\032(\n\003Row\022\020\n\010position\030\001 " +
-      "\001(\003\022\017\n\007columns\030\002 \003(\t\032V\n\010FileRows\022\021\n\tfile" +
-      "_path\030\001 \001(\t\0227\n\004rows\030\002 \003(\0132).io.olake.ice" +
-      "berg.rpc.ReadRowsRequest.Row\"\242\002\n\rReadRow" +
-      "sBatch\0225\n\004rows\030\001 \003(\0132\'.io.olake.iceberg." +
-      "rpc.ReadRowsBatch.Row\032\331\001\n\003Row\022\021\n\tfile_pa" +
-      "th\030\001 \001(\t\022\020\n\010position\030\002 \001(\003\022C\n\006values\030\003 \003" +
-      "(\01323.io.olake.iceberg.rpc.ReadRowsBatch." +
-      "Row.ValuesEntry\032h\n\013ValuesEntry\022\013\n\003key\030\001 " +
-      "\001(\t\022H\n\005value\030\002 \001(\01329.io.olake.iceberg.rp" +
-      "c.IcebergPayload.IceRecord.FieldValue:\0028" +
-      "\0012v\n\023RecordIngestService\022_\n\013SendRecords\022" +
-      "$.io.olake.iceberg.rpc.IcebergPayload\032*." +
-      "io.olake.iceberg.rpc.RecordIngestRespons" +
-      "e2q\n\022ArrowIngestService\022[\n\nIcebergAPI\022\"." +
-      "io.olake.iceberg.rpc.ArrowPayload\032).io.o" +
-      "lake.iceberg.rpc.ArrowIngestResponse2\345\002\n" +
-      "\021TableIndexService\022p\n\024ScanTableForIndexi" +
-      "ng\022+.io.olake.iceberg.rpc.TableIndexScan" +
-      "Request\032).io.olake.iceberg.rpc.TableInde" +
-      "xScanBatch0\001\022\203\001\n\026MigrateEqualityDeletes\022" +
-      "3.io.olake.iceberg.rpc.MigrateEqualityDe" +
-      "letesRequest\0324.io.olake.iceberg.rpc.Migr" +
-      "ateEqualityDeletesResponse\022X\n\010ReadRows\022%" +
-      ".io.olake.iceberg.rpc.ReadRowsRequest\032#." +
-      "io.olake.iceberg.rpc.ReadRowsBatch0\001B\035B\014" +
-      "RecordIngestZ\riceberg/protob\006proto3"
+      "ke.iceberg.rpc.ReadRowsRequest.FileRows\032" +
+      "(\n\003Row\022\020\n\010position\030\001 \001(\003\022\017\n\007columns\030\002 \003(" +
+      "\t\032V\n\010FileRows\022\021\n\tfile_path\030\001 \001(\t\0227\n\004rows" +
+      "\030\002 \003(\0132).io.olake.iceberg.rpc.ReadRowsRe" +
+      "quest.Row\"\242\002\n\rReadRowsBatch\0225\n\004rows\030\001 \003(" +
+      "\0132\'.io.olake.iceberg.rpc.ReadRowsBatch.R" +
+      "ow\032\331\001\n\003Row\022\021\n\tfile_path\030\001 \001(\t\022\020\n\010positio" +
+      "n\030\002 \001(\003\022C\n\006values\030\003 \003(\01323.io.olake.icebe" +
+      "rg.rpc.ReadRowsBatch.Row.ValuesEntry\032h\n\013" +
+      "ValuesEntry\022\013\n\003key\030\001 \001(\t\022H\n\005value\030\002 \001(\0132" +
+      "9.io.olake.iceberg.rpc.IcebergPayload.Ic" +
+      "eRecord.FieldValue:\0028\0012v\n\023RecordIngestSe" +
+      "rvice\022_\n\013SendRecords\022$.io.olake.iceberg." +
+      "rpc.IcebergPayload\032*.io.olake.iceberg.rp" +
+      "c.RecordIngestResponse2q\n\022ArrowIngestSer" +
+      "vice\022[\n\nIcebergAPI\022\".io.olake.iceberg.rp" +
+      "c.ArrowPayload\032).io.olake.iceberg.rpc.Ar" +
+      "rowIngestResponse2\345\002\n\021TableIndexService\022" +
+      "p\n\024ScanTableForIndexing\022+.io.olake.icebe" +
+      "rg.rpc.TableIndexScanRequest\032).io.olake." +
+      "iceberg.rpc.TableIndexScanBatch0\001\022\203\001\n\026Mi" +
+      "grateEqualityDeletes\0223.io.olake.iceberg." +
+      "rpc.MigrateEqualityDeletesRequest\0324.io.o" +
+      "lake.iceberg.rpc.MigrateEqualityDeletesR" +
+      "esponse\022X\n\010ReadRows\022%.io.olake.iceberg.r" +
+      "pc.ReadRowsRequest\032#.io.olake.iceberg.rp" +
+      "c.ReadRowsBatch0\001B\035B\014RecordIngestZ\ricebe" +
+      "rg/protob\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -28928,7 +28718,7 @@ io.olake.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue defaultVal
     internal_static_io_olake_iceberg_rpc_ReadRowsRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor,
-        new java.lang.String[] { "ThreadId", "Files", "MaxBytes", });
+        new java.lang.String[] { "ThreadId", "Files", });
     internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_descriptor =
       internal_static_io_olake_iceberg_rpc_ReadRowsRequest_descriptor.getNestedTypes().get(0);
     internal_static_io_olake_iceberg_rpc_ReadRowsRequest_Row_fieldAccessorTable = new

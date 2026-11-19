@@ -9,9 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import org.apache.hadoop.conf.Configuration;
@@ -164,15 +167,18 @@ class RowReaderTest {
         }
         positions = positions.stream().distinct().sorted().toList();
 
-        // each row asks for its own columns
+        // even positions ask for payload, odd ones for amt; asked from the file's last row back to its first
         List<ReadRowsRequest.Row> rows = new ArrayList<>();
         for (long position : positions) {
             List<String> columns = position % 2 == 0 ? List.of("_op_type", "payload") : List.of("_op_type", "amt");
             rows.add(ReadRowsRequest.Row.newBuilder().setPosition(position).addAllColumns(columns).build());
         }
+        Collections.reverse(rows);
 
         Map<Long, ReadRowsBatch.Row> read = read(rows);
 
+        assertEquals(rows.stream().map(ReadRowsRequest.Row::getPosition).toList(), new ArrayList<>(read.keySet()),
+                "rows come back in the order asked");
         assertEquals(positions, read.keySet().stream().sorted().toList());
         for (long position : positions) {
             Map<String, FieldValue> values = read.get(position).getValuesMap();
@@ -273,7 +279,7 @@ class RowReaderTest {
 
         List<ReadRowsBatch.Row> parts = new ArrayList<>();
         List<String> columns = List.of("_op_type", "payload", "big doc", "a.b");
-        RowReader.read(table, path, List.of(
+        readRows(path, List.of(
                 ReadRowsRequest.Row.newBuilder().setPosition(0).addAllColumns(columns).build(),
                 ReadRowsRequest.Row.newBuilder().setPosition(1).addAllColumns(columns).build()), parts::add);
 
@@ -296,11 +302,21 @@ class RowReaderTest {
         return FieldValue.newBuilder().setStringValue(value).build();
     }
 
-    /** Reads the rows, keyed by position; a position emitted twice fails the test. */
+    /** Reads the rows, keyed by position in the order emitted; a position emitted twice fails the test. */
     private Map<Long, ReadRowsBatch.Row> read(List<ReadRowsRequest.Row> rows) throws Exception {
-        Map<Long, ReadRowsBatch.Row> read = new HashMap<>();
-        RowReader.read(table, filePath, rows, row -> assertNull(read.put(row.getPosition(), row)));
+        Map<Long, ReadRowsBatch.Row> read = new LinkedHashMap<>();
+        readRows(filePath, rows, row -> assertNull(read.put(row.getPosition(), row)));
         return read;
+    }
+
+    /** Opens the file for the rows, reads each in turn and closes it, as RowEmitter does. */
+    private void readRows(String path, List<ReadRowsRequest.Row> rows, Consumer<ReadRowsBatch.Row> consumer)
+            throws Exception {
+        try (RowReader reader = new RowReader(table, path, rows)) {
+            for (ReadRowsRequest.Row row : rows) {
+                reader.read(row, consumer);
+            }
+        }
     }
 
     private ParquetFileReader openFile() throws Exception {

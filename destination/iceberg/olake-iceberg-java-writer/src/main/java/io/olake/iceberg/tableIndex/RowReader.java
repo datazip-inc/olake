@@ -1,12 +1,14 @@
 package io.olake.iceberg.tableIndex;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PrimitiveIterator;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
@@ -14,7 +16,6 @@ import com.google.protobuf.ByteString;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.SeekableInputStream;
 import org.apache.iceberg.parquet.ParquetSchemaUtil;
 import org.apache.parquet.ParquetReadOptions;
@@ -44,11 +45,11 @@ import io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch;
 import io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest;
 
 /**
- * Reads the requested columns of rows addressed by {@code (data file, row position)}.
- * Skips row groups without a wanted row and, when the file has a page index, pages too;
- * without one it reads whole row groups (correct, but more data).
+ * Reads the requested columns of rows addressed by {@code (data file, row position)}, one row at a
+ * time. A row costs the pages holding it when the file has a page index, else its whole row group
+ * (correct, but more data). Open it for the rows of one file, {@link #read} each, close it.
  */
-public final class RowReader {
+public final class RowReader implements AutoCloseable {
   /**
    * A row whose values pass this is sent as several parts, so one message stays under the 2 GB
    * gRPC limit however many large values the row holds: a message is then at most this, the
@@ -59,68 +60,72 @@ public final class RowReader {
   /** Marks a soft-deleted row ("d"). */
   private static final String OP_TYPE = "_op_type";
 
-  private RowReader() {
-  }
+  private final String filePath;
+  private final ParquetFileReader reader;
+  private final List<BlockMetaData> blocks;
+  private final long[] blockStarts; // file position of each row group's first row, ascending
+  // the columns read are fixed when the reader opens: the parquet reader caches each row group's page
+  // index for the columns requested then
+  private final MessageType projection;
+  private final Map<String, Integer> slots;
+  private final MessageColumnIO columnIO;
 
-  /** Receives rows as they are read, so neither side holds a whole file's values. */
-  public interface RowConsumer {
-    void accept(ReadRowsBatch.Row row) throws Exception;
-  }
-
-  /**
-   * Reads the given rows of one data file, in ascending position order, and hands each to consumer
-   * with the values of its own columns. A column the file does not carry comes back unset, as a
-   * stored NULL does: neither has a value to recover.
-   */
-  public static void read(Table table, String filePath, List<ReadRowsRequest.Row> rows, RowConsumer consumer)
-      throws Exception {
-    Set<String> columns = new HashSet<>();
-    rows.forEach(row -> columns.addAll(row.getColumnsList()));
-
-    InputFile inputFile = table.io().newInputFile(filePath);
+  /** Opens a data file to read the given rows of it, whose columns together fix the columns read. */
+  public RowReader(Table table, String filePath, List<ReadRowsRequest.Row> rows) throws IOException {
+    this.filePath = filePath;
     // ParquetInput adapts Iceberg's file to Parquet's type, so the read keeps using the
     // table's FileIO and credentials.
-    try (ParquetFileReader reader = ParquetFileReader.open(new ParquetInput(inputFile),
-        ParquetReadOptions.builder().build())) {
-      MessageType fileSchema = reader.getFooter().getFileMetaData().getSchema();
-      // Matched by Iceberg field id, as Iceberg readers do; a column the file was written
-      // without is left out of the projection.
-      Schema selected = table.schema().select(columns);
-      MessageType projection = ParquetSchemaUtil.pruneColumns(fileSchema, selected);
-      reader.setRequestedSchema(projection);
-      Map<String, Integer> slots = slots(selected, projection);
-
-      MessageColumnIO columnIO = new ColumnIOFactory().getColumnIO(projection, fileSchema, true);
-      List<BlockMetaData> blocks = reader.getRowGroups();
-      int cursor = 0; // index in rows of the next row to read
-      long firstRowOfBlock = 0; // file position of the current row group's first row
-
-      for (int blockIndex = 0; blockIndex < blocks.size() && cursor < rows.size(); blockIndex++) {
-        long rowsInBlock = blocks.get(blockIndex).getRowCount();
-
-        // the rows from cursor on that fall in this row group
-        int blockStart = cursor;
-        while (cursor < rows.size() && rows.get(cursor).getPosition() < firstRowOfBlock + rowsInBlock) {
-          cursor++;
-        }
-        if (cursor > blockStart) {
-          List<ReadRowsRequest.Row> wanted = rows.subList(blockStart, cursor);
-          PageReadStore pages = readPages(reader, blockIndex, projection, wanted, firstRowOfBlock, rowsInBlock);
-          emit(columnIO, projection, slots, pages, wanted, firstRowOfBlock, filePath, consumer);
-        }
-
-        firstRowOfBlock += rowsInBlock;
-      }
+    this.reader = ParquetFileReader.open(new ParquetInput(table.io().newInputFile(filePath)),
+        ParquetReadOptions.builder().build());
+    this.blocks = reader.getRowGroups();
+    this.blockStarts = new long[blocks.size()];
+    long start = 0;
+    for (int blockIndex = 0; blockIndex < blocks.size(); blockIndex++) {
+      blockStarts[blockIndex] = start;
+      start += blocks.get(blockIndex).getRowCount();
     }
+
+    MessageType fileSchema = reader.getFooter().getFileMetaData().getSchema();
+    // Matched by Iceberg field id, as Iceberg readers do; a column the file was written
+    // without is left out of the projection.
+    Schema selected = table.schema().select(columnsOf(rows));
+    this.projection = ParquetSchemaUtil.pruneColumns(fileSchema, selected);
+    reader.setRequestedSchema(projection);
+    this.slots = slots(selected, projection);
+    this.columnIO = new ColumnIOFactory().getColumnIO(projection, fileSchema, true);
+  }
+
+  /** The columns the rows ask for, together. */
+  private static Set<String> columnsOf(List<ReadRowsRequest.Row> rows) {
+    Set<String> columns = new HashSet<>();
+    rows.forEach(row -> columns.addAll(row.getColumnsList()));
+    return columns;
   }
 
   /**
-   * Reads only the pages holding the wanted rows if the file has a page index, else the whole row
-   * group. Every column narrows the rows read, so _op_type's one big page does not pull in every
-   * page of a wide column.
+   * Reads one of the rows the reader was opened for and hands it to consumer with the values of
+   * its columns. A column the file does not carry comes back unset, as a stored NULL does: neither
+   * has a value to recover.
    */
-  private static PageReadStore readPages(ParquetFileReader reader, int blockIndex, MessageType projection,
-      List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, long rowsInBlock) throws IOException {
+  public void read(ReadRowsRequest.Row row, Consumer<ReadRowsBatch.Row> consumer) throws IOException {
+    int blockIndex = blockOf(row.getPosition());
+    emit(readPages(blockIndex, row.getPosition()), row, blockStarts[blockIndex], consumer);
+  }
+
+  /** The row group holding the row at position. */
+  private int blockOf(long position) {
+    int found = Arrays.binarySearch(blockStarts, position);
+    return found >= 0 ? found : -found - 2; // the row group starting before the insertion point
+  }
+
+  /**
+   * Reads only the pages holding the row if the file has a page index, else its whole row group.
+   * Every column narrows the rows read, so _op_type's one big page does not pull in every page of
+   * a wide column.
+   */
+  private PageReadStore readPages(int blockIndex, long position) throws IOException {
+    long rowsInBlock = blocks.get(blockIndex).getRowCount();
+    long rowInBlock = position - blockStarts[blockIndex];
     // The reader caches this store and readFilteredRowGroup reuses it, so each offset index is fetched from storage once.
     ColumnIndexStore indexes = reader.getColumnIndexStore(blockIndex);
     RowRanges ranges = RowRanges.createSingle(rowsInBlock);
@@ -131,30 +136,62 @@ public final class RowReader {
       } catch (MissingOffsetIndexException e) {
         return reader.readRowGroup(blockIndex);
       }
-      RowRanges columnRanges = RowRanges.create(rowsInBlock,
-          pagesHolding(offsetIndex, wanted, firstRowOfBlock, rowsInBlock), offsetIndex);
-      ranges = RowRanges.intersection(ranges, columnRanges);
+      int page = pageHolding(offsetIndex, rowInBlock, rowsInBlock);
+      ranges = RowRanges.intersection(ranges, RowRanges.create(rowsInBlock, IntStream.of(page).iterator(), offsetIndex));
     }
 
     return reader.readFilteredRowGroup(blockIndex, ranges);
   }
 
-  /** Indexes, within one column chunk, of the pages holding the wanted rows. */
-  private static PrimitiveIterator.OfInt pagesHolding(OffsetIndex offsetIndex, List<ReadRowsRequest.Row> wanted,
-      long firstRowOfBlock, long rowsInBlock) {
-    IntStream.Builder pages = IntStream.builder();
-    int cursor = 0;
-    for (int page = 0; page < offsetIndex.getPageCount() && cursor < wanted.size(); page++) {
-      long lastRow = firstRowOfBlock + offsetIndex.getLastRowIndex(page, rowsInBlock);
-      if (wanted.get(cursor).getPosition() > lastRow) {
-        continue;
-      }
-      pages.add(page);
-      while (cursor < wanted.size() && wanted.get(cursor).getPosition() <= lastRow) {
-        cursor++;
-      }
+  /** Index, within one column chunk, of the page holding the row (given by its index within the row group). */
+  private static int pageHolding(OffsetIndex offsetIndex, long rowInBlock, long rowsInBlock) {
+    int page = 0;
+    while (rowInBlock > offsetIndex.getLastRowIndex(page, rowsInBlock)) {
+      page++;
     }
-    return pages.build().iterator();
+    return page;
+  }
+
+  /**
+   * Walks the rows read to the wanted one and emits it. A row whose values pass ROW_PART_BYTES goes
+   * out in parts, each with the same file and position and some of the columns; Go merges them.
+   */
+  private void emit(PageReadStore pages, ReadRowsRequest.Row row, long firstRowOfBlock, Consumer<ReadRowsBatch.Row> consumer) {
+    RecordReader<Group> records = columnIO.getRecordReader(pages, new GroupRecordConverter(projection), FilterCompat.NOOP);
+    // a whole row group read carries no row indexes: its rows come in order from 0
+    PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes()
+        .orElseGet(() -> LongStream.range(0, pages.getRowCount()).iterator());
+
+    // the wanted row is among the rows read, which come in position order
+    Group group;
+    do {
+      group = records.read();
+    } while (firstRowOfBlock + rowIndexes.nextLong() != row.getPosition());
+
+    // a soft-deleted row has nothing to recover: every column except _op_type goes back unset. A
+    // file written before olake took the table over has no _op_type, so its rows are live.
+    Integer opTypeSlot = slots.get(OP_TYPE);
+    boolean deleted = opTypeSlot != null && "d".equals(group.getString(opTypeSlot, 0));
+    ReadRowsBatch.Row.Builder part = ReadRowsBatch.Row.newBuilder().setFilePath(filePath).setPosition(row.getPosition());
+    long partBytes = 0;
+    for (String column : row.getColumnsList()) {
+      Integer slot = slots.get(column);
+      FieldValue value = slot == null || (deleted && !column.equals(OP_TYPE))
+          ? FieldValue.getDefaultInstance() : value(group, slot);
+      if (partBytes > 0 && partBytes + value.getSerializedSize() > ROW_PART_BYTES) {
+        consumer.accept(part.build());
+        part.clearValues();
+        partBytes = 0;
+      }
+      part.putValues(column, value);
+      partBytes += value.getSerializedSize();
+    }
+    consumer.accept(part.build());
+  }
+
+  @Override
+  public void close() throws IOException {
+    reader.close();
   }
 
   /**
@@ -168,49 +205,6 @@ public final class RowReader {
       slots.put(selected.findField(projection.getType(slot).getId().intValue()).name(), slot);
     }
     return slots;
-  }
-
-  /**
-   * Walks the rows read and emits the wanted ones. A row whose values pass ROW_PART_BYTES goes out
-   * in parts, each with the same file and position and some of the columns; Go merges them.
-   */
-  private static void emit(MessageColumnIO columnIO, MessageType projection, Map<String, Integer> slots,
-      PageReadStore pages, List<ReadRowsRequest.Row> wanted, long firstRowOfBlock, String filePath,
-      RowConsumer consumer) throws Exception {
-    RecordReader<Group> records = columnIO.getRecordReader(pages, new GroupRecordConverter(projection), FilterCompat.NOOP);
-    // a whole row group read carries no row indexes: its rows come in order from 0
-    PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes()
-        .orElseGet(() -> LongStream.range(0, pages.getRowCount()).iterator());
-    Integer opTypeSlot = slots.get(OP_TYPE);
-
-    // every wanted row is among the rows read, which come in position order
-    int cursor = 0;
-    while (cursor < wanted.size()) {
-      Group group = records.read();
-      long position = firstRowOfBlock + rowIndexes.nextLong();
-      if (position != wanted.get(cursor).getPosition()) {
-        continue;
-      }
-
-      // a soft-deleted row has nothing to recover: every column except _op_type goes back unset
-      boolean deleted = opTypeSlot != null && group.getFieldRepetitionCount(opTypeSlot) > 0
-          && "d".equals(group.getString(opTypeSlot, 0));
-      ReadRowsBatch.Row.Builder part = ReadRowsBatch.Row.newBuilder().setFilePath(filePath).setPosition(position);
-      long partBytes = 0;
-      for (String column : wanted.get(cursor++).getColumnsList()) {
-        Integer slot = slots.get(column);
-        FieldValue value = slot == null || (deleted && !column.equals(OP_TYPE))
-            ? FieldValue.getDefaultInstance() : value(group, slot);
-        if (partBytes > 0 && partBytes + value.getSerializedSize() > ROW_PART_BYTES) {
-          consumer.accept(part.build());
-          part.clearValues();
-          partBytes = 0;
-        }
-        part.putValues(column, value);
-        partBytes += value.getSerializedSize();
-      }
-      consumer.accept(part.build());
-    }
   }
 
   /**
@@ -242,7 +236,7 @@ public final class RowReader {
    * Adapts an Iceberg file to Parquet's InputFile, so reads go through the table's FileIO.
    * Iceberg's own adapter ({@code ParquetIO}) is package private.
    */
-  private record ParquetInput(InputFile file) implements org.apache.parquet.io.InputFile {
+  private record ParquetInput(org.apache.iceberg.io.InputFile file) implements org.apache.parquet.io.InputFile {
     @Override
     public long getLength() {
       return file.getLength();

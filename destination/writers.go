@@ -67,6 +67,9 @@ type (
 		recordsFiltered atomic.Int64
 		bytesPushed     atomic.Int64
 		bufferBytes     int64 // source bytes currently held in buffer (for byte-based flush)
+		// destinationValuesFetcher fills values the source could not send (Postgres unchanged TOAST) before a flush
+		// writes; nil for a writer that cannot read rows back from the destination
+		destinationValuesFetcher *destinationValuesFetcher
 	}
 )
 
@@ -227,13 +230,14 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}
 
 	return &WriterThread{
-		buffer:         []types.RawRecord{},
-		batchSize:      w.batchSize,
-		threadID:       opts.ThreadID,
-		writer:         writerThread,
-		stats:          w.stats,
-		streamArtifact: streamArtifact,
-		group:          utils.NewCGroupWithLimit(ctx, 1), // currently only one thread (To make sure flush can run parallel when buffer filling)
+		buffer:                   []types.RawRecord{},
+		batchSize:                w.batchSize,
+		threadID:                 opts.ThreadID,
+		writer:                   writerThread,
+		stats:                    w.stats,
+		streamArtifact:           streamArtifact,
+		group:                    utils.NewCGroupWithLimit(ctx, 1), // currently only one thread (To make sure flush can run parallel when buffer filling)
+		destinationValuesFetcher: newDestinationValuesFetcher(stream, writerThread, opts.TableIndex),
 	}, prevStreamState, nil
 }
 
@@ -289,14 +293,11 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	resolver, recovers := wt.writer.(ValueResolver)
 	written := 0
 	for len(buf) > 0 {
-		chunk := len(buf)
-		if recovers {
-			if chunk, err = resolver.RecoverUnavailableValues(flushCtx, buf); err != nil {
-				return fmt.Errorf("failed to recover unavailable values: %w", err)
-			}
+		chunk, err := wt.recoverUnavailableValues(flushCtx, buf)
+		if err != nil {
+			return err
 		}
 
 		count, err := wt.write(flushCtx, buf[:chunk])
@@ -363,6 +364,7 @@ func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) 
 		// Aborted before commit: writer.Close releases resources without committing,
 		// so nothing this thread pushed reaches the destination — roll its stats back.
 		wt.rollbackStats()
+		wt.closeUnavailableValues()
 		if closeErr := wt.writer.Close(closeCtx, finalMetadataState); closeErr != nil {
 			return fmt.Errorf("failed to close writer: %w", closeErr)
 		}
@@ -387,6 +389,7 @@ func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) 
 				cancel()
 			}
 
+			wt.closeUnavailableValues()
 			if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%w: flush error: %w", closeErr, err)).(error)
 			}

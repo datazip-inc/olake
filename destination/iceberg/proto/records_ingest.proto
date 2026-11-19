@@ -287,14 +287,10 @@ message ReadRowsRequest {
 
   message FileRows {
     string file_path = 1;
-    // Rows to read, in ascending position order.
     repeated Row rows = 2;
   }
 
   repeated FileRows files = 2;
-  // Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
-  // the stream normally; the rows left are read by a later call. 0 means no limit.
-  int64 max_bytes = 3;
 }
 
 message ReadRowsBatch {

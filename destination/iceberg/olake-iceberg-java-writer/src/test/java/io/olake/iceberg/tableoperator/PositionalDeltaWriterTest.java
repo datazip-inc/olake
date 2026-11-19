@@ -161,7 +161,11 @@ class PositionalDeltaWriterTest {
                 .mapToObj(position -> ReadRowsRequest.Row.newBuilder().setPosition(position).addColumns("payload").build())
                 .toList();
         List<ReadRowsBatch.Row> read = new ArrayList<>();
-        RowReader.read(table, path, rows, read::add);
+        try (RowReader reader = new RowReader(table, path, rows)) {
+            for (ReadRowsRequest.Row row : rows) {
+                reader.read(row, read::add);
+            }
+        }
         return read.stream().map(row -> row.getValuesMap().get("payload").getStringValue()).toList();
     }
 
