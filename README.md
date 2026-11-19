@@ -244,13 +244,15 @@ Below are other different ways you can run OLake Go:
 
 ### 🧭 Roadmap Highlights
 
-- [x] Oracle Full Load Support
-- [x] Oracle Incremental
-- [x] Filters for Full Load and Incremental
-- [x] Interoperability
-- [x] Iceberg V3 Support
+#### Completed
+
+- [x] Interoperability (Positional & Deletion Vector Writes)
+- [x] ADLS Support
+- [x] Streams v2 (GitOps)
+
+#### Upcoming
+
 - [ ] Iceberg V3: Geo type, Variant type
-- [ ] JSON Flattening
 - [ ] Single Message Transform (SMT)
 - [ ] Continuous CDC Mode
 
