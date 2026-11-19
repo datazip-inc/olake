@@ -59,7 +59,6 @@ jobs:
     outputs:
       attempt: ${{ github.run_attempt }}
       drivers: ${{ needs.preflight.outputs.drivers }}
-      driver-labels: ${{ needs.preflight.outputs.driver-labels }}
       sources: ${{ needs.preflight.outputs.sources }}
       drivers-with-compatibility-tests: ${{ needs.preflight.outputs.drivers-with-compatibility-tests }}
       base-image-misses: ${{ needs.preflight.outputs.base-image-misses }}
@@ -286,15 +285,16 @@ jobs:
         run: make -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ matrix.baseline }}"
 
   backward-compatibility-with-old-releases:
-    name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility with Older Releases
+    name: Backward Compatibility with Older Releases
     needs: approve
+    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'master')) && needs.approve.outputs.drivers-with-compatibility-tests != '[]'
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        driver: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'master')) && needs.approve.outputs.drivers-with-compatibility-tests || '[]') }}
+        driver: ${{ fromJSON(needs.approve.outputs.drivers-with-compatibility-tests) }}
     steps:
       - *checkout
       - *data-dirs
@@ -319,8 +319,9 @@ jobs:
   # stack: no local containers, and the approval is its own environment (which is also where its AWS
   # and VPN secrets live). Runs only on PRs from staging into master, which also keep the history.
   performance-tests:
-    name: Performance ${{ matrix.driver }}
+    name: Performance Test
     needs: approve
+    if: github.head_ref == 'staging' && github.base_ref == 'master'
     environment: Performance Testing
     permissions:
       actions: read
@@ -335,7 +336,7 @@ jobs:
       fail-fast: false
       # TODO: add benchmark tests for mongodb and oracle (instance ids TBD).
       matrix:
-        include: ${{ fromJSON(github.head_ref == 'staging' && github.base_ref == 'master' && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
+        include: ${{ fromJSON('[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]') }}
 
     steps:
       - *checkout
