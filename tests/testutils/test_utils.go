@@ -233,6 +233,21 @@ func (c *TestConfig) GetTableName() string {
 	return Combine("test_table_olake", c.Suite)
 }
 
+// PartitionColumns are the source columns the suite's partition regex names: the first token of
+// each "{column,transform}" group.
+func (c *TestConfig) PartitionColumns() []string {
+	var columns []string
+	for _, group := range partitionGroup.FindAllStringSubmatch(c.PartitionRegex, -1) {
+		column, _, _ := strings.Cut(group[1], ",")
+		if column = strings.TrimSpace(column); column != "" {
+			columns = append(columns, column)
+		}
+	}
+	return columns
+}
+
+var partitionGroup = regexp.MustCompile(`\{([^}]*)\}`)
+
 func (c *TestConfig) GetDriverImage() string {
 	return fmt.Sprintf("olakego/source-%s:%s", c.Driver, c.DriverVersion)
 }

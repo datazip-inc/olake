@@ -161,6 +161,54 @@ on `data_types` applies to every writer:
 }
 ```
 
+## Metadata comparison
+
+After the rows match, the tests also compare each side's destination
+metadata: for Iceberg, the table's metadata file and its files table; for
+Parquet, `metadata.json`, what is left under `_olake_2pc/`, and every data
+file's footer. Values that differ on every run are never compared: snapshot
+ids and order, timestamps, paths, sizes, Iceberg field ids (compared as the
+column names they stand for), and olake_2pc's thread id and source position.
+
+The reference run's metadata must survive the upgrade: every key it has must
+hold the same value after the upgrade, so a removed or changed key fails. A key
+only the upgrade run has is an addition, such as a new table property or a new
+`olake_2pc` field, and adding metadata is not an incompatible change, so it is
+logged as added and not failed. Extra output still fails: `files`,
+`data_records` and `delete_records` each carry a `total`, written even when it
+is zero, so another file, delete or partition changes a total the reference
+has.
+
+Each key starts with its category:
+
+| Category | Iceberg | Parquet |
+| --- | --- | --- |
+| `spec` | format version, partition spec, sort order | |
+| `identifier_fields` | identifier columns | |
+| `schemas` | number of schema versions, last column id | |
+| `field_ids` | columns whose field id changed between schema versions | |
+| `properties` | table properties | compression codec per column |
+| `olake_2pc` | the `olake_2pc` property: its fields, `dedup_inserts`, number of full-refresh commits | the same, from `metadata.json` |
+| `staging` | | objects left under `_olake_2pc/` |
+| `snapshots` | number of snapshots, and of each kind of commit by its record counts | |
+| `totals` | the current snapshot's record and delete totals | |
+| `files` | data and delete files per partition and kind | data files per partition folder |
+| `data_records` | records per partition | records per partition folder |
+| `delete_records` | delete records per partition, kind, format and equality columns | |
+| `column_stats` | null count per column | null count per column |
+| `file_schema` | | physical type, logical type and repetition per column |
+
+`files`, `data_records` and `delete_records` also carry the `total` above.
+
+A column compared by type only also has its `column_stats` null count left
+out: its values may legitimately differ, and a value that turns from NULL into
+data (such as `col_toast` before v0.8.0) changes the null count with it.
+
+There are no metadata rules: `compatibility_rules.json` cannot exempt a
+category. Metadata an older release legitimately wrote differently is fixed in
+the reader's normalization, or the difference is the incompatibility the suite
+exists to catch.
+
 ## Worked example: mysql against v0.4.1
 
 | Entry | Effect |

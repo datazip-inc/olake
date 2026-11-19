@@ -186,5 +186,5 @@ docker exec -it olake-trino-coordinator trino \
 docker compose down
 
 # Stop base OLake stack
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - down
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose-v1.yml | docker compose -f - down
 ```

@@ -130,6 +130,9 @@ func TestCompare(t *testing.T) {
 
 		// fallback
 		{"fallback_string_vs_int", "123", 123, 0},
+		{"fallback_int_vs_string", 123, "123", 0},
+		{"fallback_float_vs_hex_string", float64(48), "62a1c5577146a407536dbd74", -1},
+		{"fallback_int64_vs_hex_string", int64(9), "62a1c5577146a407536dbd74", 1},
 		{"fallback_string_less", "apple", "banana", -1},
 		{"fallback_struct_greater", struct{ A int }{2}, struct{ A int }{1}, 1},
 		{"fallback_slice", []int{1, 2, 56}, []float32{2, 3}, -1},
