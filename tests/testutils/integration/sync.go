@@ -156,7 +156,7 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 			operation: "update",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  th.ExpectedUpdatedData,
+			expected:  testutils.Ternary(th.ExpectedCDCUpdatedData != nil, th.ExpectedCDCUpdatedData, th.ExpectedUpdatedData).(map[string]interface{}),
 		},
 		{
 			name:      "CDC - delete",
@@ -294,7 +294,7 @@ func (th *TestHandler) ParquetFullLoadAndCDC(
 			operation: "update",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  th.ExpectedUpdatedData,
+			expected:  testutils.Ternary(th.ExpectedCDCUpdatedData != nil, th.ExpectedCDCUpdatedData, th.ExpectedUpdatedData).(map[string]interface{}),
 		},
 		{
 			name:      "CDC - delete",

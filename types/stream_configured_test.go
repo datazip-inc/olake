@@ -1,11 +1,14 @@
 package types
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 func TestConfiguredStream_GetFilter(t *testing.T) {
@@ -788,6 +791,61 @@ func TestValidateUpdateTypeByDestination(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Parquet always appends, so its write mode is append whatever append_mode says; a catalog
+// that predates write modes (nil) is not checked.
+func TestValidateWriteMode(t *testing.T) {
+	upsertOnly := []WriteMode{WriteModeUpsert}
+
+	testCases := []struct {
+		name            string
+		available       []WriteMode
+		destinationType DestinationType
+		appendMode      bool
+		expectedErr     string
+		expectedCode    string
+	}{
+		{"both allow append", AvailableWriteModes(Iceberg, nil), Iceberg, true, "", ""},
+		{"both allow upsert", AvailableWriteModes(Iceberg, nil), Iceberg, false, "", ""},
+		{"upsert only allows upsert", upsertOnly, Iceberg, false, "", ""},
+		{"upsert only rejects append", upsertOnly, Iceberg, true, "support only [upsert], got append", codeWriteModeNotAvailable},
+		{"parquet appends even with append mode off", upsertOnly, Parquet, false, "support only [upsert], got append", codeWriteModeNotAvailable},
+		{"nothing in common rejects every mode", []WriteMode{}, Iceberg, false, "no write mode in common", codeWriteModeNoneAvailable},
+		{"legacy catalog is not checked", nil, Iceberg, true, "", ""},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			configured := &ConfiguredStream{
+				Stream:         &Stream{Name: "users", AvailableWriteModes: tc.available},
+				StreamMetadata: StreamMetadata{AppendMode: &tc.appendMode},
+			}
+			err := configured.ValidateWriteMode(tc.destinationType)
+			if tc.expectedErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tc.expectedErr)
+			failure := errs.From(err)
+			assert.Equal(t, errs.ConfigInvalid, failure.Category)
+			assert.Equal(t, tc.expectedCode, failure.Code)
+		})
+	}
+}
+
+// A catalog written before write modes has no available_write_modes key: it reads back nil, so
+// its streams are not checked; an empty list survives the round trip and still rejects every mode.
+func TestAvailableWriteModesJSON(t *testing.T) {
+	var legacy ConfiguredStream
+	require.NoError(t, json.Unmarshal([]byte(`{"stream":{"name":"users"}}`), &legacy))
+	assert.Nil(t, legacy.Stream.AvailableWriteModes)
+	legacy.StreamMetadata.AppendMode = new(true)
+	assert.NoError(t, legacy.ValidateWriteMode(Iceberg))
+
+	var empty ConfiguredStream
+	require.NoError(t, json.Unmarshal([]byte(`{"stream":{"name":"users","available_write_modes":[]}}`), &empty))
+	assert.NotNil(t, empty.Stream.AvailableWriteModes)
+	assert.Error(t, empty.ValidateWriteMode(Iceberg))
 }
 
 func TestConfiguredStream_ResolveUpsertOp(t *testing.T) {

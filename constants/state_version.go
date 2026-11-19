@@ -45,13 +45,18 @@ import (
 //     * Unsigned 32-bit: earlier read as a signed int32 and mapped to Int32, so values above 2^31-1 wrapped negative. Now widened to Int64, matching pg/mysql.
 //     * Older state keeps both previous behaviors so existing destination columns do not change type on upgrade.
 //
-//   - Version 8: (Current Version) MySQL binary columns keep their bytes.
+//   - Version 8: MySQL binary columns keep their bytes.
 //     * BINARY/VARBINARY/BLOB map to Binary, and BINARY(n) to fixed_binary(n), where they were String.
 //     * A byte value detects as Binary and survives flattening instead of being cast to a string.
 //     * The binlog keeps a binary-collation column's raw bytes and reports its BINARY type name.
 //     * A binary primary key hex encodes into the olake id instead of rendering as a Go value.
 //     * A filter value on a binary column is hex, since JSON cannot carry bytes.
 //     * Older state keeps every one of those as text so existing destination columns do not change type.
+//
+//   - Version 9: (Current Version) Exact decimal columns map to decimal(p,s).
+//     * A decimal-family column of precision up to 38 maps to decimal(p,s) where it was Float64
+//     * Values and decimal cursors keep the column's exact digits and scale.
+//     * Older state keeps those columns as Float64 so existing destination columns do not change type.
 
 var (
 	// LatestStateVersion is the current version of the state file format.

@@ -2,9 +2,11 @@ package driver
 
 import (
 	"database/sql"
+	"slices"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 // mysqlTypeToDataTypes returns the mapping of MySQL data types to internal data types for the state
@@ -83,12 +85,32 @@ func mysqlTypeToDataTypes() map[string]types.DataType {
 	}
 }
 
-// resolveColumnType returns the type a column carries once its declared length is known: a
-// BINARY(n) column the mapping carries as bytes always holds exactly n bytes, so it resolves to
-// fixed_binary(n).
-func resolveColumnType(dataType string, dataMaxLength sql.NullInt64, mapped types.DataType) types.DataType {
-	if dataType != "binary" || dataMaxLength.Int64 == 0 || mapped != types.Binary {
+// resolveColumnType returns the type a column carries once its declared length, precision and scale are known:
+// a BINARY(n) column the mapping carries as bytes always holds exactly n bytes, so it resolves to
+// fixed_binary(n), and a DECIMAL(p,s) to the type NumericOf gives it.
+func resolveColumnType(dataType string, dataMaxLength, precision, scale sql.NullInt64, mapped types.DataType) types.DataType {
+	switch {
+	case dataType == "decimal" && precision.Valid && scale.Valid:
+		return types.NumericOf(precision.Int64, scale.Int64)
+	case dataType != "binary" || dataMaxLength.Int64 == 0 || mapped != types.Binary:
 		return mapped
+	default:
+		return types.FixedBinaryOf(int(dataMaxLength.Int64))
 	}
-	return types.FixedBinaryOf(int(dataMaxLength.Int64))
+}
+
+// mysqlColumnTypeName names a DECIMAL column by its precision and scale, so its values read as a decimal.
+// unsignedDecimals are the UNSIGNED ones, whose precision go-sql-driver reports a digit short.
+func mysqlColumnTypeName(unsignedDecimals []string) func(colType *sql.ColumnType) string {
+	return func(colType *sql.ColumnType) string {
+		name := colType.DatabaseTypeName()
+		precision, scale, ok := colType.DecimalSize()
+		if !ok || name != "DECIMAL" {
+			return name
+		}
+		if slices.Contains(unsignedDecimals, colType.Name()) {
+			precision++ // go-sql-driver counts a sign digit mysql leaves out of an UNSIGNED DECIMAL
+		}
+		return typeutils.DecimalColumnType(name, precision, scale)
+	}
 }

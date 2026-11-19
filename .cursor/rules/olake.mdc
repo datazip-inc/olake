@@ -43,7 +43,7 @@ OLake is an open-source, high-performance **EL (Extract-Load)** tool that replic
 │   └── parquet/                     # Plain Parquet destination
 ├── types/                           # Core types (Stream, Catalog, State, Record, DataType)
 ├── utils/                           # Concurrency, flattening, type resolution, logging, telemetry
-├── pkg/                             # Protocol packages (waljs, binlog, jdbc, kafka, parser)
+├── pkg/                             # Shared packages (jdbc, kafka, indexdb, objstorage)
 └── constants/                       # Global constants, DriverType enum
 ```
 

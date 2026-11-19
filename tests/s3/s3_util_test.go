@@ -130,6 +130,8 @@ type rowValues struct {
 	UUID    [16]byte
 	Dec32   int32
 	Dec64   int64
+	// the unscaled digits of a DECIMAL(40,2), wider than any Iceberg decimal
+	DecWide string
 
 	TimeOfDay time.Duration
 	List      []string
@@ -178,6 +180,7 @@ var (
 		UUID:    [16]byte{0x12, 0x3e, 0x45, 0x67, 0xe8, 0x9b, 0x12, 0xd3, 0xa4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00},
 		Dec32:   12345,
 		Dec64:   1234567,
+		DecWide: "1234567890123456789012345678901234567812",
 
 		TimeOfDay: 10*time.Hour + 30*time.Minute,
 		List:      []string{"a", "b"},
@@ -215,6 +218,7 @@ var (
 		UUID:    [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
 		Dec32:   -6789,
 		Dec64:   -7654321,
+		DecWide: "-9876543210987654321098765432109876543298",
 
 		TimeOfDay: 8*time.Hour + 45*time.Minute,
 		List:      []string{"x", "y"},
@@ -289,10 +293,12 @@ var (
 		"enum_col":    "string",
 		"uuid_col":    "string",
 
-		// Decimals are carried as double: the parser resolves the scale itself.
-		"dec32_col":     "double",
-		"dec64_col":     "double",
-		"dec_bytes_col": "double",
+		// A decimal keeps its precision and scale.
+		"dec32_col":     "decimal(9,2)",
+		"dec64_col":     "decimal(18,4)",
+		"dec_bytes_col": "decimal(38,2)",
+		// Past 38 digits iceberg holds no decimal, so it lands as a double.
+		"dec_wide_col": "double",
 
 		"date_col": "timestamp",
 		// Times arrive as a count of seconds, not a point in time.
@@ -447,9 +453,10 @@ func expectedParquetData(v rowValues) map[string]interface{} {
 		"enum_col":  v.Enum,
 		"uuid_col":  uuid.UUID(v.UUID).String(),
 
-		"dec32_col":     float64(v.Dec32) / 100,    // scale 2
-		"dec64_col":     float64(v.Dec64) / 10_000, // scale 4
-		"dec_bytes_col": float64(v.Dec32) / 100,    // scale 2, byte-array physical form
+		"dec32_col":     testutils.Decimal(big.NewRat(int64(v.Dec32), 100).FloatString(2)),
+		"dec64_col":     testutils.Decimal(big.NewRat(v.Dec64, 10_000).FloatString(4)),
+		"dec_bytes_col": testutils.Decimal(big.NewRat(int64(v.Dec32), 100).FloatString(2)), // byte-array physical form
+		"dec_wide_col":  wideDecimalFloat(v.DecWide),
 
 		"date_col": arrow.Timestamp(day.UnixMicro()),
 		// A time is a duration into the day, truncated to whole seconds by the parser.
@@ -964,6 +971,8 @@ type parquetRow struct {
 	// The byte-array physical form decimals take above 18 digits: the unscaled integer as
 	// big-endian two's complement, the encoding the parser has to sign-extend itself.
 	DecBytesCol [16]byte `parquet:"dec_bytes_col"`
+	// 17 bytes hold the 40 digits of a DECIMAL(40,2)
+	DecWideCol [17]byte `parquet:"dec_wide_col"`
 
 	DateCol   int32 `parquet:"date_col"`
 	TimeMsCol int32 `parquet:"time_ms_col"`
@@ -1032,6 +1041,7 @@ func parquetTestGroup() pq.Group {
 		"dec32_col":     pq.Decimal(2, 9, pq.Int32Type),
 		"dec64_col":     pq.Decimal(4, 18, pq.Int64Type),
 		"dec_bytes_col": pq.Decimal(2, 38, pq.FixedLenByteArrayType(16)),
+		"dec_wide_col":  pq.Decimal(2, 40, pq.FixedLenByteArrayType(17)),
 
 		"date_col":     pq.Date(),
 		"time_ms_col":  pq.Time(pq.Millisecond),
@@ -1116,6 +1126,7 @@ func makeParquetRow(id int64, vals rowValues) parquetRow {
 		Dec32Col:    vals.Dec32,
 		Dec64Col:    vals.Dec64,
 		DecBytesCol: decimalToFixedBytes(vals.Dec32),
+		DecWideCol:  wideDecimalBytes(vals.DecWide),
 
 		//nolint:gosec // G115: fixed seed values, well inside int32
 		DateCol: int32(vals.TS.Truncate(24*time.Hour).Unix() / 86400),
@@ -1196,6 +1207,24 @@ func decimalToFixedBytes(unscaled int32) [16]byte {
 	return out
 }
 
+// wideDecimalBytes is unscaled as the 17-byte big-endian two's complement a DECIMAL(40,s) column holds.
+func wideDecimalBytes(unscaled string) [17]byte {
+	v, _ := new(big.Int).SetString(unscaled, 10)
+	if v.Sign() < 0 {
+		v.Add(v, new(big.Int).Lsh(big.NewInt(1), 136))
+	}
+	var out [17]byte
+	v.FillBytes(out[:])
+	return out
+}
+
+// wideDecimalFloat is the double a DECIMAL(40,2) of unscaled lands as, the float64 nearest to it.
+func wideDecimalFloat(unscaled string) float64 {
+	v, _ := new(big.Int).SetString(unscaled, 10)
+	f, _ := new(big.Rat).SetFrac(v, big.NewInt(100)).Float64()
+	return f
+}
+
 // timeToInt96 renders t in the legacy Impala/Hive Int96 layout the parser decodes: the low
 // 8 bytes hold nanoseconds within the day, the high 4 bytes hold the Julian day.
 func timeToInt96(t time.Time) deprecated.Int96 {
@@ -1219,13 +1248,16 @@ func gzipBytes(t *testing.T, data []byte) []byte {
 // S3TypeMapping maps the source types the S3 variant schemas declare to the type they land as in
 // the destination. A declared type missing here fails the suite with "No mapping defined".
 var S3TypeMapping = map[string]string{
-	"array":     "string",
-	"bigint":    "bigint",
-	"boolean":   "boolean",
-	"double":    "double",
-	"float":     "float",
-	"int":       "int",
-	"json":      "string",
-	"string":    "string",
-	"timestamp": "timestamp",
+	"array":         "string",
+	"bigint":        "bigint",
+	"boolean":       "boolean",
+	"decimal(18,4)": "decimal(18,4)",
+	"decimal(38,2)": "decimal(38,2)",
+	"decimal(9,2)":  "decimal(9,2)",
+	"double":        "double",
+	"float":         "float",
+	"int":           "int",
+	"json":          "string",
+	"string":        "string",
+	"timestamp":     "timestamp",
 }

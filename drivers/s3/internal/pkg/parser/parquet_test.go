@@ -12,6 +12,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	pq "github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/deprecated"
 	"github.com/shopspring/decimal"
@@ -45,10 +46,18 @@ func TestMapParquetTypeToOlake_LogicalTypes(t *testing.T) {
 		{name: "Unsigned int16 fits Int32", node: pq.Uint(16), expected: types.Int32},
 		{name: "Unsigned int32 widens to Int64 to avoid overflow", node: pq.Uint(32), expected: types.Int64},
 		{name: "Unsigned int64 maps to Int64", node: pq.Uint(64), expected: types.Int64},
-		// Decimal (any physical backing) maps to Float64.
-		{name: "Decimal int32-backed", node: pq.Decimal(2, 9, pq.Int32Type), expected: types.Float64},
-		{name: "Decimal int64-backed", node: pq.Decimal(4, 18, pq.Int64Type), expected: types.Float64},
-		{name: "Decimal fixed-backed", node: pq.Decimal(10, 38, pq.FixedLenByteArrayType(16)), expected: types.Float64},
+		// A decimal keeps its precision and scale, whatever its physical backing.
+		{name: "Decimal int32-backed", node: pq.Decimal(2, 9, pq.Int32Type), expected: types.DataType("decimal(9,2)")},
+		{
+			name:     "Decimal int64-backed",
+			node:     pq.Decimal(4, 18, pq.Int64Type),
+			expected: types.DataType("decimal(18,4)"),
+		},
+		{
+			name:     "Decimal fixed-backed",
+			node:     pq.Decimal(10, 38, pq.FixedLenByteArrayType(16)),
+			expected: types.DataType("decimal(38,10)"),
+		},
 		// Temporal types.
 		{name: "Date", node: pq.Date(), expected: types.Timestamp},
 		{name: "Timestamp millis", node: pq.Timestamp(pq.Millisecond), expected: types.TimestampMilli},
@@ -634,70 +643,17 @@ func TestDecodeParquetDecimal(t *testing.T) {
 }
 
 func TestParquetValueToInterfaceWithType_Decimal(t *testing.T) {
-	// Note: pq.Decimal signature appears to be (precision, scale, type)
-	// But the scale field in the logical type might be read differently
-	// Let's test with a simpler approach - verify decimal conversion works
+	// parquet-go takes a decimal's scale first: this is DECIMAL(10,2) on an INT64
 	schema := pq.NewSchema("test", pq.Group{
-		"decimal": pq.Decimal(10, 2, pq.Int64Type),
+		"decimal": pq.Decimal(2, 10, pq.Int64Type),
 	})
 	decimalType := schema.Fields()[0].Type()
 
-	// Get the actual scale from the schema
-	logicalType := decimalType.LogicalType()
-	require.NotNil(t, logicalType, "Should have logical type")
-	require.NotNil(t, logicalType.Decimal, "Should be decimal type")
-	actualScale := logicalType.Decimal.Scale
+	result := parquetValueToInterfaceWithType(pq.Int64Value(12345), decimalType)
 
-	// Use a value that works with the actual scale
-	// If scale is 10, then 1234500000000 with scale 10 = 123.45
-	// If scale is 2, then 12345 with scale 2 = 123.45
-	var testValue int64
-	var expectedResult float64
-
-	if actualScale == 10 {
-		testValue = 1234500000000 // Will give 123.45 with scale 10
-		expectedResult = 123.45
-	} else if actualScale == 2 {
-		testValue = 12345 // Will give 123.45 with scale 2
-		expectedResult = 123.45
-	} else {
-		// Calculate expected based on scale
-		testValue = 12345
-		expectedResult = float64(testValue) / float64(pow10ForTest(actualScale))
-	}
-
-	val := pq.Int64Value(testValue)
-
-	// Test the decodeParquetDecimal function directly
-	dec, err := decodeParquetDecimal(val, actualScale)
+	want, err := typeutils.ReformatValue(types.DecimalOf(10, 2), "123.45")
 	require.NoError(t, err)
-	directResult, _ := dec.Float64()
-
-	// Now test through the full conversion
-	result := parquetValueToInterfaceWithType(val, decimalType)
-
-	resultFloat, ok := result.(float64)
-	require.True(t, ok, "Result should be float64")
-
-	// Verify both match
-	assert.InDelta(t, directResult, resultFloat, 0.0001,
-		"Full conversion should match direct decode. Got %f, expected %f", resultFloat, directResult)
-
-	// If we calculated expectedResult, verify it
-	if expectedResult > 0 {
-		assert.InDelta(t, expectedResult, resultFloat, 0.01,
-			"Should convert decimal correctly. Got %f, expected %f (scale: %d)",
-			resultFloat, expectedResult, actualScale)
-	}
-}
-
-// Helper function for testing
-func pow10ForTest(n int32) int64 {
-	result := int64(1)
-	for i := int32(0); i < n; i++ {
-		result *= 10
-	}
-	return result
+	assert.Equal(t, want, result)
 }
 
 func TestParquetValueToInterfaceWithType_ByteArray(t *testing.T) {
@@ -1090,8 +1046,8 @@ func TestParquetParser_Integration(t *testing.T) {
 		"p_fixed_len":   types.String,
 		"l_enum":        types.String,
 		"l_json":        types.String,
-		"l_dec_int32":   types.Float64,
-		"l_dec_int64":   types.Float64,
+		"l_dec_int32":   types.BigDecimal,
+		"l_dec_int64":   types.BigDecimal, // GetType reports a decimal(18,4)'s value type
 		"l_date":        types.Timestamp,
 		"l_ts_millis":   types.TimestampMilli,
 		"l_ts_micros":   types.TimestampMicro,
@@ -1132,9 +1088,13 @@ func TestParquetParser_Integration(t *testing.T) {
 	// String-family logical types.
 	assert.Equal(t, "GREEN", record["l_enum"])
 	assert.Equal(t, `{"k":"v"}`, record["l_json"])
-	// Decimals decode with their scale.
-	assert.Equal(t, 123.45, record["l_dec_int32"])
-	assert.Equal(t, 12345.6789, record["l_dec_int64"])
+	// Decimals decode to their exact value.
+	decInt32, err := typeutils.ReformatDecimal(types.DecimalOf(9, 2), "123.45")
+	require.NoError(t, err)
+	assert.Equal(t, decInt32, record["l_dec_int32"])
+	decInt64, err := typeutils.ReformatDecimal(types.DecimalOf(18, 4), "12345.6789")
+	require.NoError(t, err)
+	assert.Equal(t, decInt64, record["l_dec_int64"])
 	// Time-of-day columns
 	assert.Equal(t, int64(49530), record["l_time_millis"])
 	assert.Equal(t, int64(49530), record["l_time_micros"])
