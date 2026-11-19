@@ -1,0 +1,83 @@
+name: Required Checks
+
+# Require only the "All Required Checks Passed" status in the ruleset. Green when
+# every pull_request or merge queue run for the commit finished success/skipped/neutral.
+
+on:
+  workflow_run:
+    workflows:
+      - "**"
+      - "!Required Checks"
+    types: [requested, completed]
+
+# Only PR and merge queue runs share the per-commit group; any other run (e.g. the
+# push of a release commit) lands in its own group so it cannot cancel a real evaluation.
+concurrency:
+  group: >-
+    ${{ contains(fromJSON('["pull_request","merge_group"]'), github.event.workflow_run.event)
+        && format('required-checks-{0}', github.event.workflow_run.head_sha)
+        || format('required-checks-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  statuses: write
+
+jobs:
+  report:
+    name: Report
+    if: contains(fromJSON('["pull_request","merge_group"]'), github.event.workflow_run.event)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate and publish merge gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CHECK_NAME: All Required Checks Passed
+          DETAILS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          runs=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100" \
+            --jq '.workflow_runs[]')
+
+          gate=$(jq -s -c '
+            def approval: (.status | IN("action_required", "waiting")) or (.conclusion == "action_required");
+            def finished: (.status == "completed") and (approval | not);
+            def passing:  (.conclusion | IN("success", "skipped", "neutral"));
+
+            # Newest run per workflow, keyed by id so a rename is still the same workflow.
+            ( map(select(.event | IN("pull_request", "merge_group")))
+              | group_by(.workflow_id)
+              | map(sort_by(.run_number) | last)
+              | map({ name, path, status, conclusion: (.conclusion // "-") })
+              | sort_by(.name)
+            ) as $latest_run_results
+
+            | [$latest_run_results[] | select(finished and (passing | not))] as $failed
+            | [$latest_run_results[] | select(finished | not)]               as $outstanding
+
+            | ( if   ($failed | length) > 0
+                then { state: "failure", title: "Workflows failed: \($failed | map(.name) | join(", "))" }
+                elif ($outstanding | any(approval))
+                then { state: "pending", title: "Waiting for maintainer approval to run workflows" }
+                elif ($outstanding | length) > 0
+                then { state: "pending", title: "Waiting for \($outstanding | map(.name) | join(", "))" }
+                else { state: "success", title: "All workflows passed" } end
+              ) as $verdict
+
+            | { status: { state: $verdict.state,
+                          context: env.CHECK_NAME,
+                          description: ($verdict.title | .[0:140]),
+                          target_url: env.DETAILS_URL },
+                summary: ( "### \($verdict.title)\n\n`\(env.HEAD_SHA)`\n\n"
+                           + ($latest_run_results
+                              | map("- **\(.name)** (`\(.path)`) — `\(.status)` / `\(.conclusion)`")
+                              | join("\n")) ) }
+          ' <<< "$runs")
+
+          echo "Gate: $(jq -r '.status.description' <<< "$gate")"
+          jq -c '.status' <<< "$gate" \
+            | gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" --input - --jq '{state, context}'
+          jq -r '.summary' <<< "$gate" >> "$GITHUB_STEP_SUMMARY"
