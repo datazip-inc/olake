@@ -11,7 +11,8 @@ type Source interface {
 	Service() *Service
 	// Create makes a test's database on the server.
 	Create(ctx context.Context, database string) error
-	// Drop removes a test's database with everything in it.
+	// Drop removes a test's database with everything in it. Cleanup runs it even when Create failed,
+	// so a database that does not exist is no error.
 	Drop(ctx context.Context, database string) error
 }
 

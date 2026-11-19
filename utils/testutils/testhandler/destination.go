@@ -18,6 +18,7 @@ type DestinationKind interface {
 	// It registers on t whatever it must release when the test ends.
 	Open(ctx context.Context, t testing.TB) (*types.WriterConfig, error)
 	// Drop removes a test's database from the destination, with everything stored under it.
+	// A test may have written nothing there, so a database that does not exist is no error.
 	Drop(ctx context.Context, database string) error
 }
 
