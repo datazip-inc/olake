@@ -3,8 +3,11 @@ package binlog
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/assert"
@@ -516,4 +519,75 @@ func TestDecodeCollatedValue(t *testing.T) {
 			assert.Equal(t, tc.wantType, gotType)
 		})
 	}
+}
+
+// timestampTableMap is a one-column table with the metadata every server logs, so a row
+// decodes without the information_schema fallback.
+func timestampTableMap() *replication.TableMapEvent {
+	return &replication.TableMapEvent{
+		Schema:         []byte("shop"),
+		Table:          []byte("orders"),
+		ColumnCount:    1,
+		ColumnType:     []byte{mysql.MYSQL_TYPE_VARCHAR},
+		ColumnMeta:     []uint16{32},
+		ColumnName:     [][]byte{[]byte("name")},
+		DefaultCharset: []uint64{utf8mb4GeneralCI},
+	}
+}
+
+// testOrdersStream is the stream the timestamp table map belongs to.
+func testOrdersStream() types.StreamInterface {
+	return &types.ConfiguredStream{Stream: types.NewStream("orders", "shop", nil)}
+}
+
+// TestFilterRowsEventTimestamp pins the timestamp written for every row: the transaction
+// timestamp when MariaDB opened one, and the header second otherwise, which is the MySQL and
+// GTID-disabled fallback.
+func TestFilterRowsEventTimestamp(t *testing.T) {
+	const headerSeconds = 1795069800
+	captured := time.Date(2026, 11, 19, 12, 0, 0, 123456789, time.UTC)
+
+	collect := func(t *testing.T, filter ChangeFilter, values ...string) []abstract.CDCChange {
+		t.Helper()
+		rows := make([][]interface{}, 0, len(values))
+		for _, value := range values {
+			rows = append(rows, []interface{}{[]byte(value)})
+		}
+		event := &replication.BinlogEvent{
+			Header: &replication.EventHeader{EventType: replication.WRITE_ROWS_EVENTv2, Timestamp: headerSeconds},
+			Event:  &replication.RowsEvent{Table: timestampTableMap(), Rows: rows},
+		}
+		var changes []abstract.CDCChange
+		callback := func(_ context.Context, change abstract.CDCChange) error {
+			changes = append(changes, change)
+			return nil
+		}
+		require.NoError(t, filter.FilterRowsEvent(context.Background(), event.Event.(*replication.RowsEvent), event, mysql.Position{}, callback))
+		require.Len(t, changes, len(values))
+		return changes
+	}
+
+	t.Run("a MariaDB transaction stamps every row with its microsecond timestamp", func(t *testing.T) {
+		filter := NewChangeFilter(nil, Binlog{}, false, identityConverter, testOrdersStream())
+		filter.startMariaDBTransaction(headerSeconds, captured)
+
+		changes := collect(t, filter, "first", "second")
+		// A transaction can span several row events; every row of all of them shares one value.
+		changes = append(changes, collect(t, filter, "third")...)
+		for _, change := range changes {
+			require.Equal(t, int64(headerSeconds), change.Timestamp.Unix())
+			require.Equal(t, 123456000, change.Timestamp.Nanosecond())
+			require.Equal(t, change.Timestamp, changes[0].Timestamp)
+		}
+	})
+
+	t.Run("rows outside a transaction keep the header second", func(t *testing.T) {
+		filter := NewChangeFilter(nil, Binlog{}, false, identityConverter, testOrdersStream())
+
+		changes := collect(t, filter, "first", "second")
+		for _, change := range changes {
+			require.Equal(t, time.Unix(headerSeconds, 0), change.Timestamp)
+			require.Zero(t, change.Timestamp.Nanosecond())
+		}
+	})
 }

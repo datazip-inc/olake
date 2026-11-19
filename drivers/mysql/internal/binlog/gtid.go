@@ -3,6 +3,7 @@ package binlog
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -123,6 +124,31 @@ func (t *gtidTransaction) complete() (mysql.GTIDSet, error) {
 	t.active, t.begun = false, false
 	// GSet also includes transactions read outside our target on a reordered replica.
 	return t.gtid, nil
+}
+
+// mariaDBTransactionTimestamp builds the timestamp shared by every row of one MariaDB
+// transaction. MariaDB logs no sub-second commit time: its GTID event has no timestamp
+// field, and the common binlog header carries four bytes of whole seconds. The commit
+// second therefore comes from the source header, and only the sub-second part comes from
+// the moment the connector read the transaction. previous is the timestamp of the last
+// transaction, used to keep values ordered when the read clock crosses a wall second
+// while the source second stays the same.
+func mariaDBTransactionTimestamp(headerSeconds uint32, captured, previous time.Time) time.Time {
+	if headerSeconds == 0 {
+		return captured.UTC().Truncate(time.Microsecond)
+	}
+	const micro = int64(time.Microsecond)
+	fraction := (int64(captured.Nanosecond()) / micro) * micro
+	if !previous.IsZero() && previous.Unix() == int64(headerSeconds) {
+		if floor := int64(previous.Nanosecond()) + micro; fraction < floor {
+			fraction = floor
+		}
+	}
+	// Saturate instead of rolling into a second the source never logged.
+	if max := int64(time.Second) - micro; fraction > max {
+		fraction = max
+	}
+	return time.Unix(int64(headerSeconds), fraction).UTC()
 }
 
 func rejectUnsupported(event *replication.BinlogEvent, operation string) error {

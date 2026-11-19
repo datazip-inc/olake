@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -12,6 +13,47 @@ import (
 )
 
 const testSID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+// MariaDB logs whole seconds only, so a transaction timestamp keeps the source second and
+// takes its sub-second part from the moment the connector read the transaction.
+func TestMariaDBTransactionTimestamp(t *testing.T) {
+	const headerSeconds = 1795069800
+	captured := time.Date(2026, 11, 19, 12, 0, 0, 123456789, time.UTC)
+
+	t.Run("keeps the source second and the read fraction at microsecond precision", func(t *testing.T) {
+		got := mariaDBTransactionTimestamp(headerSeconds, captured, time.Time{})
+		require.Equal(t, int64(headerSeconds), got.Unix())
+		require.Equal(t, 123456000, got.Nanosecond())
+		require.Equal(t, time.UTC, got.Location())
+	})
+
+	t.Run("without a source second the read clock stands alone", func(t *testing.T) {
+		require.Equal(t, captured.Truncate(time.Microsecond), mariaDBTransactionTimestamp(0, captured, time.Time{}))
+	})
+
+	t.Run("transactions inside one second stay ordered", func(t *testing.T) {
+		first := mariaDBTransactionTimestamp(headerSeconds, captured, time.Time{})
+		second := mariaDBTransactionTimestamp(headerSeconds, captured.Add(time.Millisecond), first)
+		require.True(t, first.Before(second))
+	})
+
+	// The read clock wraps at each wall second, but the logged source second may not have moved.
+	t.Run("a wall-clock wrap does not move a transaction backwards", func(t *testing.T) {
+		first := mariaDBTransactionTimestamp(headerSeconds, captured, time.Time{})
+		wrapped := captured.Truncate(time.Second).Add(time.Second + 50*time.Millisecond)
+		second := mariaDBTransactionTimestamp(headerSeconds, wrapped, first)
+		require.Equal(t, int64(headerSeconds), second.Unix())
+		require.True(t, first.Before(second))
+	})
+
+	// A backlog is read in one burst, but each transaction still reports its own source second.
+	t.Run("a replayed backlog keeps every source second", func(t *testing.T) {
+		first := mariaDBTransactionTimestamp(headerSeconds, captured, time.Time{})
+		later := mariaDBTransactionTimestamp(headerSeconds+3600, captured.Add(time.Millisecond), first)
+		require.Equal(t, int64(headerSeconds+3600), later.Unix())
+		require.True(t, first.Before(later))
+	})
+}
 
 func TestBinlog_Compare(t *testing.T) {
 	tests := []struct {

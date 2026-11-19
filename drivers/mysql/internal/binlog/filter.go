@@ -53,6 +53,31 @@ func NewChangeFilter(schemaClient *sqlx.DB, state Binlog, foldCase bool, typeCon
 	return filter
 }
 
+// startMariaDBTransaction records the timestamp for the transaction a MariaDB GTID event
+// opens. MariaDB cannot report sub-second commit time, so the second comes from the event
+// header and the sub-second part from the moment the transaction was read.
+func (f *ChangeFilter) startMariaDBTransaction(headerSeconds uint32, captured time.Time) {
+	f.lastGTIDEvent = mariaDBTransactionTimestamp(headerSeconds, captured, f.lastGTIDEvent)
+}
+
+// observeTransactionTimestamp records the timestamp of the transaction opened by a GTID
+// event. MySQL reports its own commit timestamp; MariaDB reports whole seconds only, so
+// the sub-second part comes from the read clock.
+func (c *Connection) observeTransactionTimestamp(ev *replication.BinlogEvent) {
+	now := c.now
+	if now == nil {
+		now = time.Now
+	}
+	switch e := ev.Event.(type) {
+	case *replication.GTIDEvent:
+		if e.OriginalCommitTimestamp > 0 {
+			c.changeFilter.lastGTIDEvent = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
+		}
+	case *replication.MariadbGTIDEvent:
+		c.changeFilter.startMariaDBTransaction(ev.Header.Timestamp, now().UTC())
+	}
+}
+
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
 func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, pos mysql.Position, callback abstract.CDCMsgFn) error {
 	schemaName := string(e.Table.Schema)
