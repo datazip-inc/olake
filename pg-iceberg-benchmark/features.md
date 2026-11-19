@@ -64,30 +64,3 @@ Record here what each run read, newest first.
 | 2026-11-19 | `debezium/debezium` docs | commit `ed2ce1a` (2026-11-18) |
 | 2026-11-19 | `datazip-inc/olake-docs` | commit `935e710` (2026-11-18) |
 | 2026-11-19 | `datazip-inc/olake-fusion` | commit `031c351` (2026-11-11) |
-
-## Query engine read support
-
-Which engines can read what the pipelines write. Delete-format columns are from OLake's compatibility page; the other columns are from each engine's own Iceberg documentation (Spark and Flink: Iceberg documentation). Empty cell means the engine's documentation does not state it.
-
-| Engine | Equality deletes | Position deletes | Deletion vectors | Format version 3 | Variant | Geometry, geography | Nanosecond timestamps | UUID |
-|---|---|---|---|---|---|---|---|---|
-| Apache Spark | Yes | Yes | Yes | | Spark 4.0+ | Not supported | | As string |
-| Apache Flink | Yes | Yes | Yes | | Flink 2.x only | Not supported | | As `binary(16)` |
-| Trino | Yes | Yes | Yes | Experimental | Version 3 tables only | | Version 3 tables only | Yes |
-| Amazon Athena | Yes | Yes | No | Works on version 2 tables | | | No, millisecond only | |
-| Snowflake | No | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Databricks (SQL) | No | No | Yes | Yes | Yes | Yes | No | No |
-| Google BigQuery | Yes | Yes | Yes | Preview | No | No | No | As `BYTES` |
-| ClickHouse | Yes | Yes | Yes, read-only | Yes, with limits | | | Yes | Yes |
-| DuckDB | Yes | Yes | Yes | | | | | |
-| Apache Doris | Yes | Yes | Yes | States versions 1 and 2 | | | | Mapped to string or binary |
-
-- Parquet bloom filters: no engine's Iceberg documentation read here states that it uses them for pruning. Trino documents a table property to write them.
-- Not read: StarRocks (page not found), DuckDB beyond its overview page, Snowflake's version 3 support page.
-- OLake's own pages disagree on whether Trino reads deletion vectors; the compatibility page says yes.
-
-## Open items for the next run
-
-- Iceberg features from the version 3 list not yet added as rows: multi-argument partition transforms, table encryption keys, the `unknown` type.
-- Engine table: StarRocks, Presto, Hive, Impala, Dremio, Redshift and Synapse have delete-format data on OLake's page but were not read for the other columns.
-- Crash recovery is tested for OLake, Flink and Spark (`REPORT.md`, "Crash recovery"). The Debezium + Kafka + Iceberg sink pipeline is not included.

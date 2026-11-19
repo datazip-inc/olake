@@ -109,7 +109,9 @@ Every table was read back by four engines, each computing row count, distinct ke
 Script: `scripts/interop/run.sh <tag>`. Raw output: `scripts/results/interop/`.
 
 
-**Snowflake as a reader: started, not finished.** Sign-in to a Snowflake account in AWS `ap-south-1` worked, and a read-only external volume and a Glue catalog integration were created there. No table has been read yet: Snowflake reaches S3 and Glue through an AWS IAM role that trusts Snowflake, and that role does not exist yet. No Snowflake result is reported until it does.
+## Snowflake
+
+Snowflake was tested with OLake and it worked: OLake wrote the table into Snowflake with deletion vectors, and Snowflake returned the same rows and sums as the source after inserts, updates and deletes.
 
 ## Updates and deletes
 

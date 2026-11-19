@@ -16,9 +16,21 @@ The folder `pg-iceberg-benchmark/` at the root of the olake repo holds three doc
 
 All commands and script paths below are relative to `scripts/`. Run them from inside that folder. Nothing needs to be generated first: the scripts are ready to run once `bench.env` is filled in.
 
+### Find and use `scripts/` yourself
+
+The user may hand over only this file. Do not ask the user for the scripts and do not write new ones. Locate the existing folder in this order:
+
+1. `scripts/` next to this `SKILL.md`.
+2. `pg-iceberg-benchmark/scripts/` in the olake repository on this machine (search the working directory and its parents).
+3. The same path in the public olake repository on GitHub (`datazip-inc/olake`); fetch only that folder.
+
+Then use those scripts as they are: copy them to the benchmark host, fill `bench.env`, run the drivers.
+
+If the folder cannot be found in any of the three places, stop and tell the user that `scripts/` is required and where it was looked for. Do not rebuild the scripts from this description unless the user asks for that, and if they do, say that rebuilt scripts are not identical to the originals and their numbers are not directly comparable with `REPORT.md`.
+
 ## Ask before starting
 
-Nothing about the environment is fixed in this skill. Ask the user for every item below that they have not already given:
+Nothing about the environment is fixed in this skill. Ask the user only for items below that they have not already given, in the conversation or in a JSON file (see "If the user gives credentials or settings as JSON"):
 
 1. **Benchmark host:** which machine to run on, how to reach it (SSH alias), and whether it must be started first and how.
 2. **Source Postgres:** host, port, database, user, password, SSL mode.
@@ -27,7 +39,55 @@ Nothing about the environment is fixed in this skill. Ask the user for every ite
 5. **Base table:** existing table to copy from (scripts assume the TPC-H `customer` schema).
 6. **Scope:** full load, CDC, or both; CDC workload size; which of the four pipelines.
 7. **Names for new objects:** source table, smoke table, publication, run tag.
-8. **Snowflake (optional):** ask "Do you have a Snowflake account to include as a reader in the comparison?" If no, skip it and say in the report that Snowflake was not run. If yes, collect the items listed under "Optional: Snowflake as a reader".
+8. **Snowflake:** do not ask about it. Only when the user brings up Snowflake, follow "Snowflake test".
+
+### If the user gives credentials or settings as JSON
+
+A user may paste or attach JSON instead of answering the questions one by one: an OLake config (a `source` block and a `destination` block, together or as two files), or any other JSON holding the same kind of values. Then:
+
+1. Read every value the JSON provides. Do not ask for any of them again.
+2. Compare what was provided with the required list below.
+3. Ask only for required items that are still missing, all in one message.
+4. For optional items that are missing, use the defaults and tell the user what was chosen.
+
+Required, and where each value goes:
+
+| Required item | JSON fields that provide it | Goes to |
+|---|---|---|
+| Source host | `source.host`, `host` | `PGHOST` in `bench.env` |
+| Source port | `source.port`, `port` | `PGPORT` (default 5432) |
+| Source database | `source.database`, `database` | `PGDATABASE` |
+| Source user | `source.username`, `username`, `user` | `PGUSER` |
+| Source password | `source.password`, `password` | file `.pgpass_bench`, never `bench.env` |
+| SSL mode | `source.ssl.mode`, `sslmode` | `PGSSLMODE` (default `require`) |
+| S3 warehouse path | `destination.writer.iceberg_s3_path` | `WAREHOUSE` |
+| AWS region | `destination.writer.aws_region` | `AWS_REGION` |
+| AWS access | `destination.writer.aws_access_key`, `aws_secret_key`, `aws_session_token` | file `.aws_bench`. If absent, check for an instance role on the host with `aws sts get-caller-identity`; ask only if that fails |
+| Benchmark host and how to reach it | `benchmark_host.ssh` (SSH alias or `user@host`), `benchmark_host.wake_command` (optional: command that starts the machine if it is stopped), `benchmark_host.dir` (optional: folder on the host for the scripts, default `~/pg-iceberg-benchmark`) | SSH target for every command. Ask if `benchmark_host.ssh` is absent |
+| Base table to copy from | `base_table` | `BASE_TABLE` in `bench.env`. Ask if absent. Check it exists and has the TPC-H `customer` columns |
+
+Field names vary between tools. Match by meaning, not by exact name, and say which field was used for which setting.
+
+Example of a complete input, after which nothing needs to be asked:
+
+```json
+{
+  "source": {"host": "...", "port": 5432, "database": "...", "username": "...", "password": "...", "ssl": {"mode": "require"}},
+  "destination": {"type": "ICEBERG", "writer": {"catalog_type": "glue", "iceberg_s3_path": "s3://...", "aws_region": "..."}},
+  "benchmark_host": {"ssh": "<ssh alias>", "wake_command": "<optional>", "dir": "<optional>"},
+  "base_table": "tpch.customer"
+}
+```
+
+Using the benchmark host:
+
+- If `wake_command` is given, check first whether the host answers on SSH; run the command only if it does not, then wait until SSH works.
+- If `dir` already holds the scripts and a filled `bench.env`, reuse them and say so. Do not overwrite `bench.env` or the secret files without telling the user.
+- Check on the host before running: Docker works, the source port is reachable, `aws sts get-caller-identity` succeeds or keys were given.
+
+- `destination.writer.catalog_type` must be `glue`. The scripts support only Glue; stop and say so for any other value.
+- Optional items and their defaults: Glue database `bench_<tag>`, source table `bench_customer_<tag>`, smoke table `bench_smoke_<tag>`, publication `bench_pub_<tag>`, tag `run1` (next free number if taken), scope full load plus CDC with 10,000,000 rows, Snowflake not included.
+- The JSON holds secrets. Do not copy them into the repo, the report, or any command shown to the user.
 
 ## Rules
 
@@ -85,6 +145,9 @@ Nothing about the environment is fixed in this skill. Ask the user for every ite
 | `tools/validate.py` | Compares Iceberg tables with source aggregates. |
 | `interop/run.sh <tag>` | Iceberg interoperability test: reads every pipeline's table with Spark, Trino and Flink. |
 | `interop/meta.py` | Prints format version, identifier fields, column types and delete-file counts per table. |
+| `horizon_test.sh <tag> pos\|dv [rows]` | Snowflake test: OLake writes into Snowflake's Horizon catalog, then Snowflake SQL is compared with the source. See "Snowflake test". |
+| `olake/run_horizon.sh full\|cdc <source_table> <tag>` | OLake pipeline with the Horizon catalog as destination; used by `horizon_test.sh`. |
+| `snowflake/sf_run.sh`, `snowflake/sf.py`, `snowflake/sf_horizon_setup.py` | Run SQL in Snowflake with the credentials in `.snowflake_bench`; one-time Horizon setup. |
 
 `<tag>` names a run. It sets slot names (`bench_<tool>_<tag>`), Kafka topic prefixes and Glue table names (`<pipeline>_<tag>`).
 A tag can be used once per source and Glue database: its slots, offsets, checkpoints and tables remain afterwards.
@@ -128,7 +191,6 @@ Every fact is written in exactly one place. Do not repeat a number or a feature 
 | What | Where | Source |
 |---|---|---|
 | Features of each pipeline, full wording | `features.md`, the numbered table | Documentation, then code |
-| Which query engines read what | `features.md`, "Query engine read support" | Engine documentation |
 | Speed, run time, memory, CPU per row, services running | `REPORT.md`, "Ranking" | Measured |
 | Reliability facts seen in the runs | `REPORT.md`, "Reliability observed" | Measured |
 | Results of feature tests (updates, deletes, schema change, latency, GitOps re-apply, cross-engine reads, crash recovery) | `REPORT.md`, "Measured test results" and the test sections after it | Measured |
@@ -176,8 +238,7 @@ Every fact is written in exactly one place. Do not repeat a number or a feature 
 3. **Do the same for Iceberg:** read `format/spec.md` and the release notes in `apache/iceberg`, append rows with the prefix `Iceberg:`.
 4. **Fill support per pipeline** for new rows and re-check existing rows: docs first, then code once, then "does not exist". Debezium, Flink and Spark pipelines write Parquet through the Iceberg library, so check Iceberg `configuration.md` (`write.parquet.*`) and the engine type tables (`flink.md`, `spark-getting-started.md`). For OLake check `olake-docs`, then the olake repository.
 5. **Add a line to "Source state"** for each repository read: run date, commit, date.
-6. **Work through "Open items for the next run"** and update that list. Do not delete an item silently.
-7. **Do not copy feature rows into `REPORT.md`.** The report links to `features.md`.
+6. **Do not copy feature rows into `REPORT.md`.** The report links to `features.md`.
 
 Reliability is a permanent row (row 6): always report whether each pipeline has two-phase commit or an equivalent, where it keeps commit state, and what its docs say about recovery after failure. For OLake this is two-phase commit with state in the destination table (`olake_2pc`).
 
@@ -227,7 +288,17 @@ Order of work:
 
 Client: `pip install snowflake-connector-python` in a scratch virtual environment; sign in with account, user and password. Password sign-in worked for a trial account without multi-factor authentication.
 
-How to report: add Snowflake as one more reader row in `REPORT.md`, "Iceberg interoperability (measured)", and as measured facts next to the Snowflake row of the engine table in `features.md`. Documentation says Snowflake does not read equality deletes, so the upsert tables written with equality deletes are the interesting case; report what actually happens.
+How to report: add Snowflake as one more reader row in `REPORT.md`, "Iceberg interoperability (measured)". Documentation says Snowflake does not read equality deletes, so the upsert tables written with equality deletes are the interesting case; report what actually happens.
+
+## Snowflake test (only when the user asks about Snowflake)
+
+OLake writes an Iceberg table into Snowflake's Horizon catalog with deletion vectors, then Snowflake SQL is compared with the source. OLake only; 1,000,000 rows; a correctness test, not a speed benchmark. No AWS IAM role is needed.
+
+1. Put Snowflake sign-in values in `.snowflake_bench` on the host (`chmod 600`): `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`, `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_WAREHOUSE`.
+2. One-time setup: run `snowflake/sf_horizon_setup.py` (see `snowflake/sf_run.sh` for how to start it). Add the token it writes to `.snowflake_bench` as `SNOWFLAKE_PAT`, with `SNOWFLAKE_ORG_ACCOUNT`.
+3. Run in tmux: `./horizon_test.sh <tag> dv`.
+4. Pass: in `results/horizon_<tag>.txt` the Snowflake row count, distinct keys and `sum(c_acctbal)` equal the source, and the CDC log shows `addedDVs` above 0 with `totalEqualityDeletes` 0.
+5. Report the result in `REPORT.md`, "Snowflake", in one or two sentences.
 
 ## Connection tests only (no sync)
 
