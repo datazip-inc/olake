@@ -78,6 +78,10 @@ var safeDecodeRegistry = func() *bsoncodec.Registry {
 
 const (
 	cdcCursorField = "_data"
+	// cdcTypeBitsField sits next to _data in a resume token. The server adds it when a value inside
+	// _data (an _id above the int32 range, for example) cannot be decoded back to its original type
+	// from _data alone, and then needs it to match the token on resume. State keeps it as base64.
+	cdcTypeBitsField = "_typeBits"
 )
 
 type Mongo struct {
