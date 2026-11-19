@@ -10,9 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -335,4 +338,37 @@ func TestFinalAckSentOnlyAfterLoopStopped(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, finalAckSent.Load(), "final ack should have been sent")
+}
+
+// TestAcknowledgeLSNContextCancelReturnsCtxErr asserts that when parent context is canceled,
+// AcknowledgeLSN returns ctx.Err() directly instead of "LSN not updated after 5 minutes" with ErrNonRetryable.
+func TestAcknowledgeLSNContextCancelReturnsCtxErr(t *testing.T) {
+	conn := newFakeReplicationConn()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	socket := &Socket{
+		ConfirmedFlushLSN: pglogrepl.LSN(0x1000),
+		ClientXLogPos:     pglogrepl.LSN(0x2000),
+		ReplicationSlot:   "test_slot",
+	}
+	socket.SetReplicationConn(conn)
+
+	rawDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer rawDB.Close()
+	db := sqlx.NewDb(rawDB, "sqlmock")
+
+	// Cancel context while AcknowledgeLSN is polling
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err = AcknowledgeLSN(ctx, db, socket, false)
+	require.Error(t, err)
+
+	assert.ErrorIs(t, err, context.Canceled, "must return context.Canceled")
+	assert.NotErrorIs(t, err, constants.ErrNonRetryable, "must NOT return ErrNonRetryable on context cancellation")
+	assert.NotContains(t, err.Error(), "LSN not updated after 5 minutes", "must NOT report 5-minute timeout on context cancel")
+	_ = mock
 }

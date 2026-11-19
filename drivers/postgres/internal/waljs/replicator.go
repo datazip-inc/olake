@@ -238,7 +238,10 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			// stop waiting after 5 minutes
+			// stop waiting after 5 minutes or if parent ctx is canceled
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			return fmt.Errorf("%w: %s", constants.ErrNonRetryable, "LSN not updated after 5 minutes")
 		case <-ticker.C:
 			slot, err := GetSlotPosition(ctx, db, socket.ReplicationSlot)
