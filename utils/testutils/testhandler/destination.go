@@ -32,7 +32,7 @@ type Destination struct {
 // Destination returns the writer config of a kind and this test's own database in it. Cleanup removes that database.
 func (h *Handler) Destination(kind DestinationKind) *Destination {
 	h.t.Helper()
-	return once(h, kind.Name(), func() *Destination {
+	return once(h, kind, func() *Destination {
 		for _, service := range kind.Services() {
 			h.connect(service)
 		}

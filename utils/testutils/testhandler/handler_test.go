@@ -71,43 +71,53 @@ func TestHandlerDatabase(t *testing.T) {
 func TestHandlerDestination(t *testing.T) {
 	testCases := []struct {
 		name string
-		kind *fakeKind
+		// kinds are what one test asks for, in order.
+		kinds []*fakeKind
 		// wantFatal is the failure the handler must raise instead of handing out the destination.
 		wantFatal string
 	}{
 		{
-			name: "the kind opens once per test and drops the test's database when the test ends",
-			kind: &fakeKind{},
+			name:  "the kind opens once per test and drops the test's database when the test ends",
+			kinds: []*fakeKind{{}},
+		},
+		{
+			name:  "kinds that share a name each open their own destination",
+			kinds: []*fakeKind{{}, {}},
 		},
 		{
 			name:      "a kind whose container is not running fails the test with the make target that starts it",
-			kind:      &fakeKind{services: []*Service{absentService()}},
+			kinds:     []*fakeKind{{services: []*Service{absentService()}}},
 			wantFatal: notFound,
 		},
 		{
 			name:      "a kind that cannot open fails the test with its reason",
-			kind:      &fakeKind{openErr: errors.New("no turn on the writer")},
+			kinds:     []*fakeKind{{openErr: errors.New("no turn on the writer")}},
 			wantFatal: "testhandler: no turn on the writer",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.wantFatal != "" {
-				require.Equal(t, tc.wantFatal, fatalMessage(t, func(tb testing.TB) { New(tb).Destination(tc.kind) }))
-				require.Empty(t, tc.kind.dropped, "a destination that was never handed out has nothing to drop")
+				kind := tc.kinds[0]
+				require.Equal(t, tc.wantFatal, fatalMessage(t, func(tb testing.TB) { New(tb).Destination(kind) }))
+				require.Empty(t, kind.dropped, "a destination that was never handed out has nothing to drop")
 				return
 			}
 			var id string
 			t.Run("test", func(t *testing.T) {
 				h := New(t)
 				id = h.ID()
-				dest := h.Destination(tc.kind)
-				require.Same(t, dest, h.Destination(tc.kind))
-				require.Equal(t, id, dest.Database)
-				require.Empty(t, tc.kind.dropped, "the drop waits for the end of the test")
+				for _, kind := range tc.kinds {
+					dest := h.Destination(kind)
+					require.Same(t, dest, h.Destination(kind))
+					require.Equal(t, id, dest.Database)
+					require.Empty(t, kind.dropped, "the drop waits for the end of the test")
+				}
 			})
-			require.Equal(t, 1, tc.kind.opens)
-			require.Equal(t, []string{id}, tc.kind.dropped)
+			for _, kind := range tc.kinds {
+				require.Equal(t, 1, kind.opens)
+				require.Equal(t, []string{id}, kind.dropped)
+			}
 		})
 	}
 }
