@@ -83,6 +83,10 @@
 | MySQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th May 2026)</span>     | 59,951 RPS      | 1.52× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/ingestion/?tab=mysql)   |
 | MongoDB → Iceberg <br/><span className='text-xs text-slate-500'>(as of 5th Feb 2026)</span>   | 10,692 RPS      | -                                    | [Full Report](https://olake.io/docs/benchmarks/ingestion/?tab=mongodb) |
 
+#### Comparison with Debezium, Flink and Spark
+
+For a comparison of OLake Go with Debezium + Kafka + Iceberg sink, Flink CDC, and Debezium + Kafka + Spark on Postgres → Iceberg (AWS Glue), refer to [`pg-iceberg-benchmark/REPORT.md`](pg-iceberg-benchmark/REPORT.md). The feature comparison is in [`pg-iceberg-benchmark/features.md`](pg-iceberg-benchmark/features.md), and the steps to rerun it are in [`pg-iceberg-benchmark/SKILL.md`](pg-iceberg-benchmark/SKILL.md).
+
 ---
 
 ### 🔧 Supported Sources and Destinations
