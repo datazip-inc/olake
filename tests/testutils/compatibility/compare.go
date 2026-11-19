@@ -59,7 +59,9 @@ func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicie
 		t.Fatalf("unknown destination %q", group.destination)
 	}
 
-	compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly, baselineRelease)
+	// typeOnly is the list the value comparison used, data_types rules included, so the metadata
+	// comparison exempts the same columns.
+	typeOnly := compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly, baselineRelease)
 
 	// The rows match; the metadata below is what readers and the next sync's resume consume, so it must match too.
 	var referenceMetadata, upgradedMetadata testutils.DestinationMetadata
@@ -74,7 +76,7 @@ func compareSyncMode(t *testing.T, diag *diagnostics, policies *assertionPolicie
 		upgradedMetadata = testutils.ReadParquetMetadata(ctx, t, upgradedDB, upgradedTable)
 		partitionColumns = reference.PartitionColumns()
 	}
-	compareDestinationMetadata(t, diag, referenceMetadata, upgradedMetadata, opaquePartitions(partitionColumns, policies.typeOnly))
+	compareDestinationMetadata(t, diag, referenceMetadata, upgradedMetadata, opaquePartitions(partitionColumns, typeOnly), typeOnly)
 }
 
 // icebergTable refreshes and returns the fully-qualified name of an Iceberg table: the shared
@@ -99,8 +101,9 @@ func parquetView(ctx context.Context, t *testing.T, spark sql.SparkSession, db, 
 }
 
 // compareDestinationOutputs is the assertion. Order matters: a schema mismatch has to be reported before a
-// row query that would fail confusingly because of it.
-func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnostics, spark sql.SparkSession, referenceOutput, upgradedOutput string, typeOnly []string, baselineRelease string) {
+// row query that would fail confusingly because of it. It returns the columns it compared by type only:
+// typeOnly plus the columns the "*" data_types rules resolve to against the reference schema.
+func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnostics, spark sql.SparkSession, referenceOutput, upgradedOutput string, typeOnly []string, baselineRelease string) []string {
 	// 1. Non-vacuity FIRST. Two empty tables satisfy every diff below, and an empty reference is a
 	//    plausible outcome, not a far-fetched one: a stream the baseline binary could not validate
 	//    is skipped with a Warn and the sync still exits 0 (protocol/sync.go, D3 in the doc). Without
@@ -160,7 +163,7 @@ func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnost
 	onlyInUpgraded := rowsOnlyIn(ctx, t, spark, upgradedOutput, referenceOutput, valueColumns)
 	if len(onlyInReference) == 0 && len(onlyInUpgraded) == 0 {
 		t.Logf("values identical: all %d rows match on all %d compared columns", referenceCount, len(valueColumns))
-		return
+		return typeOnly
 	}
 
 	// Name the columns that actually differ before dumping rows -- with 30-odd columns, a row dump
@@ -170,6 +173,7 @@ func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnost
 	logSampleRows(t, diag, "only in the upgrade run", upgradedOutput, onlyInUpgraded)
 	diag.fatalf(t, "row values differ between the reference and upgrade runs: %d row(s) only in %s, %d row(s) only in %s",
 		len(onlyInReference), referenceOutput, len(onlyInUpgraded), upgradedOutput)
+	return typeOnly
 }
 
 // reportColumnDiffs names the columns whose values differ, with a sample from each side. Runs one

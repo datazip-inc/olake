@@ -28,8 +28,19 @@ import (
 // upgrade, since a removed or changed key is what an older reader or resume trips on. A key only the
 // upgrade has is an addition, which is not incompatible, so it is logged rather than failed. Extra
 // output still fails, because every count also feeds a total the reference has (see flatten).
-func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgraded testutils.DestinationMetadata, opaque bool) {
+//
+// A typeOnly column's values are not compared, as they may legitimately differ, so neither is its
+// null count: a value that turns from NULL into data changes the count without breaking anything.
+func compareDestinationMetadata(t *testing.T, diag *diagnostics, reference, upgraded testutils.DestinationMetadata, opaque bool, typeOnly []string) {
 	referenceFlat, upgradedFlat := flatten(reference, opaque), flatten(upgraded, opaque)
+	for _, col := range typeOnly {
+		// A rule may name the source column; the destination writes it reformatted (see opaquePartitions).
+		for _, name := range []string{col, testutils.Reformat(col)} {
+			key := testutils.MetaColumnStats + "." + name + ".null_count"
+			delete(referenceFlat, key)
+			delete(upgradedFlat, key)
+		}
+	}
 	var added []string
 	maps.DeleteFunc(upgradedFlat, func(key, _ string) bool {
 		if _, inReference := referenceFlat[key]; inReference {

@@ -200,6 +200,10 @@ Each key starts with its category:
 
 `files`, `data_records` and `delete_records` also carry the `total` above.
 
+A column compared by type only also has its `column_stats` null count left
+out: its values may legitimately differ, and a value that turns from NULL into
+data (such as `col_toast` before v0.8.0) changes the null count with it.
+
 There are no metadata rules: `compatibility_rules.json` cannot exempt a
 category. Metadata an older release legitimately wrote differently is fixed in
 the reader's normalization, or the difference is the incompatibility the suite
