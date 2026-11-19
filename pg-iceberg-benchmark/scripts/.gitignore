@@ -13,3 +13,9 @@ spark/ivy/
 spark/ckpt-*/
 __pycache__/
 results/
+snowflake/.pat
+snowflake/q_*.sql
+interop/*.out
+interop/*.err
+interop/*.sql
+interop/*.jsonl

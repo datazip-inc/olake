@@ -1,5 +1,5 @@
 """Kafka (Debezium flattened JSON with schema envelope) -> Iceberg (Glue).
-args: <topic> <glue_db> <table> <checkpoint_dir> [append|upsert]
+args: <topic> <glue_db> <table> <checkpoint_dir> [append|upsert] [trigger_seconds]
 append: insert every record. upsert: MERGE by c_custkey per micro-batch (merge-on-read, writes position deletes)."""
 import sys
 from pyspark.sql import SparkSession, Window
@@ -7,6 +7,7 @@ from pyspark.sql.functions import col, from_json, get_json_object, row_number
 
 topic, db, table, ckpt = sys.argv[1:5]
 mode = sys.argv[5] if len(sys.argv) > 5 else "append"
+trigger = f"{int(sys.argv[6]) if len(sys.argv) > 6 else 30} seconds"
 spark = SparkSession.builder.appName("dbz-spark-iceberg").getOrCreate()
 cols = ["c_custkey", "c_name", "c_address", "c_nationkey", "c_phone", "c_acctbal", "c_mktsegment", "c_comment"]
 schema = ("c_custkey INT, c_name STRING, c_address STRING, c_nationkey INT, c_phone STRING, "
@@ -42,9 +43,9 @@ def merge_batch(batch, _id):
         f"VALUES ({', '.join('s.' + c for c in cols)})")
 
 if mode == "upsert":
-    (rows.writeStream.trigger(processingTime="20 seconds").option("checkpointLocation", ckpt)
+    (rows.writeStream.trigger(processingTime=trigger).option("checkpointLocation", ckpt)
      .foreachBatch(merge_batch).start().awaitTermination())
 else:
     (rows.select(*cols).writeStream.format("iceberg").outputMode("append")
-     .trigger(processingTime="20 seconds").option("checkpointLocation", ckpt)
+     .trigger(processingTime=trigger).option("checkpointLocation", ckpt)
      .option("fanout-enabled", "true").toTable(f"glue.{db}.{table}").awaitTermination())

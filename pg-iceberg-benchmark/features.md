@@ -50,6 +50,7 @@ Rules:
 - **Flink, two modes.** Schema evolution and a ready Postgres-to-Iceberg example exist for YAML pipeline mode, where the Iceberg sink is at-least-once. The SQL mode run in this report uses the exactly-once Iceberg Flink sink and has no documented schema evolution.
 - **Debezium Server** has its own community-maintained Iceberg sink with upsert and append modes. That is a different pipeline from the two here.
 - **OLake docs disagree in two places:** whether Trino reads deletion vectors, and which version added delete formats (0.11.0 on one page, v1.0.0 on another).
+- **Debezium `snapshot.max.threads`, documentation against the release that was run.** Row 7 gives the current documentation. Debezium 3.0.8.Final, the release measured in `REPORT.md`, used one snapshot thread for one table with the setting at 16.
 - **Not covered:** Strimzi and Spark operator documentation were not searched in this pass; Strimzi statements come from the Debezium Kubernetes page.
 
 ## Source state
@@ -58,6 +59,13 @@ Record here what each run read, newest first.
 
 | Run date | Source | State |
 |---|---|---|
+| 2026-11-19 (run `run3`) | `apache/parquet-format` | commit `5cc18ca` (2026-11-16), unchanged; no new rows |
+| 2026-11-19 (run `run3`) | `apache/iceberg` docs and `format/spec.md` | commit `1440e49` (2026-11-18); no change under `docs/` or `format/` since `370de4a`; no new rows |
+| 2026-11-19 (run `run3`) | `apache/flink-cdc` docs | commit `126b69e` (2026-11-19); Postgres connector option tables changed, no feature row affected |
+| 2026-11-19 (run `run3`) | `debezium/debezium` docs | commit `7f82c9a` (2026-11-19); only `antora.yml` changed |
+| 2026-11-19 (run `run3`) | `datazip-inc/olake-docs` | commit `bc06645` (2026-11-19); no change under `docs/` since `935e710` |
+| 2026-11-19 (run `run3`) | `datazip-inc/olake-fusion` | commit `031c351` (2026-11-11), unchanged |
+| 2026-11-19 (run `run3`) | `apache/flink-kubernetes-operator` docs | commit `c91b032` (2026-11-11) |
 | 2026-11-19 | `apache/parquet-format` | commit `5cc18ca` (2026-11-16), latest format version section 2.11.0 |
 | 2026-11-19 | `apache/iceberg` docs | commit `370de4a` (2026-11-18) |
 | 2026-11-19 | `apache/flink-cdc` docs | commit `404db9b` (2026-11-19) |

@@ -49,7 +49,7 @@ NEWJOB=$(grep -oE "Job ID: [0-9a-f]{32}" $L/$NAME.submit.log | tail -1 | cut -d"
 echo "flink job: $NEWJOB"; [ -n "$NEWJOB" ] || { tail -30 $L/$NAME.submit.log; stop_stats $NAME; exit 1; }
 wait_poller $NAME; RC=$?
 mark $NAME.end
-sleep 35   # let one more checkpoint complete so restore point covers all committed data
+sleep $((COMMIT_INTERVAL_S+5))   # let one more checkpoint complete so restore point covers all committed data
 curl -s -X PATCH "localhost:8081/jobs/$NEWJOB?mode=cancel" > $L/$NAME.cancel.log 2>&1; sleep 5
 echo $NEWJOB > $D/work/$TAG.jobid
 docker compose logs > $L/$NAME.flink.log 2>&1

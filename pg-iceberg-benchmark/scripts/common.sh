@@ -22,3 +22,5 @@ start_stats() {
 }
 stop_stats() { kill "$(cat "$R/$1.stats.pid")" 2>/dev/null; }
 src_count() { psqlc -At -c "select count(*) from public.$1"; }
+# trino_props <dir>: writes the Trino Iceberg catalog file for the Glue region in bench.env
+trino_props() { mkdir -p "$1"; printf 'connector.name=iceberg\niceberg.catalog.type=glue\nhive.metastore.glue.region=%s\nfs.native-s3.enabled=true\ns3.region=%s\n' "$AWS_REGION" "$AWS_REGION" > "$1/iceberg.properties"; }

@@ -1,4 +1,5 @@
-FROM flink:1.19
+ARG FLINK_IMAGE
+FROM ${FLINK_IMAGE}
 RUN cd /opt/flink/lib && M=https://repo1.maven.org/maven2 && \
     wget -q $M/org/apache/flink/flink-sql-connector-postgres-cdc/3.2.1/flink-sql-connector-postgres-cdc-3.2.1.jar && \
     wget -q $M/org/apache/iceberg/iceberg-flink-runtime-1.19/1.7.1/iceberg-flink-runtime-1.19-1.7.1.jar && \

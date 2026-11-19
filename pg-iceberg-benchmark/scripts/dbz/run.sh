@@ -22,23 +22,23 @@ src_cfg() { cat > $D/$P-src.json <<JSON
  "database.hostname":"$PGHOST","database.port":"$PGPORT","database.user":"$PGUSER","database.password":"$PGPASSWORD",
  "database.dbname":"$PGDATABASE","database.sslmode":"$PGSSLMODE",
  "topic.prefix":"$P","plugin.name":"pgoutput","slot.name":"bench_${P}","publication.name":"$PUBLICATION",
- "publication.autocreate.mode":"disabled","table.include.list":"public.$SRC","snapshot.mode":"initial",
+ "publication.autocreate.mode":"disabled","table.include.list":"public.$SRC","snapshot.mode":"initial","snapshot.max.threads":"$PARALLELISM",
  "decimal.handling.mode":"double","max.batch.size":"8192","max.queue.size":"32768","snapshot.fetch.size":"20000",
  "transforms":"unwrap","transforms.unwrap.type":"io.debezium.transforms.ExtractNewRecordState",
  $EXTRA_SRC
  "key.converter":"org.apache.kafka.connect.json.JsonConverter","key.converter.schemas.enable":"true",
  "value.converter":"org.apache.kafka.connect.json.JsonConverter","value.converter.schemas.enable":"true",
- "topic.creation.default.partitions":"16","topic.creation.default.replication.factor":"1",
+ "topic.creation.default.partitions":"$PARALLELISM","topic.creation.default.replication.factor":"1",
  "producer.override.compression.type":"lz4","producer.override.linger.ms":"20","producer.override.batch.size":"524288"}
 JSON
 }
 sink_cfg() { cat > $D/$P-sink.json <<JSON
-{"connector.class":"io.tabular.iceberg.connect.IcebergSinkConnector","tasks.max":"16","topics":"$TOPIC",
+{"connector.class":"io.tabular.iceberg.connect.IcebergSinkConnector","tasks.max":"$PARALLELISM","topics":"$TOPIC",
  "iceberg.tables":"$GLUE_DB.$TABLE","iceberg.tables.auto-create-enabled":"true",
  $EXTRA_SINK
  "iceberg.catalog.catalog-impl":"org.apache.iceberg.aws.glue.GlueCatalog","iceberg.catalog.warehouse":"$WAREHOUSE",
  "iceberg.catalog.io-impl":"org.apache.iceberg.aws.s3.S3FileIO","iceberg.catalog.client.region":"$AWS_REGION",
- "iceberg.control.topic":"control-$P","iceberg.control.commit.interval-ms":"30000","iceberg.control.commit.timeout-ms":"60000",
+ "iceberg.control.topic":"control-$P","iceberg.control.commit.interval-ms":"$((COMMIT_INTERVAL_S*1000))","iceberg.control.commit.timeout-ms":"$((COMMIT_INTERVAL_S*2000))",
  "key.converter":"org.apache.kafka.connect.json.JsonConverter","key.converter.schemas.enable":"true",
  "value.converter":"org.apache.kafka.connect.json.JsonConverter","value.converter.schemas.enable":"true",
  "consumer.override.max.poll.records":"5000"}
@@ -48,7 +48,7 @@ spark_start() {
   mkdir -p $BENCH/spark/ckpt-$P $BENCH/spark/ivy
   docker rm -f spark_bench >/dev/null 2>&1
   docker run -d --name spark_bench --user 0 --network host $AWS_ENV -v $BENCH/spark:/work apache/spark:3.5.3 \
-    /opt/spark/bin/spark-submit --master 'local[16]' --driver-memory 32g --conf spark.jars.ivy=/work/ivy \
+    /opt/spark/bin/spark-submit --master "local[$PARALLELISM]" --driver-memory ${MEM_GB}g --conf spark.jars.ivy=/work/ivy \
     --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,org.apache.iceberg:iceberg-aws-bundle:1.7.1 \
     --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
     --conf spark.sql.catalog.glue=org.apache.iceberg.spark.SparkCatalog \
@@ -56,7 +56,7 @@ spark_start() {
     --conf spark.sql.catalog.glue.warehouse=$WAREHOUSE \
     --conf spark.sql.catalog.glue.io-impl=org.apache.iceberg.aws.s3.S3FileIO \
     --conf spark.sql.catalog.glue.client.region=$AWS_REGION \
-    /work/job.py "$TOPIC" "$GLUE_DB" "$TABLE" "/work/ckpt-$P" "$WRITE_MODE" >/dev/null
+    /work/job.py "$TOPIC" "$GLUE_DB" "$TABLE" "/work/ckpt-$P" "$WRITE_MODE" "$COMMIT_INTERVAL_S" >/dev/null
 }
 K="docker compose exec -T kafka /opt/kafka/bin"
 start_poller $NAME $TABLE $TARGET

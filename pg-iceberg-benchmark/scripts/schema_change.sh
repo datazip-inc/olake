@@ -17,7 +17,7 @@ run ./dbz/run.sh spark cdc "$SRC" "$TAG" +2000
 (cd dbz && docker compose stop)
 run ./flink/run.sh cdc "$SRC" "$TAG" +2000
 (cd flink && docker compose stop)
-T="olake_$TAG dbz_kc_$TAG flink_$TAG dbz_spark_$TAG"; O=$BENCH/interop
+T="olake_$TAG dbz_kc_$TAG flink_$TAG dbz_spark_$TAG"; O=$BENCH/interop; trino_props $R/schema_$TAG.trino
 echo "=== columns per table"
 docker run --rm --network host $AWS_ENV -v $O:/t --entrypoint python bench-poller -u /t/meta.py $GLUE_DB $T > $R/schema_$TAG.meta.jsonl 2>&1
 python3 - "$R/schema_$TAG.meta.jsonl" <<'PY'
@@ -29,7 +29,7 @@ for l in open(sys.argv[1]):
 PY
 echo "=== trino: rows | rows with c_tier (error = column absent)"
 docker rm -f trino_interop >/dev/null 2>&1
-docker run -d --name trino_interop --network host $AWS_ENV -v $O/trino/iceberg.properties:/etc/trino/catalog/iceberg.properties trinodb/trino:476 >/dev/null
+docker run -d --name trino_interop --network host $AWS_ENV -v $R/schema_$TAG.trino/iceberg.properties:/etc/trino/catalog/iceberg.properties trinodb/trino:476 >/dev/null
 for i in $(seq 1 60); do docker exec trino_interop trino --execute "select 1" >/dev/null 2>&1 && break; sleep 3; done
 for t in $T; do docker exec trino_interop trino --execute "select '$t', count(*), count(c_tier) from iceberg.$GLUE_DB.$t" 2>&1 | grep -v WARNING | tail -1 | cut -c1-200; done | tee $R/schema_$TAG.trino.txt
 docker stop trino_interop >/dev/null

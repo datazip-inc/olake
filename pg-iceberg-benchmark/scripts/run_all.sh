@@ -23,5 +23,7 @@ step ./dbz/run.sh spark cdc "$SRC" "$TAG" "$CDC"
 (cd dbz && docker compose stop)
 step ./flink/run.sh cdc "$SRC" "$TAG" "$CDC"
 (cd flink && docker compose stop)
+for i in "$OLAKE_IMAGE" "$DBZ_CONNECT_IMAGE" apache/kafka:3.9.0 bench-flink apache/spark:3.5.3; do echo "$i $(docker image inspect "$i" --format '{{.Id}} {{range .RepoDigests}}{{.}} {{end}}' 2>/dev/null)"; done > "$R/versions_$TAG.txt"
+echo "PARALLELISM=$PARALLELISM MEM_GB=$MEM_GB COMMIT_INTERVAL_S=$COMMIT_INTERVAL_S FLINK_IMAGE=$FLINK_IMAGE" >> "$R/versions_$TAG.txt"
 python3 tools/summarize.py "$R" "$TAG" "$FULL" "$CDC" | tee "$R/summary_$TAG.json"
 echo ALL_DONE

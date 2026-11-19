@@ -1,11 +1,11 @@
 #!/bin/bash
-# Cross-engine read test: every benchmark table is read by Spark, Flink and Trino.
+# Cross-engine read test: every benchmark table is read by PyIceberg, Spark, Trino and Flink.
+# usage: run.sh <tag>     output: results/interop_<tag>/
 cd "$(dirname "${BASH_SOURCE[0]}")/.." && source ./common.sh || exit 1
-TAG=${1:-customer}; T="olake_$TAG dbz_kc_$TAG flink_$TAG dbz_spark_$TAG"; O=$BENCH/interop
-Q() { for t in $T; do echo "select $1$t$1 as tbl, count(*) as n, count(distinct c_custkey) as k, cast(sum(c_acctbal) as decimal(20,2)) as s from $2.$t;"; done; }
+TAG="${1:?usage: interop/run.sh <tag>}"; T="olake_$TAG dbz_kc_$TAG flink_$TAG dbz_spark_$TAG"; I=$BENCH/interop; O=$R/interop_$TAG; mkdir -p $O; trino_props $O/trino
 echo "=== pyiceberg $(date -u +%T)"
 docker run --rm --network host $AWS_ENV -v $BENCH/tools:/t -v $O:/o --entrypoint python bench-poller -u /t/validate.py $GLUE_DB $T 2>&1 | tee $O/pyiceberg.out
-docker run --rm --network host $AWS_ENV -v $O:/t --entrypoint python bench-poller -u /t/meta.py $GLUE_DB $T > $O/meta.jsonl 2>&1
+docker run --rm --network host $AWS_ENV -v $I:/t --entrypoint python bench-poller -u /t/meta.py $GLUE_DB $T > $O/meta.jsonl 2>&1
 echo "=== spark $(date -u +%T)"
 SP="docker run --rm --user 0 --network host $AWS_ENV -v $BENCH/spark:/work -v $O:/o apache/spark:3.5.3 /opt/spark/bin/spark-sql --master local[16] --driver-memory 16g --conf spark.jars.ivy=/work/ivy --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,org.apache.iceberg:iceberg-aws-bundle:1.7.1 --conf spark.sql.catalog.glue=org.apache.iceberg.spark.SparkCatalog --conf spark.sql.catalog.glue.catalog-impl=org.apache.iceberg.aws.glue.GlueCatalog --conf spark.sql.catalog.glue.warehouse=$WAREHOUSE --conf spark.sql.catalog.glue.io-impl=org.apache.iceberg.aws.s3.S3FileIO --conf spark.sql.catalog.glue.client.region=$AWS_REGION"
 : > $O/spark.out

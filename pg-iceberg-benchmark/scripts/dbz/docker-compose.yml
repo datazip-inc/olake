@@ -16,7 +16,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_HEAP_OPTS: -Xms4g -Xmx4g
   connect:
-    image: quay.io/debezium/connect:3.0
+    image: ${DBZ_CONNECT_IMAGE:?source env.sh first}
     network_mode: host
     depends_on: [kafka]
     volumes:
@@ -30,7 +30,7 @@ services:
       OFFSET_FLUSH_INTERVAL_MS: 10000
       CONNECT_PRODUCER_COMPRESSION_TYPE: lz4
       CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
-      HEAP_OPTS: -Xms4g -Xmx24g
+      HEAP_OPTS: -Xms4g -Xmx${MEM_GB:?source env.sh first}g
       AWS_REGION: ${AWS_REGION:?source env.sh first}
       AWS_ACCESS_KEY_ID:
       AWS_SECRET_ACCESS_KEY:

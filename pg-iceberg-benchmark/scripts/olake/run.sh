@@ -2,8 +2,8 @@
 # OLake pipeline. usage: run.sh full|cdc <source_table> <tag> <target_rows>
 set -u; source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh" || exit 1
 PHASE=$1; SRC=$2; TAG=$3; TARGET=$4
-NAME=olake_${TAG}_${PHASE}; D=$BENCH/olake/$TAG; SLOT=bench_olake_${TAG}; IMG=olakego/source-postgres:latest
-THREADS=${OLAKE_THREADS:-16}
+NAME=olake_${TAG}_${PHASE}; D=$BENCH/olake/$TAG; SLOT=bench_olake_${TAG}; IMG=$OLAKE_IMAGE
+THREADS=$PARALLELISM
 # OLAKE_UPDATE_TYPE: how OLake records deletes in upsert mode. eq = equality deletes (default),
 # pos = position deletes, dv = deletion vectors. pos and dv use a row index kept in $D/index.
 UPD=${OLAKE_UPDATE_TYPE:-eq}
@@ -40,7 +40,7 @@ fi
 start_poller $NAME olake_$TAG $TARGET
 start_stats $NAME
 mark $NAME.start
-docker run --rm --name olake_bench --network host $AWS_ENV -e OLAKE_INDEX_DB_DIR=/mnt/config/index -v $D:/mnt/config $IMG sync --config /mnt/config/source.json --catalog /mnt/config/streams_bench.json --destination /mnt/config/destination.json $STATE > $L/$NAME.log 2>&1
+docker run --rm --name olake_bench --memory ${MEM_GB}g --network host $AWS_ENV -e OLAKE_INDEX_DB_DIR=/mnt/config/index -v $D:/mnt/config $IMG sync --config /mnt/config/source.json --catalog /mnt/config/streams_bench.json --destination /mnt/config/destination.json $STATE > $L/$NAME.log 2>&1
 echo "olake exit=$?"
 mark $NAME.process_exit
 wait_poller $NAME; RC=$?; stop_stats $NAME; exit $RC
