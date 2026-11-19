@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
+	"path"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/parquet-go/parquet-go"
+	"github.com/stretchr/testify/require"
 )
 
 const ParquetTestBucket = "warehouse"
@@ -56,14 +60,9 @@ func ParquetColumnKinds(ctx context.Context, client *minio.Client, parquetDB, ta
 	}
 	kinds := make(map[string]map[string]string, len(objects))
 	for _, object := range objects {
-		reader, err := client.GetObject(ctx, ParquetTestBucket, object.Key, minio.GetObjectOptions{})
+		data, err := ReadParquetTableObject(ctx, client, parquetDB, tableName, strings.TrimPrefix(object.Key, parquetTablePath(parquetDB, tableName)))
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch %s: %s", object.Key, err)
-		}
-		data, err := io.ReadAll(reader)
-		_ = reader.Close()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read %s: %s", object.Key, err)
+			return nil, err
 		}
 		file, err := parquet.OpenFile(bytes.NewReader(data), int64(len(data)))
 		if err != nil {
@@ -72,21 +71,32 @@ func ParquetColumnKinds(ctx context.Context, client *minio.Client, parquetDB, ta
 		columns := map[string]string{}
 		for _, path := range file.Schema().Columns() {
 			leaf, _ := file.Schema().Lookup(path...)
-			kind := leaf.Node.Type().Kind().String()
-			if leaf.Node.Type().Kind() == parquet.FixedLenByteArray {
-				kind = fmt.Sprintf("%s(%d)", kind, leaf.Node.Type().Length())
-			}
-			columns[strings.Join(path, ".")] = kind
+			columns[strings.Join(path, ".")] = parquetKind(leaf.Node)
 		}
 		kinds[object.Key] = columns
 	}
 	return kinds, nil
 }
 
+// parquetKind is a leaf column's physical type, with the width of a FIXED_LEN_BYTE_ARRAY.
+func parquetKind(node parquet.Node) string {
+	kind := node.Type().Kind().String()
+	if node.Type().Kind() == parquet.FixedLenByteArray {
+		kind = fmt.Sprintf("%s(%d)", kind, node.Type().Length())
+	}
+	return kind
+}
+
 // parquetTablePath is the MinIO key prefix a stream's parquet files are written under.
 func parquetTablePath(parquetDB, tableName string) string {
 	return fmt.Sprintf("%s/%s/", parquetDB, tableName)
 }
+
+// The parquet writer's 2PC layout, relative to the table folder (destination/parquet/parquet_2pc.go).
+const (
+	parquetMetadataKey   = "metadata.json"
+	parquetStagingPrefix = "_olake_2pc/"
+)
 
 // CreateParquetView stands a temp view over a table's parquet files, dropped when the test ends. The
 // error is returned as is: PATH_NOT_FOUND means no files were written, which some callers expect.
@@ -161,4 +171,136 @@ func DeleteParquetTable(t *testing.T, parquetDB, tableName string) error {
 
 	t.Logf("--- Parquet Table Cleanup Complete: Deleted %d objects ---", deletedCount)
 	return nil
+}
+
+// ParquetTableObjects lists every object under a table's folder in MinIO, recursively: the data
+// files in the table folder and its partition folders, metadata.json and any _olake_2pc staging.
+// Keys are returned relative to the table folder.
+func ParquetTableObjects(ctx context.Context, client *minio.Client, parquetDB, tableName string) ([]string, error) {
+	prefix := parquetTablePath(parquetDB, tableName)
+	var keys []string
+	for object := range client.ListObjects(ctx, ParquetTestBucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if object.Err != nil {
+			return nil, fmt.Errorf("error listing objects: %s", object.Err)
+		}
+		keys = append(keys, strings.TrimPrefix(object.Key, prefix))
+	}
+	return keys, nil
+}
+
+// ReadParquetTableObject reads one object of a table's folder, by its key relative to that folder.
+func ReadParquetTableObject(ctx context.Context, client *minio.Client, parquetDB, tableName, key string) ([]byte, error) {
+	reader, err := client.GetObject(ctx, ParquetTestBucket, parquetTablePath(parquetDB, tableName)+key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch %s: %s", key, err)
+	}
+	defer func() { _ = reader.Close() }()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %s", key, err)
+	}
+	return data, nil
+}
+
+// parquetObject is one object of a parquet table's folder, by its key relative to that folder.
+type parquetObject struct {
+	key  string
+	data []byte
+}
+
+// ReadParquetMetadata reads and normalizes a parquet table folder: metadata.json, what is left under
+// _olake_2pc, and the footer of every data file.
+func ReadParquetMetadata(ctx context.Context, t *testing.T, parquetDB, tableName string) DestinationMetadata {
+	t.Helper()
+	client, err := NewMinIOClient()
+	require.NoError(t, err, "failed to create the MinIO client")
+	keys, err := ParquetTableObjects(ctx, client, parquetDB, tableName)
+	require.NoErrorf(t, err, "failed to list the objects of %s/%s", parquetDB, tableName)
+
+	objects := make([]parquetObject, 0, len(keys))
+	for _, key := range keys {
+		object := parquetObject{key: key}
+		// Staging is counted, not read: after a committed sync nothing should be left there.
+		if key == parquetMetadataKey || (strings.HasSuffix(key, ".parquet") && !strings.HasPrefix(key, parquetStagingPrefix)) {
+			object.data, err = ReadParquetTableObject(ctx, client, parquetDB, tableName, key)
+			require.NoErrorf(t, err, "failed to read %s/%s/%s", parquetDB, tableName, key)
+		}
+		objects = append(objects, object)
+	}
+	metadata, err := normalizeParquetMetadata(objects)
+	require.NoErrorf(t, err, "failed to normalize the metadata of %s/%s", parquetDB, tableName)
+	return metadata
+}
+
+// normalizeParquetMetadata is the pure half of ReadParquetMetadata, kept apart so it is unit-testable.
+// A data file is grouped by its folder, which is its partition.
+func normalizeParquetMetadata(objects []parquetObject) (DestinationMetadata, error) {
+	m := newDestinationMetadata()
+	m.set(MetaStaging, "objects", "0")
+
+	schemas := map[string]map[string]bool{} // column -> its type in each file
+	codecs := map[string]map[string]bool{}  // column -> its codec in each row group
+	for _, object := range objects {
+		switch {
+		case strings.HasPrefix(object.key, parquetStagingPrefix):
+			m.add(MetaStaging, "objects", 1)
+		case object.key == parquetMetadataKey:
+			normalizeOlake2PC(m, string(object.data))
+		case strings.HasSuffix(object.key, ".parquet"):
+			partition := path.Dir(object.key)
+			if partition == "." {
+				partition = "(unpartitioned)"
+			}
+			file, err := parquet.OpenFile(bytes.NewReader(object.data), int64(len(object.data)))
+			if err != nil {
+				return DestinationMetadata{}, fmt.Errorf("failed to open %s: %s", object.key, err)
+			}
+			m.addPartition(MetaFiles, partition, "data %p", 1)
+			m.addPartition(MetaDataRecords, partition, "%p", file.NumRows())
+
+			for _, columnPath := range file.Schema().Columns() {
+				leaf, _ := file.Schema().Lookup(columnPath...)
+				column := strings.Join(columnPath, ".")
+				if schemas[column] == nil {
+					schemas[column] = map[string]bool{}
+				}
+				schemas[column][parquetColumnType(leaf.Node)] = true
+			}
+			for _, rowGroup := range file.Metadata().RowGroups {
+				for _, chunk := range rowGroup.Columns {
+					column := strings.Join(chunk.MetaData.PathInSchema, ".")
+					m.add(MetaColumnStats, column+".null_count", chunk.MetaData.Statistics.NullCount)
+					if codecs[column] == nil {
+						codecs[column] = map[string]bool{}
+					}
+					codecs[column][chunk.MetaData.Codec.String()] = true
+				}
+			}
+		}
+	}
+	for column, types := range schemas {
+		m.set(MetaFileSchema, column, strings.Join(slices.Sorted(maps.Keys(types)), " | "))
+	}
+	for column, columnCodecs := range codecs {
+		m.set(MetaProperties, "codec."+column, strings.Join(slices.Sorted(maps.Keys(columnCodecs)), " | "))
+	}
+	return m, nil
+}
+
+// parquetColumnType is a leaf column's physical type with its width, logical type and repetition:
+// the parts a reader decodes by, which Spark's schema folds together (INT96 and INT64 timestamps both
+// read as timestamp).
+func parquetColumnType(node parquet.Node) string {
+	logical := "-"
+	if lt := node.Type().LogicalType(); lt != nil {
+		logical = lt.String()
+	}
+	repetition := "required"
+	switch {
+	case node.Repeated():
+		repetition = "repeated"
+	case node.Optional():
+		repetition = "optional"
+	}
+	return fmt.Sprintf("%s %s %s", parquetKind(node), logical, repetition)
 }
