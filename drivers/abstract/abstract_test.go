@@ -477,6 +477,34 @@ func (s stubDriver) StreamChanges(context.Context, int, map[string]any, CDCMsgFn
 }
 func (s stubDriver) PostCDC(context.Context, int) error { return nil }
 
+// normalizationStub chooses the discover normalization default itself.
+type normalizationStub struct {
+	stubDriver
+	on bool
+}
+
+func (s normalizationStub) DefaultNormalization() bool { return s.on }
+
+func TestDefaultNormalization(t *testing.T) {
+	tests := []struct {
+		name   string
+		driver DriverInterface
+		want   bool
+	}{
+		{name: "relational source defaults on", driver: stubDriver{typ: "postgres"}, want: true},
+		{name: "non-relational source defaults off", driver: stubDriver{typ: "s3"}, want: false},
+		{name: "driver override turns normalization on", driver: normalizationStub{stubDriver: stubDriver{typ: "s3"}, on: true}, want: true},
+		{name: "driver override turns normalization off", driver: normalizationStub{stubDriver: stubDriver{typ: "postgres"}, on: false}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			driver := NewAbstractDriver(context.Background(), tt.driver)
+			assert.Equal(t, tt.want, driver.defaultNormalization())
+		})
+	}
+}
+
 // discoverStreams are the streams stubSampler lists, all in one namespace.
 var discoverStreams = []types.StreamID{{Namespace: "db", Name: "a"}, {Namespace: "db", Name: "b"}, {Namespace: "db", Name: "c"}}
 

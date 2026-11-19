@@ -48,6 +48,17 @@ func (s *S3) Type() string {
 	return "s3"
 }
 
+// DefaultNormalization starts CSV and Parquet streams with normalization on. Discover already infers
+// one typed column per CSV header, and Parquet files carry their own schema. JSON and XML stay off.
+func (s *S3) DefaultNormalization() bool {
+	switch s.config.FileFormat {
+	case FormatCSV, FormatParquet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Setup initializes the S3 client and validates the configuration
 func (s *S3) Setup(ctx context.Context) error {
 	// Validate configuration
