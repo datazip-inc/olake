@@ -11,11 +11,12 @@ import (
 )
 
 type Upsert struct {
-	Name      string
-	Operation string
-	UseState  bool
-	OpSymbol  string
-	Expected  map[string]interface{}
+	Name             string
+	Operation        string
+	UseState         bool
+	OpSymbol         string
+	Expected         map[string]interface{}
+	ExpectedRowCount *int
 }
 
 // RunUpsertIceberg seeds a Kafka upsert stream's topic with seedOp and runs steps as Arrow Iceberg sync+verify rounds.
@@ -43,7 +44,11 @@ func (th *TestHandler) RunUpsertIceberg(t *testing.T, seedOp string, steps []Ups
 		}
 
 		for _, tc := range steps {
-			if err := th.runSyncAndVerify(ctx, t, testTable, tc.UseState, "iceberg", tc.Operation, tc.OpSymbol, tc.Expected, true); err != nil {
+			var countOverride []*int
+			if tc.ExpectedRowCount != nil {
+				countOverride = []*int{tc.ExpectedRowCount}
+			}
+			if err := th.runSyncAndVerify(ctx, t, testTable, tc.UseState, "iceberg", tc.Operation, tc.OpSymbol, tc.Expected, true, countOverride...); err != nil {
 				return fmt.Errorf("%s: %w", tc.Name, err)
 			}
 		}

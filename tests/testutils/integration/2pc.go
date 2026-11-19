@@ -87,6 +87,11 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 	// left by a previous run can't leak into this run's recovery timeline.
 	testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
 
+	var kafkaInsertRowCount *int
+	if th.TestConfig.Driver == string(constants.Kafka) {
+		kafkaInsertRowCount = ptr(10)
+	}
+
 	twoPCCDCTestCases := []syncTestCase{
 		{
 			name:                     testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
@@ -106,6 +111,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 			preSetup:                 testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.SaveStateFile}).([]func(*testutils.TestConfig) error),
 			verifyNoDuplicates:       th.TestConfig.Driver == string(constants.Kafka),
 			expectedRowCountByOpType: 10,
+			expectedRowCount:         kafkaInsertRowCount,
 		},
 		{
 			// Simulate 2PC failure: restore state to pre-insert checkpoint, insert a
@@ -121,6 +127,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: int64(testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 11, 1).(int)),
 			preSetup:                 testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.RestoreStateFile}).([]func(*testutils.TestConfig) error),
+			skipRowCount:             true,
 		},
 		{
 			// After the recovery sync advanced state to the committed metadata LSN,
@@ -131,6 +138,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 			expected:                 th.ExpectedData,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: int64(testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 12, 2).(int)),
+			skipRowCount:             true,
 		},
 	}
 
@@ -146,6 +154,7 @@ func (th *TestHandler) Iceberg2PCCDCRecovery(
 				ctx, t, testTable, tc.useState, "iceberg",
 				tc.operation, tc.opSymbol, tc.expected,
 				tc.name != "Full-Refresh",
+				tc.countOverride()...,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -224,6 +233,7 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 			preSetup: []func(*testutils.TestConfig) error{
 				testutils.RestoreStateFile,
 			},
+			skipRowCount: true,
 		},
 		{
 			// After recovery, state is now consistent. A normal sync should see both
@@ -234,6 +244,7 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 			expected:                 th.ExpectedData,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 2, // insert row + insert_2pc row, both unique by _olake_id
+			skipRowCount:             true,
 		},
 	}
 
@@ -249,6 +260,7 @@ func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 				ctx, t, testTable, tc.useState, "iceberg",
 				tc.operation, tc.opSymbol, tc.expected,
 				false,
+				tc.countOverride()...,
 			); err != nil {
 				t.Fatalf("Incremental 2PC test %s failed: %v", tc.name, err)
 			}

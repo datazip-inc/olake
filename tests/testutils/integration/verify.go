@@ -17,23 +17,55 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
+// ExpectedRows bundles cardinality, content, and schema expectations for destination verification.
+type ExpectedRows struct {
+	Rows                    map[string]map[string]interface{} // expected rows indexed by key (e.g. "1", "2")
+	KeyColumn               string                            // column to match destination rows to Rows (default: "id")
+	FallbackTemplate        map[string]interface{}            // single-row template when Rows is not populated
+	Count                   *int                              // nil = skip count check; 0 = empty; >0 = exact count
+	SkipCountCheck          bool                              // forces ResolveCount() to return nil
+	DefaultCDCColumnsSchema map[string]string                 // CDC column types to verify when IsCDC is true
+	IsCDC                   bool                              // whether to validate CDC columns
+}
+
+// ResolveCount returns the effective expected row count.
+func (e ExpectedRows) ResolveCount() *int {
+	if e.SkipCountCheck {
+		return nil
+	}
+	if e.Count != nil {
+		return e.Count
+	}
+	if len(e.Rows) > 0 {
+		c := len(e.Rows)
+		return &c
+	}
+	return nil
+}
+
+// ptr returns a pointer to any value.
+func ptr[T any](v T) *T {
+	return &v
+}
+
 // requireExpectations fails a verification that has nothing to assert.
-func requireExpectations(t *testing.T, datatypeSchema, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool) {
+func requireExpectations(t *testing.T, datatypeSchema map[string]string, expected ExpectedRows, opSymbol, driver string) {
 	t.Helper()
 	require.NotEmpty(t, datatypeSchema, "the %s suite passed no destination datatype schema; set DestinationDataTypeSchema, or UpdatedDestinationDataTypeSchema for a sync whose schema evolved", driver)
 	if opSymbol != "d" {
-		require.NotEmpty(t, schema, "the %s suite passed no expected row data for op %q; set ExpectedData, or ExpectedUpdatedData for a sync whose schema evolved", driver, opSymbol)
+		hasExpectedData := len(expected.Rows) > 0 || len(expected.FallbackTemplate) > 0
+		require.True(t, hasExpectedData, "the %s suite passed no expected row data for op %q; set ExpectedData, or ExpectedUpdatedData for a sync whose schema evolved", driver, opSymbol)
 	}
-	if isCDC {
-		require.NotEmpty(t, defaultCDCColumnsSchema, "the %s suite passed no CDC columns schema; set DefaultCDCColumnsSchema", driver)
+	if expected.IsCDC {
+		require.NotEmpty(t, expected.DefaultCDCColumnsSchema, "the %s suite passed no CDC columns schema; set DefaultCDCColumnsSchema", driver)
 	}
 }
 
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema, typeMapping map[string]string, expected ExpectedRows, opSymbol, partitionRegex, driver string, excludedColumn string) {
 	t.Helper()
-	requireExpectations(t, datatypeSchema, defaultCDCColumnsSchema, schema, opSymbol, driver, isCDC)
+	requireExpectations(t, datatypeSchema, expected, opSymbol, driver)
 	ctx := t.Context()
 	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
@@ -49,7 +81,19 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	// Kafka append keeps _op_type 'c'. Upsert writes c (first insert, Iceberg rewrite), u, or d.
 	// col_included appears only on evolved/update rows.
 	if driver == string(constants.Kafka) {
-		if _, ok := schema["col_included"]; ok {
+		hasColIncluded := false
+		if expected.FallbackTemplate != nil {
+			_, hasColIncluded = expected.FallbackTemplate["col_included"]
+		}
+		if !hasColIncluded {
+			for _, r := range expected.Rows {
+				if _, ok := r["col_included"]; ok {
+					hasColIncluded = true
+					break
+				}
+			}
+		}
+		if hasColIncluded {
 			selectQuery += " AND col_included IS NOT NULL"
 		}
 	}
@@ -99,53 +143,11 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 
 	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)
-	// For delete operations, accept both 0 and 1 row (both are valid outcomes)
+
+	verifySyncedRows(t, selectRows, expected, opSymbol, "Iceberg", driver)
 	if opSymbol == "d" {
-		if len(selectRows) > 0 {
-			deletedID := selectRows[0].Value("_olake_id")
-			require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
-		}
-		t.Logf("Delete verification passed: found %d row(s) for _op_type = 'd'", len(selectRows))
 		return
 	}
-	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
-
-	for rowIdx, row := range selectRows {
-		icebergMap := make(map[string]interface{}, len(schema)+1)
-		for _, col := range row.FieldNames() {
-			icebergMap[col] = row.Value(col)
-		}
-		for key, expected := range schema {
-			icebergValue, ok := icebergMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			require.Equal(t, expected, sparkValueOf(expected, icebergValue), "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
-		}
-		if isCDC {
-			for key := range defaultCDCColumnsSchema {
-				icebergValue, ok := icebergMap[key]
-				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
-				if key == "_kafka_offset" || key == "_kafka_partition" {
-					require.NotNil(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
-				} else {
-					require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
-				}
-				if key == constants.CdcTimestamp {
-					ts, ok := normalizeToTime(icebergValue)
-					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, icebergValue, icebergValue)
-					minAllowed := time.Now().Add(-1 * time.Hour)
-					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
-				}
-			}
-		}
-		if !isCDC && icebergMap[constants.CdcTimestamp] != nil {
-			ts, ok := normalizeToTime(icebergMap[constants.CdcTimestamp])
-			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, icebergMap[constants.CdcTimestamp])
-			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
-			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
-		}
-	}
-	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
 	icebergSchema, describeRows := testutils.DescribeSchema(ctx, t, spark, fullTableName)
 
@@ -167,8 +169,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	t.Logf("Verified datatypes in Iceberg after sync")
 	verifyIcebergBinaryTypes(ctx, t, spark, fullTableName, datatypeSchema, typeMapping)
 	// Verify datatypes for CDC/default columns as well
-	if isCDC {
-		for col, expectedIceType := range defaultCDCColumnsSchema {
+	if expected.IsCDC {
+		for col, expectedIceType := range expected.DefaultCDCColumnsSchema {
 			iceType, found := icebergSchema[col]
 			require.True(t, found, "CDC column %s not found in Iceberg schema", col)
 
@@ -250,9 +252,9 @@ func VerifyIcebergNoDuplicates(ctx context.Context, t *testing.T, tableName, ice
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema, typeMapping map[string]string, expected ExpectedRows, opSymbol, driver string, excludedColumn string) {
 	t.Helper()
-	requireExpectations(t, datatypeSchema, defaultCDCColumnsSchema, schema, opSymbol, driver, isCDC)
+	requireExpectations(t, datatypeSchema, expected, opSymbol, driver)
 	ctx := t.Context()
 
 	spark, err := testutils.SparkSession(ctx, t)
@@ -286,7 +288,19 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	// Kafka append keeps _op_type 'c'. Upsert writes c (first insert, Iceberg rewrite), u, or d.
 	// col_included appears only on evolved/update rows.
 	if driver == string(constants.Kafka) {
-		if _, ok := schema["col_included"]; ok {
+		hasColIncluded := false
+		if expected.FallbackTemplate != nil {
+			_, hasColIncluded = expected.FallbackTemplate["col_included"]
+		}
+		if !hasColIncluded {
+			for _, r := range expected.Rows {
+				if _, ok := r["col_included"]; ok {
+					hasColIncluded = true
+					break
+				}
+			}
+		}
+		if hasColIncluded {
 			selectQuery += " AND `col_included` IS NOT NULL"
 		}
 	}
@@ -298,57 +312,10 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	rows, err := df.Collect(ctx)
 	require.NoError(t, err, "Failed to collect rows from Parquet query")
 
-	// For delete operations, accept both 0 and 1 row (both are valid outcomes)
+	verifySyncedRows(t, rows, expected, opSymbol, "Parquet", driver)
 	if opSymbol == "d" {
-		if len(rows) > 0 {
-			deletedID := rows[0].Value("_olake_id")
-			require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
-		}
-		t.Logf("Delete verification passed: found %d row(s) for _op_type = 'd'", len(rows))
 		return
 	}
-
-	// For non-delete operations, require at least one row
-	require.NotEmpty(t, rows, "No rows returned for _op_type = '%s'", opSymbol)
-
-	for rowIdx, row := range rows {
-		parquetMap := make(map[string]interface{}, len(schema)+1)
-		for _, col := range row.FieldNames() {
-			parquetMap[col] = row.Value(col)
-		}
-		for key, expected := range schema {
-			val, ok := parquetMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-			require.Equal(t, expected, sparkValueOf(expected, val),
-				"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
-		}
-		if isCDC {
-			for key := range defaultCDCColumnsSchema {
-				val, ok := parquetMap[key]
-				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
-				if key == "_kafka_offset" || key == "_kafka_partition" {
-					require.NotNil(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
-				} else {
-					require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
-				}
-				if key == constants.CdcTimestamp {
-					ts, ok := normalizeToTime(val)
-					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
-					minAllowed := time.Now().Add(-1 * time.Hour)
-					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
-				}
-			}
-		}
-		if !isCDC && parquetMap[constants.CdcTimestamp] != nil {
-			ts, ok := normalizeToTime(parquetMap[constants.CdcTimestamp])
-			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, parquetMap[constants.CdcTimestamp])
-			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
-			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
-		}
-	}
-
-	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
 
 	parquetSchema, _ := testutils.DescribeSchema(ctx, t, spark, viewName)
 	if excludedColumn != "" {
@@ -369,8 +336,8 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	t.Logf("Verified datatypes in Parquet after sync")
 	verifyParquetBinaryTypes(ctx, t, parquetDB, tableName, datatypeSchema, typeMapping)
 	// Verify datatypes for CDC/default columns as well
-	if isCDC {
-		for col, expectedPqType := range defaultCDCColumnsSchema {
+	if expected.IsCDC {
+		for col, expectedPqType := range expected.DefaultCDCColumnsSchema {
 			pqType, found := parquetSchema[col]
 			require.True(t, found, "CDC column %s not found in Parquet schema", col)
 			require.Equal(t, expectedPqType, pqType,
@@ -378,6 +345,112 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		}
 	}
 	t.Logf("Verified datatypes for CDC columns in Parquet after sync")
+}
+
+// verifySyncedRows asserts cardinality, unique _olake_id, column values, and CDC metadata
+// on rows collected from an Iceberg or Parquet sync.
+func verifySyncedRows(
+	t *testing.T,
+	rows []types.Row,
+	expected ExpectedRows,
+	opSymbol, destination, driver string,
+) {
+	t.Helper()
+
+	if opSymbol == "d" {
+		maxAllowed := 1
+		targetCount := expected.ResolveCount()
+		if targetCount != nil {
+			maxAllowed = *targetCount
+		}
+		require.LessOrEqualf(t, len(rows), maxAllowed, "Delete verification failed: got %d rows for _op_type = 'd', expected at most %d", len(rows), maxAllowed)
+		for rowIdx, row := range rows {
+			deletedID := row.Value("_olake_id")
+			require.NotEmpty(t, deletedID, "Row %d: Delete verification failed: _olake_id should not be empty", rowIdx)
+		}
+		t.Logf("Delete verification passed: found %d row(s) for _op_type = 'd'", len(rows))
+		return
+	}
+
+	targetCount := expected.ResolveCount()
+	if targetCount != nil {
+		if *targetCount == 0 {
+			require.Empty(t, rows, "Expected 0 rows for _op_type = '%s', got %d", opSymbol, len(rows))
+		} else {
+			require.Len(t, rows, *targetCount, "Row count mismatch for _op_type = '%s'", opSymbol)
+		}
+	} else {
+		require.NotEmpty(t, rows, "No rows returned for _op_type = '%s'", opSymbol)
+	}
+
+	seenIDs := make(map[interface{}]struct{}, len(rows))
+	for rowIdx, row := range rows {
+		olakeID := row.Value("_olake_id")
+		if olakeID != nil {
+			require.NotEmpty(t, olakeID, "Row %d: expected _olake_id to be non-empty", rowIdx)
+			_, exists := seenIDs[olakeID]
+			require.Falsef(t, exists, "Duplicate row detected: _olake_id %#v appeared more than once", olakeID)
+			seenIDs[olakeID] = struct{}{}
+		}
+	}
+
+	keyCol := expected.KeyColumn
+	if keyCol == "" {
+		keyCol = "id"
+	}
+
+	for rowIdx, row := range rows {
+		rowMap := make(map[string]interface{}, len(row.FieldNames()))
+		for _, col := range row.FieldNames() {
+			rowMap[col] = row.Value(col)
+		}
+
+		// Look up expected row by key if distinct row expectations exist; else use fallback template
+		var expectedSchema map[string]interface{}
+		if len(expected.Rows) > 0 {
+			keyVal := row.Value(keyCol)
+			if keyVal != nil {
+				expectedSchema = expected.Rows[fmt.Sprint(keyVal)]
+			}
+		} else {
+			expectedSchema = expected.FallbackTemplate
+		}
+
+		require.NotEmpty(t, expectedSchema, "Row %d: no expected data found for key %v in %s result", rowIdx, row.Value(keyCol), destination)
+
+		for key, expectedVal := range expectedSchema {
+			actualVal, ok := rowMap[key]
+			require.Truef(t, ok, "Row %d: missing column %q in %s result", rowIdx, key, destination)
+			require.Equal(t, expectedVal, sparkValueOf(expectedVal, actualVal), "Row %d: mismatch on %q: %s has %#v, expected %#v", rowIdx, key, destination, actualVal, expectedVal)
+		}
+
+		if expected.IsCDC {
+			for key := range expected.DefaultCDCColumnsSchema {
+				val, ok := rowMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in %s result", rowIdx, key, destination)
+				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
+				if key == "_kafka_offset" || key == "_kafka_partition" {
+					require.NotNil(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				} else {
+					require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				}
+				if key == constants.CdcTimestamp {
+					ts, ok := normalizeToTime(val)
+					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
+					minAllowed := time.Now().Add(-1 * time.Hour)
+					require.Falsef(t, ts.Before(minAllowed), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
+				}
+			}
+		}
+
+		if !expected.IsCDC && rowMap[constants.CdcTimestamp] != nil {
+			ts, ok := normalizeToTime(rowMap[constants.CdcTimestamp])
+			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, rowMap[constants.CdcTimestamp])
+			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
+			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
+		}
+	}
+	t.Logf("Verified %s synced data with respect to data synced from source[%s] found equal", destination, driver)
 }
 
 // extractFirstPartitionColFromRows extracts the first partition column from DESCRIBE EXTENDED rows
