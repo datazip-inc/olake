@@ -1,0 +1,15 @@
+bench.env
+.pgpass_bench
+.aws_bench
+.snowflake_bench
+logs/
+*.pid
+olake/*/
+dbz/*.json
+dbz/plugins/
+flink/state/
+flink/work/
+spark/ivy/
+spark/ckpt-*/
+__pycache__/
+results/

@@ -1,0 +1,93 @@
+# Feature list for the comparison
+
+One list of features compared across the four pipelines. It only grows: every benchmark run refreshes the cells and appends new rows at the bottom (see `SKILL.md`, "Refreshing the feature list"). Scripts that produce the measured numbers are in `scripts/`.
+
+Rules:
+
+- Never remove or renumber a row. New features get the next number and the date they were added.
+- Each cell comes from documentation first. If documentation is silent, search the project's code once. Write "does not exist" only when both have nothing. Cells do not say whether the fact came from documentation or code.
+- This file is the only place features are compared. `REPORT.md` holds measured numbers and test results and links here.
+- Debezium, Flink and Spark pipelines write Parquet through the Iceberg library, so Iceberg table properties apply to them.
+
+| # | Feature | OLake | Debezium + Kafka + Apache Iceberg sink | Flink (CDC source + Iceberg sink, one job) | Debezium + Kafka + Spark | Added |
+|---|---|---|---|---|---|---|
+| 1 | Iceberg interoperability (delete format target engines can read) | Supported directly in the writer. Three formats: equality deletes, position deletes (v2), deletion vectors (v3). Job setting "Target Query Engines" limits the choice to formats those engines read. Switching format migrates existing equality deletes. OLake Fusion Lite compaction also converts equality deletes to position deletes | Does not exist. The Apache sink documents no update or delete handling, and its code has no CDC or upsert option, so it only appends | Through maintenance. The sink writes equality deletes; `ConvertEqualityDeletes` turns them into deletion vectors, only on format v3 and with a staging branch. No conversion to position deletes on v2 | Through table settings. `write.delete.mode`, `write.update.mode`, `write.merge.mode`: copy-on-write (default, no delete files) or merge-on-read. Equality deletes are not written by Spark | 2026-11-19 |
+| 2 | Upserts and deletes | Upsert and append modes. A deleted row is kept with `_op_type = 'd'`, retaining only the primary key and OLake metadata columns | Does not exist in the Apache sink. Debezium can rewrite deletes as rows with `delete.tombstone.handling.mode` | `write.upsert.enabled` or `upsert-enabled`, needs primary key and v2 table. YAML Iceberg pipeline sink requires a primary key | `MERGE INTO`, `UPDATE`, `DELETE` for batch. Streaming writes support only `append` and `complete` output modes | 2026-11-19 |
+| 3 | Schema evolution | Added column: automatic. Type promotion: int to long, float to double, wider decimal. Dropped column stays in the table. Rename: work in progress | "Automatic table creation and schema evolution"; `iceberg.tables.evolve-schema-enabled` adds missing fields, default `false`. Debezium Postgres: "Logical decoding does not support DDL changes" | YAML pipeline mode: Postgres source infers add, drop, rename and type change (`schema-change.enabled`); Iceberg sink does "Schema Synchronization". SQL connector: nothing documented | `mergeSchema` with `write.spark.accept-any-schema` for batch writes. Streaming: nothing documented | 2026-11-19 |
+| 4 | GitOps | Documented as "GitOps for OLake Go": sources, destinations, jobs and streams as files. Kubernetes: ConfigMaps and Secrets applied by Argo CD or Flux (Helm `gitops.enabled`). Docker: watched folder. Credentials from secret managers. Does not delete or rename objects | Strimzi `KafkaConnect` and `KafkaConnector` custom resources. Debezium Operator with `DebeziumServer` custom resource, installed by Helm. The word GitOps is not used | Flink Kubernetes Operator custom resources `FlinkDeployment` and `FlinkSessionJob`; Helm install page has "Working with Argo CD". Pipelines as YAML files | Debezium side as column 2. Spark job deployment is not covered in the Iceberg docs | 2026-11-19 |
+| 5 | Delivery guarantee | "exactly-once, rollback-ready Iceberg v2 tables"; two-phase commit | Sink: "Exactly-once delivery semantics". Debezium: at-least-once unless Kafka Connect exactly-once source support is enabled | Source: exactly-once (at-least-once when backfill is skipped). Iceberg Flink sink: exactly-once. YAML Iceberg pipeline sink: at-least-once with idempotent writes by primary key | Debezium: at-least-once. Iceberg streaming write docs state no guarantee | 2026-11-19 |
+| 6 | Reliability: two-phase commit and recovery | Two-phase commit. Commit state is kept in the destination table (property `olake_2pc`), so a failed sync knows which chunks and which CDC position were committed. Release notes cover 2PC recovery for Iceberg and Parquet destinations, Kafka, and Postgres CDC | "Commit coordination for centralized Iceberg commits" over a Kafka control topic, with Kafka transactions (KIP-447). The term two-phase commit is not used. Debezium is at-least-once | Two-phase committing sink: files written before a checkpoint, committed when it completes. Docs state only "guarantees exactly-once semantics" | Spark checkpoint holds progress. Nothing documented on commit or recovery for Iceberg streaming writes | 2026-11-19 |
+| 7 | Parallel full load of one table | Chunks are created, then processed in parallel (`max_threads`) | `snapshot.max.threads`, default `1`; above 1 the table is split by primary key ranges | Incremental snapshot reads in parallel; in the SQL connector "experimental feature ... default off" | Same as column 2 | 2026-11-19 |
+| 8 | CDC style | Scheduled jobs with cron frequency, plus "Sync Now" | Continuous | Continuous | Continuous micro-batch; docs recommend a trigger interval of at least 1 minute | 2026-11-19 |
+| 9 | Table maintenance | OLake Fusion, a module in OLake UI: Lite, Medium and Full compaction and snapshot expiry, each on a cron schedule per table, with a table health score. Works on OLake catalogs and on external catalogs with tables created outside OLake. Snapshot expiry is "the only cleanup action available right now" | Does not exist in the sink | Maintenance tasks embedded in the job or standalone: `RewriteDataFiles`, `ExpireSnapshots`, `DeleteOrphanFiles`, `ConvertEqualityDeletes`; needs a lock. YAML Iceberg sink has `sink.compaction.enabled` | Spark procedures run as a separate job: `rewrite_data_files`, `rewrite_position_delete_files`, `rewrite_manifests`, `expire_snapshots`, `remove_orphan_files` | 2026-11-19 |
+| 10 | Monitoring and alerts | Prometheus `/metrics` endpoint; webhook alerts for Slack, Microsoft Teams and others | JMX metrics | Source metrics; operator metrics reporters | Nothing in the Iceberg docs | 2026-11-19 |
+| 11 | Iceberg catalogs | Glue, REST (generic, Nessie, Polaris, Unity, Lakekeeper, BigLake, Horizon), S3 Tables, JDBC, Hive | REST, Glue, DynamoDB, Hadoop, Nessie, JDBC, Hive, BigQuery Metastore | Hive, Hadoop, REST, Glue, JDBC, Nessie, custom. YAML Iceberg sink: Hadoop, Hive, Glue or a custom class | REST, Glue, DynamoDB, Hadoop, Hive, JDBC, Nessie, custom | 2026-11-19 |
+| 12 | Source databases | PostgreSQL, MySQL, MongoDB, Oracle, DB2, MSSQL, Kafka, S3 | Cassandra, CockroachDB, Db2, Informix, Ingres, MariaDB, MongoDB, MySQL, Oracle, PostgreSQL, Spanner, SQLite, SQL Server, Vitess, YashanDB | SQL connectors: MySQL, Oracle, SQL Server, Postgres, MongoDB, Db2, TiDB, OceanBase, Vitess. YAML pipeline sources: MySQL, PostgreSQL, Oracle, SQL Server, Fluss | Same as column 2 | 2026-11-19 |
+| 13 | Other destinations | Parquet files on S3, MinIO, GCS | Any Kafka consumer or sink connector | YAML pipeline sinks: StarRocks, Doris, Paimon, Kafka, Elasticsearch, Hudi and others | Any Spark sink | 2026-11-19 |
+| 14 | License | Apache 2.0 | Apache 2.0 | Apache 2.0 | Apache 2.0 | 2026-11-19 |
+| 15 | Parquet: compression codec choice (Snappy, Gzip, Zstd, LZ4, Brotli) | Zstd, level 3, fixed in the Arrow writer; no setting | Iceberg property `write.parquet.compression-codec` | Same property | Same property | 2026-11-19 |
+| 16 | Parquet: bloom filters | Does not exist | Iceberg `write.parquet.bloom-filter-enabled.column.*` | Same property | Same property | 2026-11-19 |
+| 17 | Parquet: variant type and variant shredding | Does not exist | "Variant shredding for Parquet writes via `write.parquet.shred-variants`" | Variant type: Flink 2.x only | Variant type: Spark 4.0+ | 2026-11-19 |
+| 18 | Parquet: geometry and geography types | Does not exist as an Iceberg type; source geospatial columns are not written as geometry | Does not exist | "Not supported" | "Not supported" | 2026-11-19 |
+| 19 | Parquet: UUID type | Postgres `uuid` columns are written as string | Handled by the sink's record converter | Maps to `binary(16)` | Maps to `string` | 2026-11-19 |
+| 20 | Parquet: nanosecond timestamps | Docs list `TIMESTAMP_NS` as a type promotion target | Does not exist | Handled in the Flink connector | Does not exist | 2026-11-19 |
+| 21 | Parquet: page index and column statistics | Does not exist as a setting | Iceberg `write.parquet.stats-enabled.column.*`, `write.parquet.page-version` | Same properties | Same properties | 2026-11-19 |
+| 22 | Parquet: modular encryption | Does not exist | No setting in the sink; relies on Iceberg table encryption | Through Iceberg table encryption | Through Iceberg table encryption | 2026-11-19 |
+| 23 | Parquet: `BYTE_STREAM_SPLIT` encoding for integers and fixed-length values (format 2.11.0) | Does not exist | Does not exist: no writer setting in the Iceberg Parquet module | Does not exist | Does not exist | 2026-11-19 |
+| 24 | Parquet: ALP encoding for floating-point values | Does not exist | Does not exist: no writer setting in the Iceberg Parquet module | Does not exist | Does not exist | 2026-11-19 |
+| 25 | Parquet: FLOAT16 type | Does not exist | Does not exist: Iceberg has no 16-bit float type | Does not exist | Does not exist | 2026-11-19 |
+| 26 | Continuous mode (pipeline runs nonstop and commits changes as they arrive) | Does not exist. A sync reads changes until the source is idle for `initial_wait_time` (minimum 120 s, default 10800 s) and then exits; jobs repeat on a cron schedule | Yes | Yes | Yes, as micro-batches | 2026-11-19 |
+| 27 | Iceberg: format version 3 tables | Yes; used when deletion vectors are chosen | No version 3 handling in the sink | Yes; `ConvertEqualityDeletes` requires version 3 | Yes; variant needs Spark 4.0+ | 2026-11-19 |
+| 28 | Iceberg: deletion vectors (written by the pipeline) | Yes, delete format `dv` | Does not exist | Through `ConvertEqualityDeletes`, from equality deletes on a staging branch | Present in the Spark module; docs do not say when they are written | 2026-11-19 |
+| 29 | Iceberg: row lineage | Does not exist | Does not exist | Present in the Flink module; nothing in docs | Present in the Spark module; nothing in docs | 2026-11-19 |
+| 30 | Iceberg: column default values | Does not exist | Does not exist | Does not exist | Only in the newest Spark module (4.2) | 2026-11-19 |
+| 31 | Iceberg: format version 4 forbids writing new equality deletes | Can write position deletes or deletion vectors instead | Apache sink only appends | Sink writes equality deletes for upserts | Does not write equality deletes | 2026-11-19 |
+
+## Notes on the documentation
+
+- **How it was searched.** Documentation sources were cloned and searched as files, not read as rendered pages: `datazip-inc/olake-docs` (353 pages, including the `fusion`, `install/gitops`, `monitoring-and-observability` and `api` sections), `apache/iceberg` (`docs/docs`), `apache/flink-cdc` (`docs/content`), `debezium/debezium` (`documentation`), `apache/flink-kubernetes-operator` (`docs/content`). Code searched: `apache/iceberg` `kafka-connect`, `apache/flink-cdc` Iceberg pipeline connector, `datazip-inc/olake-fusion`, `databricks/iceberg-kafka-connect`.
+- **Kafka Iceberg sink, two builds.** The Apache sink has no upsert. The older Tabular build documents "Row mutations (update/delete rows), upsert mode" with `iceberg.tables.cdc-field` and writes equality deletes, but its repository says it is "NOT MAINTAINED" since the code was donated to Apache. The tests in this report used that older build, which is why upsert worked there.
+- **Flink, two modes.** Schema evolution and a ready Postgres-to-Iceberg example exist for YAML pipeline mode, where the Iceberg sink is at-least-once. The SQL mode run in this report uses the exactly-once Iceberg Flink sink and has no documented schema evolution.
+- **Debezium Server** has its own community-maintained Iceberg sink with upsert and append modes. That is a different pipeline from the two here.
+- **OLake docs disagree in two places:** whether Trino reads deletion vectors, and which version added delete formats (0.11.0 on one page, v1.0.0 on another).
+- **Not covered:** Strimzi and Spark operator documentation were not searched in this pass; Strimzi statements come from the Debezium Kubernetes page.
+
+## Source state
+
+Record here what each run read, newest first.
+
+| Run date | Source | State |
+|---|---|---|
+| 2026-11-19 | `apache/parquet-format` | commit `5cc18ca` (2026-11-16), latest format version section 2.11.0 |
+| 2026-11-19 | `apache/iceberg` docs | commit `370de4a` (2026-11-18) |
+| 2026-11-19 | `apache/flink-cdc` docs | commit `404db9b` (2026-11-19) |
+| 2026-11-19 | `debezium/debezium` docs | commit `ed2ce1a` (2026-11-18) |
+| 2026-11-19 | `datazip-inc/olake-docs` | commit `935e710` (2026-11-18) |
+| 2026-11-19 | `datazip-inc/olake-fusion` | commit `031c351` (2026-11-11) |
+
+## Query engine read support
+
+Which engines can read what the pipelines write. Delete-format columns are from OLake's compatibility page; the other columns are from each engine's own Iceberg documentation (Spark and Flink: Iceberg documentation). Empty cell means the engine's documentation does not state it.
+
+| Engine | Equality deletes | Position deletes | Deletion vectors | Format version 3 | Variant | Geometry, geography | Nanosecond timestamps | UUID |
+|---|---|---|---|---|---|---|---|---|
+| Apache Spark | Yes | Yes | Yes | | Spark 4.0+ | Not supported | | As string |
+| Apache Flink | Yes | Yes | Yes | | Flink 2.x only | Not supported | | As `binary(16)` |
+| Trino | Yes | Yes | Yes | Experimental | Version 3 tables only | | Version 3 tables only | Yes |
+| Amazon Athena | Yes | Yes | No | Works on version 2 tables | | | No, millisecond only | |
+| Snowflake | No | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Databricks (SQL) | No | No | Yes | Yes | Yes | Yes | No | No |
+| Google BigQuery | Yes | Yes | Yes | Preview | No | No | No | As `BYTES` |
+| ClickHouse | Yes | Yes | Yes, read-only | Yes, with limits | | | Yes | Yes |
+| DuckDB | Yes | Yes | Yes | | | | | |
+| Apache Doris | Yes | Yes | Yes | States versions 1 and 2 | | | | Mapped to string or binary |
+
+- Parquet bloom filters: no engine's Iceberg documentation read here states that it uses them for pruning. Trino documents a table property to write them.
+- Not read: StarRocks (page not found), DuckDB beyond its overview page, Snowflake's version 3 support page.
+- OLake's own pages disagree on whether Trino reads deletion vectors; the compatibility page says yes.
+
+## Open items for the next run
+
+- Iceberg features from the version 3 list not yet added as rows: multi-argument partition transforms, table encryption keys, the `unknown` type.
+- Engine table: StarRocks, Presto, Hive, Impala, Dremio, Redshift and Synapse have delete-format data on OLake's page but were not read for the other columns.
+- Crash recovery is tested for OLake, Flink and Spark (`REPORT.md`, "Crash recovery"). The Debezium + Kafka + Iceberg sink pipeline is not included.

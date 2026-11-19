@@ -1,0 +1,37 @@
+name: bench-flink
+x-flink: &flink
+  build: .
+  image: bench-flink
+  network_mode: host
+  volumes:
+    - ./state:/state
+    - ./work:/work
+  environment:
+    AWS_REGION: ${AWS_REGION:?source env.sh first}
+    AWS_ACCESS_KEY_ID:
+    AWS_SECRET_ACCESS_KEY:
+    AWS_SESSION_TOKEN:
+    FLINK_PROPERTIES: |
+      jobmanager.rpc.address: localhost
+      jobmanager.bind-host: 0.0.0.0
+      taskmanager.bind-host: 0.0.0.0
+      taskmanager.host: localhost
+      rest.address: localhost
+      rest.bind-address: 0.0.0.0
+      rest.port: 8081
+      taskmanager.numberOfTaskSlots: 16
+      parallelism.default: 16
+      jobmanager.memory.process.size: 4g
+      taskmanager.memory.process.size: 32g
+      execution.checkpointing.interval: 30s
+      execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+      state.backend.type: hashmap
+      state.checkpoints.dir: file:///state/ckpt
+services:
+  jobmanager:
+    <<: *flink
+    command: jobmanager
+  taskmanager:
+    <<: *flink
+    command: taskmanager
+    depends_on: [jobmanager]
