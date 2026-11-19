@@ -31,6 +31,14 @@ func (w *wal2jsonReplicator) Socket() *Socket {
 	return w.socket
 }
 
+func (w *wal2jsonReplicator) StartKeepalive(ctx context.Context) {
+	w.socket.StartKeepalive(ctx)
+}
+
+func (w *wal2jsonReplicator) StopKeepalive() {
+	w.socket.StopKeepalive()
+}
+
 // NOTE: 2pc not supported in wal2js plugin in Olake
 func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, callback abstract.CDCMsgFn) error {
 	// Start logical replication with wal2json plugin arguments.
