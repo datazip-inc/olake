@@ -1,0 +1,56 @@
+# Iceberg catalogs (REST, Hive, Glue) with the MinIO warehouse they write to, apart from the stack beside this folder.
+# utils/testutils/testutils.mk starts them for the unit tests; host ports avoid that stack and 50051.
+name: olake-catalog
+
+services:
+  minio:
+    image: olakego/minio:RELEASE.2025-04-03T14-56-28Z
+    container_name: olake-catalog-minio
+    environment:
+      MINIO_ROOT_USER: olake
+      MINIO_ROOT_PASSWORD: olake-testhandler
+    command: ["server", "/data"]
+    ports:
+      - "127.0.0.1:19000:9000"
+
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture:1.10.1
+    container_name: olake-catalog-iceberg-rest
+    environment:
+      CATALOG_WAREHOUSE: s3://warehouse/iceberg_rest/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      AWS_ACCESS_KEY_ID: olake
+      AWS_SECRET_ACCESS_KEY: olake-testhandler
+      AWS_REGION: us-east-1
+    depends_on:
+      - minio
+    ports:
+      - "127.0.0.1:18181:8181"
+
+  # Writes namespace folders to MinIO itself, hence the S3A jars; path-style access has no env switch.
+  hive-metastore:
+    image: apache/hive:4.2.0
+    container_name: olake-catalog-hive-metastore
+    environment:
+      SERVICE_NAME: metastore
+      HADOOP_OPTIONAL_TOOLS: hadoop-aws
+      S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: olake
+      AWS_SECRET_ACCESS_KEY: olake-testhandler
+    entrypoint: bash
+    command:
+      - -c
+      - 'sed -i "s|</configuration>|<property><name>fs.s3a.path.style.access</name><value>true</value></property></configuration>|" /opt/hive/conf/core-site.xml.template && exec /entrypoint.sh'
+    depends_on:
+      - minio
+    ports:
+      - "127.0.0.1:19083:9083"
+
+  # Moto emulates the AWS Glue API in memory and checks no signatures.
+  glue:
+    image: motoserver/moto:5.2.5
+    container_name: olake-catalog-glue
+    ports:
+      - "127.0.0.1:15000:5000"
