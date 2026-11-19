@@ -24,6 +24,12 @@ func Compare(a, b any) int {
 		return 1
 	}
 
+	// a number cannot be converted to a non number b (it panics), so compare their
+	// string forms the same way the default case does for the reverse order
+	if isNumber(a) && !isNumber(b) {
+		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
+	}
+
 	switch aVal := a.(type) {
 	case uint, uint8, uint16, uint32, uint64:
 		aUint := reflect.ValueOf(a).Convert(reflect.TypeOf(uint64(0))).Uint()
@@ -106,4 +112,15 @@ func Compare(a, b any) int {
 		// For any other types, convert to string for comparison
 		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
 	}
+}
+
+// isNumber reports whether v is a Go integer or float value.
+func isNumber(v any) bool {
+	switch reflect.ValueOf(v).Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	}
+	return false
 }

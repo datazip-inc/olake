@@ -79,6 +79,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		insertTestData(ctx, t, collection)
 		return
 
+	case "add_mixed_id_mostly_objectid", "add_mixed_id_mostly_integer":
+		mixedCase, _ := mixedIDCaseBySeedOp(operation)
+		insertMixedIDData(ctx, t, collection, mixedCase.docs())
+		return
+
 	case "insert":
 		// Insert the same data as the add operation
 		doc := bson.M{
