@@ -151,7 +151,7 @@
 
 ### 🔄 Query Engine Interoperability
 
-OLake Go ensures that Iceberg tables are correctly readable by any query engine. Different engines support different Iceberg delete formats for CDC. OLake Go eliminates this complexity by auto-selecting the right delete format based on your selected target engines (`--target-query-engines`).
+OLake Go ensures that Iceberg tables are correctly readable by any query engine. Different engines support different Iceberg delete formats. OLake Go eliminates this complexity by auto-selecting the right delete format based on your selected target engines (`--target-query-engines`).
 
 #### Delete Format Support
 
