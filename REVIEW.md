@@ -15,6 +15,8 @@ Report as 🔴 Important only when the finding names a concrete way this PR caus
 - A crash, deadlock, goroutine leak or unbounded memory growth on the sync path.
 - Credentials, connection strings or record values written to logs.
 
+Code quality and tests follow the `olake-review-guide` skill: invoke it and apply it to the code this PR adds or changes. A rule from it that new code breaks is 🟠 Change requested, and those findings don't count toward the Nit limit.
+
 Everything else is 🟡 Nit at most. Report **at most 3 Nits** per review, and only when they are worth an author's time.
 
 ## Evidence rules
@@ -48,7 +50,7 @@ These apply to every finding, and most strictly to Important ones.
 
 ## Keep the review proportional
 
-- Small PRs (under ~50 changed lines, or docs, CI or test-only changes) get a quick pass: report only Important findings. Don't explore unrelated modules.
+- Small PRs (under ~50 changed lines, or docs, CI or test-only changes) get a quick pass: report only Important and Change requested findings. Don't explore unrelated modules.
 - Release PRs (`staging` -> `master`) contain commits that were already reviewed. Report only Important findings, and only on code that differs from what was reviewed on `staging`.
 
 ## Always check
@@ -67,6 +69,6 @@ These apply to every finding, and most strictly to Important ones.
 - **Security findings about read permissions, public URLs, or workflow and config files being visible.** This repository is public open source by design. Report security issues only for secret exposure (credentials in logs, errors or committed files), injection into SQL or shell built from user input, untrusted fork code running with secrets in CI, or authentication bypass.
 - Generated code: `*.pb.go`, the generated protobuf Java in `destination/iceberg/olake-iceberg-java-writer/src/main/java/io/olake/iceberg/rpc/` (`*Grpc.java`, `RecordIngest.java`). The other files in that directory are hand-written and do get reviewed, `go.sum`, `go.work.sum`, `*.jar`.
 - Test fixtures and test data under `tests/testdata/` and `drivers/*/examples/`, unless they break a test.
-- Style or naming preferences not stated in `CLAUDE.md`.
+- Style or naming preferences not stated in `CLAUDE.md` or the `olake-review-guide` skill.
 - "Consider adding tests" without naming the specific untested case that could break.
 - Pre-existing issues in code this PR doesn't touch. Mention one only if this PR makes it reachable or worse.

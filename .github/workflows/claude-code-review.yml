@@ -190,7 +190,7 @@ jobs:
                     "properties": {
                       "path": {"type": "string"},
                       "line": {"type": "integer"},
-                      "severity": {"type": "string", "enum": ["important", "nit"]},
+                      "severity": {"type": "string", "enum": ["important", "change", "nit"]},
                       "title": {"type": "string"},
                       "body": {"type": "string"}
                     }
@@ -260,7 +260,7 @@ jobs:
             // Adds an invisible character after "@". Example: "@someone please check" becomes
             // "@​someone", which doesn't notify anyone.
             const clean = (s) => String(s ?? '').replace(/@(?=[\w-])/g, '@​');
-            const label = { important: '🔴 Important', nit: '🟡 Nit' };
+            const label = { important: '🔴 Important', change: '🟠 Change requested', nit: '🟡 Nit' };
 
             // Paths must be repository-relative. Strip pr-head/ in case Claude kept the folder name.
             const findings = review.findings.map((f) => ({ ...f, path: f.path.replace(/^(\.\/)?pr-head\//, '') }));
@@ -298,12 +298,12 @@ jobs:
             // Build the summary comment. Example result:
             //   ### Claude review of 3e6ee1b
             //   Adds DV support to Kafka upserts. One ordering issue in the CDC path.
-            //   **Findings:** 1 important, 0 nit.
+            //   **Findings:** 1 important, 0 change requested, 0 nit.
             //   **PR description:** doesn't say why the change is needed.
             //   ▸ Skipped: 1 already raised or answered
             const count = (s) => findings.filter((f) => f.severity === s).length;
             let body = `${MARKER}\n### Claude review of ${headSha.slice(0, 7)}\n\n${clean(review.summary)}\n\n`;
-            body += `**Findings:** ${count('important')} important, ${count('nit')} nit.\n`;
+            body += `**Findings:** ${count('important')} important, ${count('change')} change requested, ${count('nit')} nit.\n`;
             if (review.description_feedback) {
               body += `\n**PR description:** ${clean(review.description_feedback)}\n`;
             }
