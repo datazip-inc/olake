@@ -276,6 +276,10 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		return nil, err
 	}
 
+	// StreamChanges completed reading WAL changes up to target. Start keepalive servicing
+	// so the walsender is not terminated by wal_sender_timeout while destination writers commit.
+	p.replicator.StartKeepalive(ctx)
+
 	// In recovery mode the replicator exits as soon as ClientXLogPos >= recoveryLSN,
 	// which means ClientXLogPos may overshoot (e.g. land on the next WAL boundary or a
 	// keepalive ServerWALEnd).  If we let that overshoot propagate, PostCDC will
@@ -297,6 +301,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 	if p.replicator == nil {
 		return nil
 	}
+	p.replicator.StopKeepalive()
 	defer waljs.Cleanup(ctx, p.replicator.Socket())
 	select {
 	case <-ctx.Done():

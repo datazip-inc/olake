@@ -43,6 +43,44 @@ type Socket struct {
 	ReplicationSlot string
 	// initialWaitTime is the duration to wait for first wal log catchup before timing out
 	initialWaitTime time.Duration
+	// conn is the replication connection interface (defaults to pgConn adapter)
+	conn ReplicationConn
+	// keepaliveHandler services keepalives during destination commit
+	keepaliveHandler *KeepaliveHandler
+}
+
+func (s *Socket) getConn() ReplicationConn {
+	if s.conn != nil {
+		return s.conn
+	}
+	if s.pgConn != nil {
+		s.conn = &pgConnAdapter{conn: s.pgConn}
+		return s.conn
+	}
+	return nil
+}
+
+func (s *Socket) SetReplicationConn(conn ReplicationConn) {
+	s.conn = conn
+}
+
+func (s *Socket) StartKeepalive(ctx context.Context) {
+	if s.keepaliveHandler != nil {
+		s.keepaliveHandler.Stop()
+	}
+	conn := s.getConn()
+	if conn == nil {
+		return
+	}
+	// Report only the already-confirmed LSN from before this cycle, NEVER the uncommitted target/ClientXLogPos.
+	s.keepaliveHandler = StartKeepalive(ctx, conn, s.ConfirmedFlushLSN)
+}
+
+func (s *Socket) StopKeepalive() {
+	if s.keepaliveHandler != nil {
+		s.keepaliveHandler.Stop()
+		s.keepaliveHandler = nil
+	}
 }
 
 // Replicator defines an abstraction over different logical decoding plugins.
@@ -51,6 +89,10 @@ type Replicator interface {
 	Socket() *Socket
 	// StreamChanges processes messages until it emits changes via insertFn or exits per logic.
 	StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error
+	// StartKeepalive starts servicing keepalive messages during destination commit.
+	StartKeepalive(ctx context.Context)
+	// StopKeepalive stops keepalive servicing and waits for the goroutine to finish.
+	StopKeepalive()
 }
 
 func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, recoveryLSN *pglogrepl.LSN, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
@@ -113,6 +155,7 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 	// Create and return final connection object
 	socket := &Socket{
 		pgConn:             pgConn,
+		conn:               &pgConnAdapter{conn: pgConn},
 		changeFilter:       NewChangeFilter(typeConverter, config.Tables.Array()...),
 		ConfirmedFlushLSN:  slot.LSN,
 		ClientXLogPos:      slot.LSN,
@@ -164,7 +207,11 @@ func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) (p
 // in fake ack prev confirmed flush lsn is sent
 func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bool) error {
 	walPosition := utils.Ternary(fakeAck, socket.ConfirmedFlushLSN, socket.ClientXLogPos).(pglogrepl.LSN)
-	err := pglogrepl.SendStandbyStatusUpdate(ctx, socket.pgConn, pglogrepl.StandbyStatusUpdate{
+	conn := socket.getConn()
+	if conn == nil {
+		return fmt.Errorf("replication connection is nil")
+	}
+	err := conn.SendStandbyStatusUpdate(ctx, pglogrepl.StandbyStatusUpdate{
 		WALWritePosition: walPosition,
 		WALFlushPosition: walPosition,
 		ClientTime:       time.Now(),
@@ -192,6 +239,9 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 		select {
 		case <-timeoutCtx.Done():
 			// stop waiting after 5 minutes or if parent ctx is canceled
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			return fmt.Errorf("%w: %s", constants.ErrNonRetryable, "LSN not updated after 5 minutes")
 		case <-ticker.C:
 			slot, err := GetSlotPosition(ctx, db, socket.ReplicationSlot)
@@ -208,8 +258,11 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 
 // cleanup replicator
 func Cleanup(ctx context.Context, socket *Socket) {
-	if socket.pgConn != nil {
-		_ = socket.pgConn.Close(ctx)
+	if socket != nil {
+		socket.StopKeepalive()
+		if socket.pgConn != nil {
+			_ = socket.pgConn.Close(ctx)
+		}
 	}
 }
 

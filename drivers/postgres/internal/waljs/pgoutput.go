@@ -32,6 +32,14 @@ func (p *pgoutputReplicator) Socket() *Socket {
 	return p.socket
 }
 
+func (p *pgoutputReplicator) StartKeepalive(ctx context.Context) {
+	p.socket.StartKeepalive(ctx)
+}
+
+func (p *pgoutputReplicator) StopKeepalive() {
+	p.socket.StopKeepalive()
+}
+
 func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
 	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, fmt.Sprintf("%q", p.socket.ReplicationSlot), p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
