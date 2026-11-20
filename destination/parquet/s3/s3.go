@@ -13,17 +13,40 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	awss3 "github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
+	"github.com/datazip-inc/olake/pkg/objstorage/s3client"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
+
+// clientAPI is the slice of S3 the store uses. *awss3.Client implements it.
+type clientAPI interface {
+	PutObject(ctx context.Context, params *awss3.PutObjectInput, optFns ...func(*awss3.Options)) (*awss3.PutObjectOutput, error)
+	GetObject(ctx context.Context, params *awss3.GetObjectInput, optFns ...func(*awss3.Options)) (*awss3.GetObjectOutput, error)
+	DeleteObject(ctx context.Context, params *awss3.DeleteObjectInput, optFns ...func(*awss3.Options)) (*awss3.DeleteObjectOutput, error)
+	DeleteObjects(ctx context.Context, params *awss3.DeleteObjectsInput, optFns ...func(*awss3.Options)) (*awss3.DeleteObjectsOutput, error)
+	CopyObject(ctx context.Context, params *awss3.CopyObjectInput, optFns ...func(*awss3.Options)) (*awss3.CopyObjectOutput, error)
+	ListObjectsV2(ctx context.Context, params *awss3.ListObjectsV2Input, optFns ...func(*awss3.Options)) (*awss3.ListObjectsV2Output, error)
+}
+
+// uploaderAPI uploads an object, using multipart when the body is large.
+type uploaderAPI interface {
+	Upload(ctx context.Context, input *awss3.PutObjectInput) error
+}
+
+type sdkUploader struct {
+	inner *manager.Uploader
+}
+
+func (u sdkUploader) Upload(ctx context.Context, input *awss3.PutObjectInput) error {
+	_, err := u.inner.Upload(ctx, input)
+	return err
+}
 
 type Config struct {
 	Bucket     string
@@ -36,31 +59,28 @@ type Config struct {
 
 // Store is the implementation of the ObjectStore interface for S3.
 type Store struct {
-	client   s3iface.S3API
-	uploader s3manageriface.UploaderAPI
+	client   clientAPI
+	uploader uploaderAPI
 	bucket   string
 	prefix   string
 	gcs      bool
 	Kind     string
 }
 
-// New creates a new AWS S3 client
+// New creates a new AWS S3 client.
 func New(cfg Config) (*Store, error) {
-	clientCfg := aws.Config{Region: aws.String(cfg.Region)}
-	if cfg.S3Endpoint != "" {
-		clientCfg.Endpoint = aws.String(cfg.S3Endpoint)
-		clientCfg.S3ForcePathStyle = aws.Bool(true)
-	}
-	if cfg.AccessKey != "" && cfg.SecretKey != "" {
-		clientCfg.Credentials = credentials.NewStaticCredentials(cfg.AccessKey, cfg.SecretKey, "")
-	}
-	sess, err := session.NewSession(&clientCfg)
+	client, err := s3client.NewS3Client(context.Background(), s3client.Config{
+		Region:          cfg.Region,
+		AccessKeyID:     cfg.AccessKey,
+		SecretAccessKey: cfg.SecretKey,
+		Endpoint:        cfg.S3Endpoint,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AWS session: %w", err)
+		return nil, fmt.Errorf("failed to create AWS S3 client: %w", err)
 	}
 	return &Store{
-		client:   awss3.New(sess),
-		uploader: s3manager.NewUploader(sess),
+		client:   client,
+		uploader: sdkUploader{inner: manager.NewUploader(client)},
 		bucket:   cfg.Bucket,
 		prefix:   strings.Trim(cfg.Prefix, "/"),
 		gcs:      strings.Contains(cfg.S3Endpoint, "googleapis.com"),
@@ -68,7 +88,7 @@ func New(cfg Config) (*Store, error) {
 	}, nil
 }
 
-func NewWithClient(client s3iface.S3API, uploader s3manageriface.UploaderAPI, bucket, prefix string) *Store {
+func NewWithClient(client clientAPI, uploader uploaderAPI, bucket, prefix string) *Store {
 	return &Store{
 		client:   client,
 		uploader: uploader,
@@ -92,7 +112,7 @@ func (s *Store) ObjectKey(relativePath string) string {
 }
 
 func (s *Store) Put(ctx context.Context, key string, data []byte) error {
-	_, err := s.client.PutObjectWithContext(ctx, &awss3.PutObjectInput{
+	_, err := s.client.PutObject(ctx, &awss3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 		Body:   bytes.NewReader(data),
@@ -101,12 +121,11 @@ func (s *Store) Put(ctx context.Context, key string, data []byte) error {
 }
 
 func (s *Store) UploadFile(ctx context.Context, key string, file *os.File) error {
-	_, err := s.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
+	return s.uploader.Upload(ctx, &awss3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 		Body:   file,
 	})
-	return err
 }
 
 func (s *Store) DeletePrefix(ctx context.Context, prefix string) error {
@@ -114,11 +133,7 @@ func (s *Store) DeletePrefix(ctx context.Context, prefix string) error {
 		return s.deletePrefixIndividually(ctx, prefix)
 	}
 	err := utils.RetryWithSkip(ctx, 3, time.Minute, s.IsRateLimitError, func(ctx context.Context) error {
-		iter := s3manager.NewDeleteListIterator(s.client, &awss3.ListObjectsInput{
-			Bucket: aws.String(s.bucket),
-			Prefix: aws.String(prefix),
-		})
-		return s3manager.NewBatchDeleteWithClient(s.client).Delete(ctx, iter)
+		return s.deletePrefixBatch(ctx, prefix)
 	})
 	if err != nil {
 		logger.Warnf("batch delete failed for prefix %s, falling back to individual deletes: %v", prefix, err)
@@ -129,70 +144,113 @@ func (s *Store) DeletePrefix(ctx context.Context, prefix string) error {
 	return nil
 }
 
+// deletePrefixBatch removes every object under prefix with DeleteObjects. A page is at most
+// 1000 keys, which is also the DeleteObjects limit, so each page is one request.
+func (s *Store) deletePrefixBatch(ctx context.Context, prefix string) error {
+	return s.forEachPage(ctx, prefix, func(keys []string) error {
+		objects := make([]types.ObjectIdentifier, len(keys))
+		for i, key := range keys {
+			objects[i] = types.ObjectIdentifier{Key: aws.String(key)}
+		}
+		out, err := s.client.DeleteObjects(ctx, &awss3.DeleteObjectsInput{
+			Bucket: aws.String(s.bucket),
+			Delete: &types.Delete{Objects: objects, Quiet: aws.Bool(true)},
+		})
+		if err != nil {
+			return err
+		}
+		if len(out.Errors) > 0 {
+			return fmt.Errorf("s3 delete objects: %s", aws.ToString(out.Errors[0].Message))
+		}
+		return nil
+	})
+}
+
+// errStopPage ends a list without treating the page's delete failure as a list error.
+// The list retry must not run again, or it would delete keys the page already removed.
+var errStopPage = errors.New("stop object page")
+
 // GCP: no DeleteObjects API. Concurrent single deletes; GCS throttles at HTTP 429
 // (~5000 mutations/sec/bucket). Same behavior as the old clearS3Files googleapis branch.
 func (s *Store) deletePrefixIndividually(ctx context.Context, prefix string) error {
 	var pageErr error
-	listErr := utils.RetryWithSkip(ctx, 3, time.Minute, s.IsRateLimitError, func(_ context.Context) error {
+	listErr := utils.RetryWithSkip(ctx, 3, time.Minute, s.IsRateLimitError, func(ctx context.Context) error {
 		pageErr = nil
-		return s.client.ListObjectsPagesWithContext(ctx, &awss3.ListObjectsInput{
-			Bucket: aws.String(s.bucket),
-			Prefix: aws.String(prefix),
-		}, func(page *awss3.ListObjectsOutput, _ bool) bool {
-			pageKeys := make([]string, 0, len(page.Contents))
-			for _, obj := range page.Contents {
-				pageKeys = append(pageKeys, aws.StringValue(obj.Key))
-			}
-			if len(pageKeys) == 0 {
-				return true
-			}
-			logger.Debugf("individual delete: found %d objects under %s, deleting", len(pageKeys), prefix)
-			concurrency := min(runtime.GOMAXPROCS(0)*4, len(pageKeys))
-			if pageErr = utils.Concurrent(ctx, pageKeys, concurrency, func(_ context.Context, key string, _ int) error {
+		return s.forEachPage(ctx, prefix, func(keys []string) error {
+			logger.Debugf("individual delete: found %d objects under %s, deleting", len(keys), prefix)
+			concurrency := min(runtime.GOMAXPROCS(0)*4, len(keys))
+			pageErr = utils.Concurrent(ctx, keys, concurrency, func(_ context.Context, key string, _ int) error {
 				return utils.RetryWithSkip(ctx, 3, time.Minute, s.IsRateLimitError, func(_ context.Context) error {
 					return s.Delete(ctx, key)
 				})
-			}); pageErr != nil {
-				return false
+			})
+			if pageErr != nil {
+				return errStopPage
 			}
-			return true
+			return nil
 		})
 	})
+	if errors.Is(listErr, errStopPage) {
+		return pageErr
+	}
 	if listErr != nil {
 		return fmt.Errorf("failed to list objects for prefix %s: %w", prefix, listErr)
 	}
-	return pageErr
+	return nil
+}
+
+func (s *Store) forEachPage(ctx context.Context, prefix string, fn func(keys []string) error) error {
+	var token *string
+	for {
+		page, err := s.client.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucket),
+			Prefix:            aws.String(prefix),
+			ContinuationToken: token,
+		})
+		if err != nil {
+			return err
+		}
+		keys := make([]string, 0, len(page.Contents))
+		for _, obj := range page.Contents {
+			keys = append(keys, aws.ToString(obj.Key))
+		}
+		if len(keys) > 0 {
+			if err := fn(keys); err != nil {
+				return err
+			}
+		}
+		next := page.NextContinuationToken
+		if !aws.ToBool(page.IsTruncated) || next == nil || (token != nil && aws.ToString(token) == aws.ToString(next)) {
+			return nil
+		}
+		token = next
+	}
 }
 
 func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
-	out, err := s.client.GetObjectWithContext(ctx, &awss3.GetObjectInput{
+	out, err := s.client.GetObject(ctx, &awss3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {
 		return nil, err
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	return io.ReadAll(out.Body)
 }
 
 func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
-	err := s.client.ListObjectsPagesWithContext(ctx, &awss3.ListObjectsInput{
-		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(prefix),
-	}, func(page *awss3.ListObjectsOutput, _ bool) bool {
-		for _, obj := range page.Contents {
-			keys = append(keys, aws.StringValue(obj.Key))
-		}
-		return true
+	err := s.forEachPage(ctx, prefix, func(pageKeys []string) error {
+		keys = append(keys, pageKeys...)
+		return nil
 	})
 	return keys, err
 }
 
 func (s *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 	escaped := strings.ReplaceAll(url.PathEscape(srcKey), "%2F", "/")
-	_, err := s.client.CopyObjectWithContext(ctx, &awss3.CopyObjectInput{
+	_, err := s.client.CopyObject(ctx, &awss3.CopyObjectInput{
 		Bucket:     aws.String(s.bucket),
 		Key:        aws.String(dstKey),
 		CopySource: aws.String(s.bucket + "/" + escaped),
@@ -201,7 +259,7 @@ func (s *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 }
 
 func (s *Store) Delete(ctx context.Context, key string) error {
-	_, err := s.client.DeleteObjectWithContext(ctx, &awss3.DeleteObjectInput{
+	_, err := s.client.DeleteObject(ctx, &awss3.DeleteObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
@@ -209,28 +267,13 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 }
 
 func (s *Store) IsNotFound(err error) bool {
-	var awsErr awserr.Error
-	return errors.As(err, &awsErr) && (awsErr.Code() == awss3.ErrCodeNoSuchKey || awsErr.Code() == "NotFound")
+	var apiErr smithy.APIError
+	return errors.As(err, &apiErr) && (apiErr.ErrorCode() == "NoSuchKey" || apiErr.ErrorCode() == "NotFound")
 }
 
-// IsRateLimitError is used to check if an error is a throttle response
-// AWS S3 returns HTTP 503 for throttling (SlowDown / ServiceUnavailable).
-// GCP Cloud Storage returns HTTP 429 (Too Many Requests).
-//
-// For batch delete operations, errors are wrapped in s3manager.BatchError which does NOT
-// implement awserr.RequestFailure directly. The actual RequestFailure is nested inside
-// BatchError.Errors[].OrigErr, so we must inspect those inner errors as well.
+// IsRateLimitError reports a throttle response. AWS S3 returns HTTP 503
+// (SlowDown / ServiceUnavailable). GCP Cloud Storage returns HTTP 429.
 func (s *Store) IsRateLimitError(err error) bool {
-	isThrottled := func(target error) bool {
-		var rf awserr.RequestFailure
-		return errors.As(target, &rf) && (rf.StatusCode() == 429 || rf.StatusCode() == 503)
-	}
-	if isThrottled(err) {
-		return true
-	}
-	var batchErr awserr.Error
-	if errors.As(err, &batchErr) {
-		return isThrottled(batchErr.OrigErr())
-	}
-	return false
+	var respErr *smithyhttp.ResponseError
+	return errors.As(err, &respErr) && (respErr.HTTPStatusCode() == 429 || respErr.HTTPStatusCode() == 503)
 }

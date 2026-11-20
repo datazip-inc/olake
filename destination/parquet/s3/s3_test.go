@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -12,13 +11,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/client/metadata"
-	"github.com/aws/aws-sdk-go/aws/request"
-	awss3 "github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,9 +60,9 @@ func TestS3IsNotFound(t *testing.T) {
 	store := &Store{}
 	require.False(t, store.IsNotFound(nil))
 	require.False(t, store.IsNotFound(errors.New("other")))
-	require.True(t, store.IsNotFound(awserr.New(awss3.ErrCodeNoSuchKey, "missing", nil)))
-	require.True(t, store.IsNotFound(awserr.New("NotFound", "missing", nil)))
-	require.False(t, store.IsNotFound(awserr.New("AccessDenied", "denied", nil)))
+	require.True(t, store.IsNotFound(&smithy.GenericAPIError{Code: "NoSuchKey", Message: "missing"}))
+	require.True(t, store.IsNotFound(&smithy.GenericAPIError{Code: "NotFound", Message: "missing"}))
+	require.False(t, store.IsNotFound(&smithy.GenericAPIError{Code: "AccessDenied", Message: "denied"}))
 }
 
 func TestNewS3Store(t *testing.T) {
@@ -87,10 +83,11 @@ func TestNewS3Store(t *testing.T) {
 			S3Endpoint: "https://storage.googleapis.com",
 		})
 		require.NoError(t, err)
-		client, ok := store.client.(*awss3.S3)
+		client, ok := store.client.(*awss3.Client)
 		require.True(t, ok)
-		require.Equal(t, "https://storage.googleapis.com", aws.StringValue(client.Config.Endpoint))
-		require.True(t, aws.BoolValue(client.Config.S3ForcePathStyle))
+		opts := client.Options()
+		require.Equal(t, "https://storage.googleapis.com", aws.ToString(opts.BaseEndpoint))
+		require.True(t, opts.UsePathStyle)
 		require.True(t, store.gcs)
 	})
 }
@@ -160,7 +157,6 @@ func TestS3DeletePrefix(t *testing.T) {
 }
 
 type memoryS3 struct {
-	s3iface.S3API
 	mu       sync.Mutex
 	objects  map[string][]byte
 	failures map[string]error
@@ -173,8 +169,8 @@ func newMemoryS3() *memoryS3 {
 	}
 }
 
-func (m *memoryS3) PutObjectWithContext(_ aws.Context, input *awss3.PutObjectInput, _ ...request.Option) (*awss3.PutObjectOutput, error) {
-	key := aws.StringValue(input.Key)
+func (m *memoryS3) PutObject(_ context.Context, input *awss3.PutObjectInput, _ ...func(*awss3.Options)) (*awss3.PutObjectOutput, error) {
+	key := aws.ToString(input.Key)
 	if err := m.failure(memoryS3Put, key); err != nil {
 		return nil, err
 	}
@@ -186,26 +182,25 @@ func (m *memoryS3) PutObjectWithContext(_ aws.Context, input *awss3.PutObjectInp
 	return &awss3.PutObjectOutput{}, nil
 }
 
-func (m *memoryS3) GetObjectWithContext(_ aws.Context, input *awss3.GetObjectInput, _ ...request.Option) (*awss3.GetObjectOutput, error) {
-	data := m.get(aws.StringValue(input.Key))
+func (m *memoryS3) GetObject(_ context.Context, input *awss3.GetObjectInput, _ ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
+	data := m.get(aws.ToString(input.Key))
 	if data == nil {
-		return nil, awserr.New(awss3.ErrCodeNoSuchKey, "object not found", nil)
+		return nil, &smithy.GenericAPIError{Code: "NoSuchKey", Message: "object not found"}
 	}
 	return &awss3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(string(data)))}, nil
 }
 
-func (m *memoryS3) ListObjectsPagesWithContext(_ aws.Context, input *awss3.ListObjectsInput, fn func(*awss3.ListObjectsOutput, bool) bool, _ ...request.Option) error {
-	keys := m.keys(aws.StringValue(input.Prefix))
-	objects := make([]*awss3.Object, 0, len(keys))
+func (m *memoryS3) ListObjectsV2(_ context.Context, input *awss3.ListObjectsV2Input, _ ...func(*awss3.Options)) (*awss3.ListObjectsV2Output, error) {
+	keys := m.keys(aws.ToString(input.Prefix))
+	objects := make([]types.Object, 0, len(keys))
 	for _, key := range keys {
-		objects = append(objects, &awss3.Object{Key: aws.String(key)})
+		objects = append(objects, types.Object{Key: aws.String(key)})
 	}
-	fn(&awss3.ListObjectsOutput{Contents: objects}, true)
-	return nil
+	return &awss3.ListObjectsV2Output{Contents: objects, IsTruncated: aws.Bool(false)}, nil
 }
 
-func (m *memoryS3) CopyObjectWithContext(_ aws.Context, input *awss3.CopyObjectInput, _ ...request.Option) (*awss3.CopyObjectOutput, error) {
-	source := strings.TrimPrefix(aws.StringValue(input.CopySource), aws.StringValue(input.Bucket)+"/")
+func (m *memoryS3) CopyObject(_ context.Context, input *awss3.CopyObjectInput, _ ...func(*awss3.Options)) (*awss3.CopyObjectOutput, error) {
+	source := strings.TrimPrefix(aws.ToString(input.CopySource), aws.ToString(input.Bucket)+"/")
 	source, err := url.PathUnescape(source)
 	if err != nil {
 		return nil, err
@@ -215,14 +210,14 @@ func (m *memoryS3) CopyObjectWithContext(_ aws.Context, input *awss3.CopyObjectI
 	}
 	data := m.get(source)
 	if data == nil {
-		return nil, awserr.New(awss3.ErrCodeNoSuchKey, "copy source not found", nil)
+		return nil, &smithy.GenericAPIError{Code: "NoSuchKey", Message: "copy source not found"}
 	}
-	m.put(aws.StringValue(input.Key), data)
+	m.put(aws.ToString(input.Key), data)
 	return &awss3.CopyObjectOutput{}, nil
 }
 
-func (m *memoryS3) DeleteObjectWithContext(_ aws.Context, input *awss3.DeleteObjectInput, _ ...request.Option) (*awss3.DeleteObjectOutput, error) {
-	key := aws.StringValue(input.Key)
+func (m *memoryS3) DeleteObject(_ context.Context, input *awss3.DeleteObjectInput, _ ...func(*awss3.Options)) (*awss3.DeleteObjectOutput, error) {
+	key := aws.ToString(input.Key)
 	if err := m.failure(memoryS3Delete, key); err != nil {
 		return nil, err
 	}
@@ -232,43 +227,14 @@ func (m *memoryS3) DeleteObjectWithContext(_ aws.Context, input *awss3.DeleteObj
 	return &awss3.DeleteObjectOutput{}, nil
 }
 
-func (m *memoryS3) listOutput(prefix string) *awss3.ListObjectsOutput {
-	keys := m.keys(prefix)
-	objects := make([]*awss3.Object, 0, len(keys))
-	for _, key := range keys {
-		objects = append(objects, &awss3.Object{Key: aws.String(key)})
-	}
-	return &awss3.ListObjectsOutput{Contents: objects, IsTruncated: aws.Bool(false)}
-}
-
-func (m *memoryS3) ListObjectsWithContext(_ aws.Context, input *awss3.ListObjectsInput, _ ...request.Option) (*awss3.ListObjectsOutput, error) {
-	return m.listOutput(aws.StringValue(input.Prefix)), nil
-}
-
-func (m *memoryS3) ListObjectsRequest(input *awss3.ListObjectsInput) (*request.Request, *awss3.ListObjectsOutput) {
-	out := m.listOutput(aws.StringValue(input.Prefix))
-	op := &request.Operation{Name: "ListObjects", HTTPMethod: "GET", HTTPPath: "/"}
-	req := request.New(aws.Config{}, metadata.ClientInfo{}, request.Handlers{}, nil, op, input, out)
-	req.Handlers.Send.Clear()
-	req.Handlers.Unmarshal.Clear()
-	req.Handlers.UnmarshalMeta.Clear()
-	req.Handlers.Validate.Clear()
-	req.Handlers.Send.PushBack(func(r *request.Request) {
-		listed := m.listOutput(aws.StringValue(input.Prefix))
-		*out = *listed
-		r.HTTPResponse = &http.Response{StatusCode: 200, Body: http.NoBody}
-	})
-	return req, out
-}
-
-func (m *memoryS3) DeleteObjectsWithContext(_ aws.Context, input *awss3.DeleteObjectsInput, _ ...request.Option) (*awss3.DeleteObjectsOutput, error) {
+func (m *memoryS3) DeleteObjects(_ context.Context, input *awss3.DeleteObjectsInput, _ ...func(*awss3.Options)) (*awss3.DeleteObjectsOutput, error) {
 	if input.Delete == nil {
 		return &awss3.DeleteObjectsOutput{}, nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, obj := range input.Delete.Objects {
-		delete(m.objects, aws.StringValue(obj.Key))
+		delete(m.objects, aws.ToString(obj.Key))
 	}
 	return &awss3.DeleteObjectsOutput{}, nil
 }
@@ -321,19 +287,15 @@ type memoryUploader struct {
 	store *memoryS3
 }
 
-func (u *memoryUploader) Upload(input *s3manager.UploadInput, _ ...func(*s3manager.Uploader)) (*s3manager.UploadOutput, error) {
-	return u.UploadWithContext(context.Background(), input)
-}
-
-func (u *memoryUploader) UploadWithContext(_ aws.Context, input *s3manager.UploadInput, _ ...func(*s3manager.Uploader)) (*s3manager.UploadOutput, error) {
-	key := aws.StringValue(input.Key)
+func (u *memoryUploader) Upload(_ context.Context, input *awss3.PutObjectInput) error {
+	key := aws.ToString(input.Key)
 	if err := u.store.failure(memoryS3Put, key); err != nil {
-		return nil, err
+		return err
 	}
 	data, err := io.ReadAll(input.Body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	u.store.put(key, data)
-	return &s3manager.UploadOutput{}, nil
+	return nil
 }

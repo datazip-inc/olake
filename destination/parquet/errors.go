@@ -6,7 +6,8 @@ import (
 	"io/fs"
 	"syscall"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/pkg/objstorage"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -19,11 +20,11 @@ const codeNoDestinationConfigured = "parquet.no_destination_configured"
 // filesystem evidence lives here; DNS, TLS and socket failures belong to utils/errs.
 func init() { errs.Register("parquet", classify) }
 
-// classify reads S3 (aws-sdk-go v1) and the local filesystem, then the writer marker. Order is
+// classify reads S3 (aws-sdk-go-v2) and the local filesystem, then the writer marker. Order is
 // the substance: a write can fail on a full disk, refused credentials or an unencodable value,
 // and only the last is a write error, so the specific causes are checked first.
 func classify(err error) *errs.Failure {
-	if f := fromAWSError(err, 0); f != nil {
+	if f := fromS3Error(err); f != nil {
 		return f
 	}
 	if f := fromFilesystem(err); f != nil {
@@ -39,56 +40,54 @@ func classify(err error) *errs.Failure {
 	return nil
 }
 
-// maxOrigErrDepth bounds the OrigErr walk so a self-referencing error cannot recurse without end.
-const maxOrigErrDepth = 8
-
-// fromAWSError classifies an aws-sdk-go v1 error. v1 predates error wrapping: the cause sits
-// behind OrigErr() with no Unwrap, so errors.As cannot reach the DNS, TLS and socket failures
-// underneath. An unmapped code has its cause pulled out by hand and sent to the shared rules.
-func fromAWSError(err error, depth int) *errs.Failure {
-	var awsErr awserr.Error
-	if !errors.As(err, &awsErr) {
-		return nil
-	}
-
-	if category, ok := objstorage.ServiceCodeCategories[awsErr.Code()]; ok {
-		return &errs.Failure{
-			Category:     category,
-			ClassifiedBy: errs.ClassifiedByVendor,
-			Code:         awsErr.Code(),
+// fromS3Error classifies an aws-sdk-go-v2 error. Service codes and HTTP statuses come from the
+// smithy chain, which unwraps, so a DNS or TLS failure under a request is left for the shared
+// rules when this returns nil.
+func fromS3Error(err error) *errs.Failure {
+	var apiErr smithy.APIError
+	hasAPI := errors.As(err, &apiErr)
+	if hasAPI {
+		if category, ok := objstorage.ServiceCodeCategories[apiErr.ErrorCode()]; ok {
+			return &errs.Failure{
+				Category:     category,
+				ClassifiedBy: errs.ClassifiedByVendor,
+				Code:         apiErr.ErrorCode(),
+			}
 		}
 	}
 
-	// Coarser than a code but never absent on a response error, and what lets S3-compatible
+	// Coarser than a code but present on a response, and what lets S3-compatible
 	// endpoints classify at all.
-	var requestFailure awserr.RequestFailure
-	if errors.As(err, &requestFailure) {
-		if category := categoryForStatus(requestFailure.StatusCode()); category != "" {
-			code := awsErr.Code()
+	var respErr *smithyhttp.ResponseError
+	if errors.As(err, &respErr) {
+		if category := categoryForStatus(respErr.HTTPStatusCode()); category != "" {
+			code := ""
+			if hasAPI {
+				code = apiErr.ErrorCode()
+			}
 			if code == "" {
 				// Prefixed so a bare status cannot be read as a service code; both share
 				// one telemetry field.
-				code = fmt.Sprintf("http_%d", requestFailure.StatusCode())
+				code = fmt.Sprintf("http_%d", respErr.HTTPStatusCode())
 			}
 			return &errs.Failure{Category: category, ClassifiedBy: errs.ClassifiedByVendor, Code: code}
 		}
 	}
 
-	// Neither a known code nor a usable status: open the error and classify what is under it.
-	if cause := awsErr.OrigErr(); cause != nil && depth < maxOrigErrDepth {
-		if f := fromAWSError(cause, depth+1); f != nil {
-			return f
-		}
-		if underlying := errs.Standard(cause); underlying.Category != errs.Unclassified {
-			return &underlying
-		}
+	if !hasAPI {
+		return nil
 	}
 
-	// A service code with nothing else to say about it.
+	// A service code the map does not name. The chain still unwraps, so a canceled or
+	// unreachable cause under it keeps the more specific category.
+	if underlying := errs.Standard(err); underlying.Category != errs.Unclassified {
+		return &underlying
+	}
+
 	return &errs.Failure{
 		Category:     errs.Unclassified,
 		ClassifiedBy: errs.ClassifiedByDefault,
-		Code:         awsErr.Code(),
+		Code:         apiErr.ErrorCode(),
 	}
 }
 

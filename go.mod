@@ -4,8 +4,9 @@ go 1.26.11
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
-	github.com/aws/aws-sdk-go-v2/config v1.29.17
-	github.com/aws/aws-sdk-go-v2/credentials v1.17.70
+	github.com/aws/aws-sdk-go-v2/config v1.31.6
+	github.com/aws/aws-sdk-go-v2/credentials v1.18.10
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.19.4
 	github.com/aws/aws-sdk-go-v2/service/kms v1.41.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.3
 	github.com/cockroachdb/pebble/v2 v2.1.6
@@ -96,15 +97,15 @@ require (
 	github.com/apache/arrow-go/v18 v18.2.0
 	github.com/apache/thrift v0.24.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.5
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.32 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.21 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.25.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.30.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.34.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.29.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.34.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.38.2 // indirect
 	github.com/aws/smithy-go v1.24.2
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
@@ -113,7 +114,6 @@ require (
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
-	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -146,7 +146,6 @@ require (
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
-	github.com/aws/aws-sdk-go v1.55.6
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mitchellh/hashstructure v1.1.0
