@@ -2,9 +2,13 @@ package binlog
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/assert"
@@ -102,6 +106,90 @@ func filterWithCacheFor(key string, meta *tableMeta) ChangeFilter {
 
 func filterWithCache(meta *tableMeta) ChangeFilter {
 	return filterWithCacheFor("shop.orders", meta)
+}
+
+func TestChangeFilter_PrimaryKeyChanged(t *testing.T) {
+	filter := filterWithCache(nil)
+	before := []any{int64(1), "before", int64(1), int64(3)}
+	view, err := filter.resolveColumns(t.Context(), &replication.RowsEvent{Table: fullTableMap()})
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name  string
+		keys  []string
+		after map[string]any
+		want  bool
+	}{
+		{"single key changes", []string{"id"}, map[string]any{"id": int64(2)}, true},
+		{"payload changes", []string{"id"}, map[string]any{"id": int64(1), "name": "after"}, false},
+		{"second key changes", []string{"id", "name"}, map[string]any{"id": int64(1), "name": "after"}, true},
+		{"same decoded enum", []string{"status"}, map[string]any{"status": "active"}, false},
+		{"no primary key", nil, map[string]any{"id": int64(2)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			changed, err := filter.primaryKeyChanged(view, before, tc.after, tc.keys)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, changed)
+		})
+	}
+
+	t.Run("binary key compares the padded value", func(t *testing.T) {
+		defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+		constants.LoadedStateVersion = 8
+		table := fullTableMap()
+		table.ColumnType[1] = mysql.MYSQL_TYPE_STRING
+		table.ColumnMeta[1] = stringColumnMeta(4)
+		table.DefaultCharset = []uint64{63}
+		view, err := filter.resolveColumns(t.Context(), &replication.RowsEvent{Table: table})
+		require.NoError(t, err)
+		changed, err := filter.primaryKeyChanged(view, []any{1, "x", 1, 3}, map[string]any{"name": []byte{'x', 0, 0, 0}}, []string{"name"})
+		require.NoError(t, err)
+		assert.False(t, changed)
+	})
+}
+
+func TestChangeFilter_FilterRowsEvent(t *testing.T) {
+	stream := types.NewStream("orders", "shop", nil).WithPrimaryKey("id").Wrap(0)
+	filter := NewChangeFilter(nil, Binlog{}, false, identityConverter, stream)
+	filter.lastGTIDEvent = time.Unix(1, 123000)
+	position := mysql.Position{Name: "mysql-bin.000001", Pos: 120}
+	event := &replication.BinlogEvent{Header: &replication.EventHeader{EventType: replication.UPDATE_ROWS_EVENTv2}}
+	rows := &replication.RowsEvent{Table: fullTableMap(), Rows: [][]any{
+		{int64(1), "before", int64(1), int64(3)}, {int64(2), "after", int64(1), int64(3)},
+		{int64(2), "after", int64(1), int64(3)}, {int64(2), "later", int64(1), int64(3)},
+	}}
+
+	t.Run("delete old key before the update", func(t *testing.T) {
+		var changes []abstract.CDCChange
+		err := filter.FilterRowsEvent(t.Context(), rows, event, position, func(_ context.Context, change abstract.CDCChange) error {
+			changes = append(changes, change)
+			return nil
+		})
+		require.NoError(t, err)
+		require.Len(t, changes, 3)
+		for i, want := range []struct {
+			kind  string
+			id    int64
+			name  string
+			bytes int64
+		}{{"delete", 1, "before", 16}, {"update", 2, "after", 15}, {"update", 2, "later", 15}} {
+			assert.Equal(t, want.kind, changes[i].Kind)
+			assert.Equal(t, map[string]any{"id": want.id, "name": want.name, "status": "active", "tags": "a,b"}, changes[i].Data)
+			assert.Equal(t, want.bytes, changes[i].Bytes)
+			assert.Equal(t, filter.lastGTIDEvent, changes[i].Timestamp)
+			assert.Equal(t, map[string]any{CDCBinlogFileName: position.Name, CDCBinlogFilePos: position.Pos}, changes[i].ExtraColumns)
+		}
+	})
+
+	t.Run("failed delete stops the update", func(t *testing.T) {
+		failure := errors.New("destination write failed")
+		var kinds []string
+		err := filter.FilterRowsEvent(t.Context(), rows, event, position, func(_ context.Context, change abstract.CDCChange) error {
+			kinds = append(kinds, change.Kind)
+			return failure
+		})
+		require.ErrorIs(t, err, failure)
+		assert.Equal(t, []string{"delete"}, kinds)
+	})
 }
 
 // TestResolveColumnsFallbackMatchesBinlogMetadata is the core guarantee: a row decodes

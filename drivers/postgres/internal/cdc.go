@@ -21,14 +21,21 @@ import (
 // publicationTablesTmpl queries pg_publication_tables to return all (schemaname, tablename)
 // pairs tracked by the given publication name.
 const publicationTablesTmpl = `
-	SELECT schemaname, tablename
+	SELECT schemaname, tablename, EXISTS (
+		SELECT 1 FROM pg_constraint c
+		JOIN pg_class t ON t.oid = c.conrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		WHERE n.nspname = schemaname AND t.relname = tablename
+		  AND c.contype = 'p' AND c.condeferrable
+	) AS deferrable_pk
 	FROM pg_publication_tables
 	WHERE pubname = $1`
 
 // pubTable is an internal scan target for rows returned by publicationTablesTmpl.
 type pubTable struct {
-	Schema string `db:"schemaname"`
-	Table  string `db:"tablename"`
+	Schema       string `db:"schemaname"`
+	Table        string `db:"tablename"`
+	DeferrablePK bool   `db:"deferrable_pk"`
 }
 
 // fetchPublicationTables fetches all tables registered under a publication.
@@ -40,9 +47,7 @@ func fetchPublicationTables(ctx context.Context, conn *sqlx.DB, publication stri
 	return rows, nil
 }
 
-// checkStreamsInPublication is the pure validation logic.
-// Given the list of publication tables and selected streams, returns an error
-// if any stream is not covered by the publication.
+// checkStreamsInPublication warns on deferrable primary keys and rejects streams missing from the publication.
 func checkStreamsInPublication(publication string, pubTables []pubTable, streams []types.StreamInterface) error {
 	if len(pubTables) == 0 {
 		return fmt.Errorf(
@@ -52,17 +57,19 @@ func checkStreamsInPublication(publication string, pubTables []pubTable, streams
 		)
 	}
 
-	// Build a normalised lookup set: "schema.table" -> present
-	pubSet := types.NewSet[string]()
+	deferrablePK := make(map[string]bool, len(pubTables))
 	for _, r := range pubTables {
 		id := utils.StreamIdentifier(r.Table, r.Schema)
-		pubSet.Insert(id)
+		deferrablePK[id] = r.DeferrablePK
 	}
 
 	var missing []string
 	for _, stream := range streams {
-		if !pubSet.Exists(stream.ID()) {
+		deferrable, ok := deferrablePK[stream.ID()]
+		if !ok {
 			missing = append(missing, stream.ID())
+		} else if deferrable {
+			logger.Warnf("table[%s] has a deferrable primary key; deferred key changes are unsupported in OLake CDC", stream.ID())
 		}
 	}
 

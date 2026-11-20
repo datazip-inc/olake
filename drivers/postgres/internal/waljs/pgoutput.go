@@ -1,9 +1,11 @@
 package waljs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -175,7 +177,7 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		isUnchangedToast := col.DataType == pglogrepl.TupleDataTypeToast
 		// On UPDATE, unchanged TOAST columns in the new tuple are marked TupleDataTypeToast.
 		// REPLICA IDENTITY FULL includes the complete old row and allows recovery of these values.
-		// DEFAULT, INDEX, and NOTHING do not provide old TOAST values, so recovery is not possible.
+		// DEFAULT and INDEX can supply old replica-identity columns, but not other unchanged TOAST values.
 		if isUnchangedToast && oldTuple != nil && idx < len(oldTuple.Columns) {
 			col = oldTuple.Columns[idx]
 		}
@@ -239,8 +241,45 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return err
 	}
 
+	changed, err := p.primaryKeyChanged(rel, m, stream.GetStream().SourceDefinedPrimaryKey.Array(), values)
+	if err != nil {
+		return err
+	}
+	if changed {
+		// TODO: handle deferred primary key changes across a whole transaction.
+		if err := p.emitDelete(ctx, &pglogrepl.DeleteMessage{
+			RelationID: m.RelationID, OldTupleType: m.OldTupleType, OldTuple: m.OldTuple,
+		}, insertFn); err != nil {
+			return fmt.Errorf("failed to emit delete for primary key change in stream %s: %w", stream.ID(), err)
+		}
+	}
+
 	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
 		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes, unchangedToastColumns))
+}
+
+// Only decode the old row when its full key is available and differs on the wire.
+func (p *pgoutputReplicator) primaryKeyChanged(rel *pglogrepl.RelationMessage, m *pglogrepl.UpdateMessage, keys []string, values map[string]any) (bool, error) {
+	if m.OldTuple == nil {
+		return false, nil
+	}
+	changed := false
+	for _, key := range keys {
+		i := slices.IndexFunc(rel.Columns, func(col *pglogrepl.RelationMessageColumn) bool { return col.Name == key })
+		if i < 0 || i >= len(m.OldTuple.Columns) || m.OldTuple.Columns[i].Data == nil {
+			return false, nil
+		}
+		newCol := m.NewTuple.Columns[i]
+		changed = changed || (newCol.DataType != pglogrepl.TupleDataTypeToast && !bytes.Equal(m.OldTuple.Columns[i].Data, newCol.Data))
+	}
+	if !changed {
+		return false, nil
+	}
+	oldValues, _, _, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+	if err != nil {
+		return false, err
+	}
+	return utils.GetKeysHash(oldValues, keys...) != utils.GetKeysHash(values, keys...), nil
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {

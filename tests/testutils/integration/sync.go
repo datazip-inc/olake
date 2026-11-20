@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
 // TestSync runs the happy-path sync suite: full load, CDC and incremental, over both Iceberg writers
@@ -17,6 +18,7 @@ func (th *TestHandler) TestSync(t *testing.T) {
 	ctx := t.Context()
 	testTable := th.GetTableName()
 
+	th.testPrimaryKeyChanges = th.Driver == string(constants.Postgres) || th.Driver == string(constants.MySQL)
 	th.TestCommonSync(t)
 
 	// Iceberg row-index / delete-mode tests run on the base (legacy) writer config, the one
@@ -246,6 +248,56 @@ func (th *TestHandler) IcebergFullLoadAndCDC(
 			t.Logf("stopping this scenario after %q failed; the remaining cases depend on the state it did not write", tc.name)
 			break
 		}
+	}
+
+	if th.testPrimaryKeyChanges && !t.Failed() {
+		t.Run("CDC - primary key changes", func(t *testing.T) {
+			// DEFAULT identity supplies only the old key. Keep the key partition but remove the non-key filter.
+			require.NoError(t, editSelectedStream(th.TestConfig, th.Namespace, testTable, func(entry map[string]interface{}) {
+				delete(entry, "filter_config")
+			}))
+
+			marker := "id_cursor"
+			if th.Driver == string(constants.Postgres) {
+				marker = "col_cursor"
+			}
+			// The cursor stays with its source row when the key moves. A delete leaves a tombstone.
+			shifted := map[string]string{"2": "d", "3": "3", "4": "2", "101": "d"}
+			cases := []struct {
+				operation string
+				want      map[string]string
+			}{
+				{"update_primary_key", map[string]string{"2": "d", "3": "3", "4": "4", "101": "2"}},
+				{"return_primary_key", map[string]string{"2": "2", "3": "3", "4": "4", "101": "d"}},
+				{"swap_primary_keys", map[string]string{"2": "3", "3": "2", "4": "4", "101": "d"}},
+				{"shift_primary_keys", shifted},
+				{"", shifted}, // Resume without new changes.
+			}
+			spark := getSparkSession(ctx, t)
+			fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.DestinationDB, testTable)
+			for _, tc := range cases {
+				if tc.operation != "" {
+					th.ExecuteQuery(ctx, t, th.TestConfig, tc.operation)
+				}
+				require.NoError(t, th.runIcebergSync(ctx, t, "primary key "+tc.operation, true))
+				refreshTable(ctx, t, spark, fullTableName)
+				df, err := spark.Sql(ctx, fmt.Sprintf("SELECT _olake_id, _op_type, %s AS marker FROM %s WHERE _olake_id IN ('2','3','4','101')", marker, fullTableName))
+				require.NoError(t, err)
+				rows, err := df.Collect(ctx)
+				require.NoError(t, err)
+				got := make(map[string]string, len(rows))
+				for _, row := range rows {
+					id := fmt.Sprint(row.Value("_olake_id"))
+					if row.Value("_op_type") == "d" {
+						got[id] = "d"
+					} else {
+						got[id] = fmt.Sprint(row.Value("marker"))
+					}
+				}
+				require.Len(t, rows, len(tc.want), tc.operation)
+				require.Equal(t, tc.want, got, tc.operation)
+			}
+		})
 	}
 
 	t.Log("Iceberg Full load + CDC tests completed successfully")

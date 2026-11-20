@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,38 +80,46 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return err
 	}
 
-	var rowsToProcess [][]interface{}
+	rowStep := 1
 	if operationType == "update" {
-		// For an "update" operation, the rows contain pairs of (before, after) images: [before, after, before, after, ...]
-		// We start from the second element (i=1) and step by 2 to get the "after" row (the updated state).
-		for i := 1; i < len(e.Rows); i += 2 {
-			rowsToProcess = append(rowsToProcess, e.Rows[i]) // Take after-images for updates
-		}
-	} else {
-		rowsToProcess = e.Rows
+		// Update rows are pairs of before and after images.
+		rowStep = 2
 	}
 
-	for _, row := range rowsToProcess {
+	// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
+	// otherwise fall back to second-precision header timestamp
+	timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
+	emit := func(kind string, row []any, record map[string]any) error {
+		change := abstract.NewCDCChange(stream, timestamp, kind, record,
+			map[string]any{CDCBinlogFileName: pos.Name, CDCBinlogFilePos: pos.Pos},
+			mysqlCDCRowBytes(row, view.types), nil)
+		return callback(ctx, change)
+	}
+
+	primaryKeys := stream.GetStream().SourceDefinedPrimaryKey.Array()
+	for i := rowStep - 1; i < len(e.Rows); i += rowStep {
+		row := e.Rows[i]
 		record, err := convertRowToMap(row, view, f.converter)
 		if err != nil {
 			return err
 		}
-		if record == nil {
-			continue
+		if operationType == "update" {
+			oldRow := e.Rows[i-1]
+			changed, err := f.primaryKeyChanged(view, oldRow, record, primaryKeys)
+			if err != nil {
+				return err
+			}
+			if changed {
+				oldRecord, err := convertRowToMap(oldRow, view, f.converter)
+				if err != nil {
+					return err
+				}
+				if err := emit("delete", oldRow, oldRecord); err != nil {
+					return err
+				}
+			}
 		}
-
-		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
-		// otherwise fall back to second-precision header timestamp
-		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
-
-		// Bytes: InnoDB on-disk byte sum for this row, carried on the change and added per record by the writer.
-		change := abstract.NewCDCChange(stream, timestamp, operationType, record,
-			map[string]any{
-				CDCBinlogFileName: pos.Name,
-				CDCBinlogFilePos:  pos.Pos, // Use the event position
-			},
-			mysqlCDCRowBytes(row, view.types), nil)
-		if err := callback(ctx, change); err != nil {
+		if err := emit(operationType, row, record); err != nil {
 			return err
 		}
 	}
@@ -125,6 +134,18 @@ type columnView struct {
 	enumValues [][]string // nil for non-ENUM columns
 	setMembers [][]string // nil for non-SET columns
 	collations []uint64   // 0 = no charset decoding
+}
+
+// Decode only the old key until a change requires the rest of the row for the delete.
+func (f ChangeFilter) primaryKeyChanged(view *columnView, oldRow []any, record map[string]any, keys []string) (bool, error) {
+	if len(keys) == 0 {
+		return false, nil
+	}
+	oldKey, err := convertRowToMap(oldRow, view, f.converter, keys...)
+	if err != nil {
+		return false, err
+	}
+	return utils.GetKeysHash(oldKey, keys...) != utils.GetKeysHash(record, keys...), nil
 }
 
 // resolveColumns takes each field from the binlog when the server logged it and from
@@ -251,15 +272,22 @@ func decodeMembers(raw [][]byte, collationID uint64) []string {
 // convertRowToMap converts a binlog row to a map. A row image drops the trailing 0x00 bytes MySQL
 // pads a BINARY(n) value with, so the value is padded back to its declared width: it then matches
 // what a SELECT returns, and a BINARY(n) key hashes to the same olake id on backfill and CDC.
-func convertRowToMap(row []interface{}, view *columnView, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
+func convertRowToMap(row []interface{}, view *columnView, converter func(value interface{}, columnType string) (interface{}, error), columns ...string) (map[string]interface{}, error) {
 	if len(view.names) != len(row) {
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(view.names), len(row))
 	}
 
 	// NOTE: For MySQL CDC (binlog-based), FLOAT values are read directly from the binlog and may
 	// differ from SELECT output due to SQL-layer formatting/rounding.
-	record := make(map[string]interface{}, len(row))
+	size := len(row)
+	if len(columns) > 0 {
+		size = len(columns)
+	}
+	record := make(map[string]interface{}, size)
 	for i, val := range row {
+		if len(columns) > 0 && !slices.Contains(columns, view.names[i]) {
+			continue
+		}
 		// The converter is told the SQL type, which the binary and text branches below
 		// refine from the wire type; view.types is left untouched for the byte accounting.
 		columnType := view.types[i]
