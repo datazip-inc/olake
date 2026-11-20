@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
@@ -231,4 +232,41 @@ func TestJSONParser_InferSchema_NullableFields(t *testing.T) {
 	nameType, err := result.Schema.GetType("name")
 	require.NoError(t, err)
 	assert.Equal(t, types.String, nameType, "name should be String")
+}
+
+
+func TestJSONParser_StreamRecords_InvalidJSONLReturnsDecodeError(t *testing.T) {
+	parser := NewJSONParser(JSONConfig{LineDelimited: true}, types.NewStream("test", "test", nil))
+	reader := strings.NewReader("{\"id\": 1}\n{\"id\":")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	records := make([]map[string]any, 0, 1)
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to decode JSONL record 1")
+	require.Len(t, records, 1)
+}
+
+func TestJSONParser_StreamRecords_InvalidJSONArrayReturnsDecodeError(t *testing.T) {
+	parser := NewJSONParser(JSONConfig{LineDelimited: false}, types.NewStream("test", "test", nil))
+	reader := strings.NewReader("[{\"id\": 1}, {\"id\": }]")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	records := make([]map[string]any, 0, 1)
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to decode JSON array record 1")
+	require.Len(t, records, 1)
 }
