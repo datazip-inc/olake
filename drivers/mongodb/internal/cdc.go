@@ -32,7 +32,7 @@ var ErrIdleTermination = errors.New("change stream terminated due to idle timeou
 
 // resumeTokenLookupTimeout is how long lookupResumeToken keeps reading empty batches before it
 // gives up on the server reaching the token's position.
-var resumeTokenLookupTimeout = 2 * time.Minute
+var resumeTokenLookupTimeout = 30 * time.Second
 
 type CDCDocument struct {
 	OperationType            string              `json:"operationType"`
@@ -415,7 +415,7 @@ func isResumeTokenOf(resumeToken, resumeTokenData any) bool {
 // of resumeTokenData, or else the one the server gives back. State or metadata written by a
 // version that keeps _data alone has no whole token, or one that such a version left behind when
 // it moved _data. The server still holds the rest of the token, so it is read back. It returns
-// nil when the server gave no answer, and the caller goes on with _data alone.
+// nil when the server did not hand the token back, and the caller goes on with _data alone.
 func (m *Mongo) wholeResumeToken(ctx context.Context, stream types.StreamInterface, resumeToken, resumeTokenData any) map[string]any {
 	if isResumeTokenOf(resumeToken, resumeTokenData) {
 		token, _ := resumeToken.(map[string]any)
@@ -425,7 +425,7 @@ func (m *Mongo) wholeResumeToken(ctx context.Context, stream types.StreamInterfa
 	if token != nil {
 		logger.Infof("Stream[%s] has no whole resume token for its _data, read it from the server", stream.ID())
 	} else {
-		logger.Warnf("Stream[%s] could not read the whole resume token from the server, resuming from _data alone", stream.ID())
+		logger.Infof("Stream[%s] has no whole resume token for its _data and the server did not hand one back, resuming from _data alone", stream.ID())
 	}
 	return token
 }
@@ -451,12 +451,12 @@ func resumeAfterDocument(resumeTokenData any, resumeToken map[string]any) bson.D
 
 // lookupResumeToken returns the whole token of a resume token known only by its _data. It reads
 // the oplog from the token's cluster time until the server hands the same token back, this time
-// complete. A token that is not an event token is whole with its _data alone. It returns nil when
-// the server gave no answer (the stream could not be opened or read, or ended before the token's
-// position), so the caller stores nothing and a later sync asks again.
+// complete. It returns only a token the server issued, never one made up from _data. It returns nil
+// when the server did not hand the token back: the stream could not be opened or read, it ended
+// before the token's position, or it went past that position with no such event (a token that is
+// not an event token). The caller then stores nothing, and a later sync asks again.
 func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterface, resumeTokenData any) map[string]any {
 	want, _ := resumeTokenData.(string)
-	dataOnly := map[string]any{cdcCursorField: want}
 	opTime, err := decodeResumeTokenOpTime(want)
 	if err != nil {
 		return nil
@@ -479,9 +479,9 @@ func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterf
 				return nil
 			}
 			// the post batch token is how far the stream has read: at or past the wanted token
-			// with no such event seen means it is not an event token, and is whole as it is
+			// with no such event seen means it is not an event token, and the server has no more to give
 			if reached, ok := cursor.ResumeToken().Lookup(cdcCursorField).StringValueOK(); ok && reached >= want {
-				return dataOnly
+				return nil
 			}
 			if !time.Now().Before(deadline) {
 				return nil
@@ -500,7 +500,7 @@ func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterf
 		if got := token.Lookup(cdcCursorField).StringValue(); got == want {
 			return savedResumeToken(token)
 		} else if got > want {
-			return dataOnly
+			return nil
 		}
 	}
 }

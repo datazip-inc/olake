@@ -177,7 +177,7 @@ func TestLookupResumeToken(t *testing.T) {
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.FirstBatch, changeEvent(laterToken(longIDTokenData), longIDTypeBitsRaw)),
 		)
-		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
+		assert.Nil(mt, m.lookupResumeToken(ctx, stream, longIDTokenData), "the server did not issue it, so no token is made up from _data")
 	})
 
 	// withLookupTimeout runs the lookups of one test with the given timeout
@@ -201,7 +201,7 @@ func TestLookupResumeToken(t *testing.T) {
 			emptyBatchResponse(mtest.FirstBatch, laterToken(longIDTokenData)),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
-		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
+		assert.Nil(mt, m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
 	mockMongo(t, "no events, stream has read up to the token itself", func(mt *mtest.T, m *Mongo) {
@@ -209,7 +209,7 @@ func TestLookupResumeToken(t *testing.T) {
 			emptyBatchResponse(mtest.FirstBatch, longIDTokenData),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
-		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
+		assert.Nil(mt, m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
 	mockMongo(t, "no events, stream is still before the token at the timeout", func(mt *mtest.T, m *Mongo) {
@@ -314,6 +314,20 @@ func TestStreamChangesMetadataResumeToken(t *testing.T) {
 		assert.Equal(mt, metadataToken, data)
 		assert.Equal(mt, savedToken(metadataToken, true), resumeToken)
 		assert.JSONEq(mt, wholeMetadata, returned.(string), "the destination gets what the state file gets")
+	})
+
+	mockMongo(t, "metadata of _data alone the server does not hand back: no whole token is stored, so the next sync asks again", func(mt *mtest.T, m *Mongo) {
+		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken(longIDTokenData, false)})
+		// the stream is already past the metadata token: it is not an event token
+		mt.AddMockResponses(
+			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.FirstBatch, changeEvent(metadataToken[:17]+"5"+metadataToken[18:], longIDTypeBitsRaw)),
+		)
+		returned, err := m.StreamChanges(ctx, 0, map[string]any{stream.ID(): metadataToken}, nil)
+		require.NoError(mt, err)
+		data, resumeToken := pendingCursors(m, stream)
+		assert.Equal(mt, metadataToken, data)
+		assert.Nil(mt, resumeToken, "a token made up from _data must not reach the state")
+		assert.JSONEq(mt, `{"_data":"`+metadataToken+`","_resume_token":null}`, returned.(string))
 	})
 
 	mockMongo(t, "metadata that holds the whole token asks the server nothing", func(mt *mtest.T, m *Mongo) {
