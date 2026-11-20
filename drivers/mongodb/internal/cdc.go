@@ -30,6 +30,10 @@ const (
 
 var ErrIdleTermination = errors.New("change stream terminated due to idle timeout")
 
+// resumeTokenLookupTimeout is how long lookupResumeToken keeps reading empty batches before it
+// gives up on the server reaching the token's position.
+var resumeTokenLookupTimeout = 2 * time.Minute
+
 type CDCDocument struct {
 	OperationType            string              `json:"operationType"`
 	FullDocument             map[string]any      `json:"fullDocument"`
@@ -52,16 +56,16 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 			}}},
 		}
 
-		prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
-		if prevResumeToken == nil {
+		prevResumeTokenData := m.state.GetCursor(stream.Self(), cdcCursorField)
+		if prevResumeTokenData == nil {
 			resumeToken, err := m.getCurrentResumeToken(cdcCtx, collection, pipeline)
 			if err != nil {
 				return err
 			}
 			if resumeToken != nil {
-				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
+				prevResumeTokenData = (*resumeToken).Lookup(cdcCursorField).StringValue()
 				m.state.SetCursor(stream.Self(), cdcResumeTokenField, savedResumeToken(*resumeToken))
-				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeTokenData)
 			}
 		}
 	}
@@ -72,8 +76,8 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
 	mtState := metadataStates[stream.ID()]
-	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
-	if prevResumeToken == nil {
+	prevResumeTokenData := m.state.GetCursor(stream.Self(), cdcCursorField)
+	if prevResumeTokenData == nil {
 		return nil, errs.Precondition(errs.StateInvalid, codeResumeTokenMissing,
 			fmt.Errorf("resume token not found for stream: %s", stream.ID()))
 	}
@@ -83,15 +87,11 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	//   state >= metadata →  state is current or ahead; read forward normally.
 	if mtState != nil {
 		// metadata is ahead: skip reading this sync and only advance state to the metadata resume token.
-		if mtData, mtResumeToken := parseMetadataState(mtState); typeutils.Compare(prevResumeToken, mtData) < 0 {
+		if mtData, mtResumeToken := parseMetadataState(mtState); typeutils.Compare(prevResumeTokenData, mtData) < 0 {
 			logger.Infof("Stream[%s] metadata ahead of state, using metadata resume token for recovery", stream.ID())
-			if !isResumeTokenOf(mtResumeToken, mtData) {
-				// metadata written by a version that keeps _data alone: the whole token comes from the server
-				mtResumeToken = m.lookupResumeToken(ctx, stream, mtData)
-			}
-			m.cdcCursor.Store(stream.ID(), mtData)
-			m.cdcCursor.Store(resumeTokenKey(stream.ID()), mtResumeToken)
-			return metadataState(mtData, mtResumeToken), nil
+			resumeToken := m.wholeResumeToken(ctx, stream, mtResumeToken, mtData)
+			m.cdcCursor.Store(stream.ID(), cdcPosition{data: mtData, resumeToken: resumeToken})
+			return metadataState(mtData, resumeToken), nil
 		}
 	}
 
@@ -109,20 +109,9 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetFullDocumentBeforeChange(options.WhenAvailable).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	resumeToken, _ := m.state.GetCursor(stream.Self(), cdcResumeTokenField).(map[string]any)
-	if !isResumeTokenOf(resumeToken, prevResumeToken) {
-		// State written by a version that keeps _data alone has no whole token, or one that such
-		// a version left behind when it moved _data. The server still holds the rest of the
-		// token, so it is read back and the stream resumes from the whole token.
-		resumeToken = m.lookupResumeToken(ctx, stream, prevResumeToken)
-		if len(resumeToken) > 1 {
-			logger.Warnf("Stream[%s] state has no whole resume token for its _data, read it back from the server", stream.ID())
-		} else if resumeToken == nil {
-			logger.Warnf("Stream[%s] could not read the whole resume token back from the server, resuming from _data alone", stream.ID())
-		}
-	}
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(resumeAfterDocument(prevResumeToken, resumeToken))
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
+	resumeToken := m.wholeResumeToken(ctx, stream, m.state.GetCursor(stream.Self(), cdcResumeTokenField), prevResumeTokenData)
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(resumeAfterDocument(prevResumeTokenData, resumeToken))
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeTokenData)
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
@@ -167,8 +156,7 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 	}
 
 	// check pointing post batch resume token
-	m.cdcCursor.Store(stream.ID(), token)
-	m.cdcCursor.Store(resumeTokenKey(stream.ID()), savedResumeToken(cursor.ResumeToken()))
+	m.cdcCursor.Store(stream.ID(), cdcPosition{data: token, resumeToken: savedResumeToken(cursor.ResumeToken())})
 
 	streamOpTime, err := decodeResumeTokenOpTime(token)
 	if err != nil {
@@ -227,8 +215,10 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	}
 
 	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
-		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
-		m.cdcCursor.Store(resumeTokenKey(stream.ID()), savedResumeToken(resumeToken))
+		m.cdcCursor.Store(stream.ID(), cdcPosition{
+			data:        resumeToken.Lookup(cdcCursorField).StringValue(),
+			resumeToken: savedResumeToken(resumeToken),
+		})
 	}
 	return nil
 }
@@ -240,9 +230,9 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 	default:
 		val, ok := m.cdcCursor.Load(m.streams[streamIndex].ID())
 		if ok {
-			resumeToken, _ := m.cdcCursor.Load(resumeTokenKey(m.streams[streamIndex].ID()))
-			m.state.SetCursor(m.streams[streamIndex].Self(), cdcResumeTokenField, resumeToken)
-			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
+			position, _ := val.(cdcPosition)
+			m.state.SetCursor(m.streams[streamIndex].Self(), cdcResumeTokenField, position.resumeToken)
+			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, position.data)
 		} else {
 			logger.Warnf("no resume token found for stream: %s", m.streams[streamIndex].ID())
 		}
@@ -366,13 +356,11 @@ func cdcDocBytes(event bson.Raw, operationType string) int64 {
 	}
 }
 
-// resumeTokenCursorKey is a key type of its own in Mongo.cdcCursor, so a stream's pending whole
-// resume token cannot land on the entry of another stream, whatever that stream is named.
-type resumeTokenCursorKey string
-
-// resumeTokenKey is where a stream's pending whole resume token sits in Mongo.cdcCursor until PostCDC.
-func resumeTokenKey(streamID string) resumeTokenCursorKey {
-	return resumeTokenCursorKey(streamID)
+// cdcPosition is a stream's pending position in Mongo.cdcCursor until PostCDC writes it to state:
+// the _data of its resume token, and the whole token that _data belongs to.
+type cdcPosition struct {
+	data        any
+	resumeToken map[string]any
 }
 
 // savedResumeToken returns the whole token as state keeps it under _resume_token: every field
@@ -414,23 +402,43 @@ func parseMetadataState(mtState any) (data, resumeToken any) {
 	return saved[cdcCursorField], saved[cdcResumeTokenField]
 }
 
-// isResumeTokenOf reports whether the whole token kept in state belongs to data. It does not when
-// state has none, or when a version that keeps _data alone moved _data and left it behind.
-func isResumeTokenOf(saved, data any) bool {
-	token, _ := saved.(map[string]any)
-	savedData, ok := token[cdcCursorField].(string)
-	return ok && savedData == data
+// isResumeTokenOf reports whether resumeToken, the whole token kept in state, belongs to
+// resumeTokenData. It does not when state has none, or when a version that keeps _data alone
+// moved _data and left it behind.
+func isResumeTokenOf(resumeToken, resumeTokenData any) bool {
+	token, _ := resumeToken.(map[string]any)
+	tokenData, ok := token[cdcCursorField].(string)
+	return ok && tokenData == resumeTokenData
 }
 
-// resumeAfterDocument rebuilds the token the server issued from saved, the whole token of data
-// (the caller checks that it is, with isResumeTokenOf). Without one, or with one that cannot be
-// decoded, the stream resumes from _data alone.
-func resumeAfterDocument(data any, saved map[string]any) bson.D {
-	dataOnly := bson.D{{Key: cdcCursorField, Value: data}}
-	if len(saved) == 0 {
+// wholeResumeToken returns the whole token of resumeTokenData: resumeToken, when it is the token
+// of resumeTokenData, or else the one the server gives back. State or metadata written by a
+// version that keeps _data alone has no whole token, or one that such a version left behind when
+// it moved _data. The server still holds the rest of the token, so it is read back. It returns
+// nil when the server gave no answer, and the caller goes on with _data alone.
+func (m *Mongo) wholeResumeToken(ctx context.Context, stream types.StreamInterface, resumeToken, resumeTokenData any) map[string]any {
+	if isResumeTokenOf(resumeToken, resumeTokenData) {
+		token, _ := resumeToken.(map[string]any)
+		return token
+	}
+	token := m.lookupResumeToken(ctx, stream, resumeTokenData)
+	if token != nil {
+		logger.Infof("Stream[%s] has no whole resume token for its _data, read it from the server", stream.ID())
+	} else {
+		logger.Warnf("Stream[%s] could not read the whole resume token from the server, resuming from _data alone", stream.ID())
+	}
+	return token
+}
+
+// resumeAfterDocument rebuilds the token the server issued from resumeToken, the whole token of
+// resumeTokenData (the caller checks that it is, with isResumeTokenOf). Without one, or with one
+// that cannot be decoded, the stream resumes from _data alone.
+func resumeAfterDocument(resumeTokenData any, resumeToken map[string]any) bson.D {
+	dataOnly := bson.D{{Key: cdcCursorField, Value: resumeTokenData}}
+	if len(resumeToken) == 0 {
 		return dataOnly
 	}
-	encoded, err := json.Marshal(saved)
+	encoded, err := json.Marshal(resumeToken)
 	if err != nil {
 		return dataOnly
 	}
@@ -446,8 +454,8 @@ func resumeAfterDocument(data any, saved map[string]any) bson.D {
 // complete. A token that is not an event token is whole with its _data alone. It returns nil when
 // the server gave no answer (the stream could not be opened or read, or ended before the token's
 // position), so the caller stores nothing and a later sync asks again.
-func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterface, data any) map[string]any {
-	want, _ := data.(string)
+func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterface, resumeTokenData any) map[string]any {
+	want, _ := resumeTokenData.(string)
 	dataOnly := map[string]any{cdcCursorField: want}
 	opTime, err := decodeResumeTokenOpTime(want)
 	if err != nil {
@@ -461,8 +469,10 @@ func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterf
 	}
 	defer cursor.Close(ctx)
 
-	// TryNext can come back empty through mongos while events exist, so one empty read is not the end
-	for emptyReads := 0; emptyReads < 2; {
+	// TryNext can come back empty through mongos while events exist, so an empty read is not the
+	// end: the stream is read again until the timeout
+	deadline := time.Now().Add(resumeTokenLookupTimeout)
+	for {
 		if !cursor.TryNext(ctx) {
 			if err := cursor.Err(); err != nil {
 				logger.Warnf("Stream[%s] could not read the whole resume token: %s", stream.ID(), err)
@@ -473,7 +483,14 @@ func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterf
 			if reached, ok := cursor.ResumeToken().Lookup(cdcCursorField).StringValueOK(); ok && reached >= want {
 				return dataOnly
 			}
-			emptyReads++
+			if !time.Now().Before(deadline) {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(changeStreamRetryDelay):
+			}
 			continue
 		}
 		// the event's own _id, not cursor.ResumeToken(): that one is the post batch token, a
@@ -486,5 +503,4 @@ func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterf
 			return dataOnly
 		}
 	}
-	return nil
 }

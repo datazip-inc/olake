@@ -82,6 +82,7 @@ const (
 	// to _data the server adds what it needs to match the token on resume (the number types of an
 	// _id above the int32 range, for example). _data stays under its own key as well, for versions
 	// that read only that.
+	// TODO: remove _data from the state file as well, the whole token under _resume_token holds it.
 	cdcResumeTokenField = "_resume_token" //nolint:gosec // false positive: a state key, not a credential
 )
 

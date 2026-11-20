@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
@@ -63,20 +64,6 @@ func emptyBatchResponse(batch mtest.BatchIdentifier, postBatchData string) bson.
 // laterToken returns a token of the same shape one counter step after data.
 func laterToken(data string) string {
 	return data[:17] + "4" + data[18:]
-}
-
-func TestResumeTokenKey(t *testing.T) {
-	assert.NotEqual(t, resumeTokenKey("app.orders"), resumeTokenKey("app.customers"))
-
-	// the key of the pending whole token has the text of the stream ID, which keys the pending
-	// _data: the type of the key is what keeps the two entries apart
-	var cursors sync.Map
-	cursors.Store("app.orders", longIDTokenData)
-	cursors.Store(resumeTokenKey("app.orders"), savedToken(longIDTokenData, true))
-	data, _ := cursors.Load("app.orders")
-	token, _ := cursors.Load(resumeTokenKey("app.orders"))
-	assert.Equal(t, longIDTokenData, data)
-	assert.Equal(t, savedToken(longIDTokenData, true), token)
 }
 
 func TestSavedResumeToken(t *testing.T) {
@@ -193,11 +180,17 @@ func TestLookupResumeToken(t *testing.T) {
 		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
-	mockMongo(t, "no events and no sign the token's position was reached", func(mt *mtest.T, m *Mongo) {
+	// withLookupTimeout runs the lookups of one test with the given timeout
+	withLookupTimeout := func(mt *mtest.T, timeout time.Duration) {
+		previous := resumeTokenLookupTimeout
+		resumeTokenLookupTimeout = timeout
+		mt.Cleanup(func() { resumeTokenLookupTimeout = previous })
+	}
+
+	mockMongo(t, "no events and no sign the token's position was reached, until the timeout", func(mt *mtest.T, m *Mongo) {
+		withLookupTimeout(mt, 0)
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(1, changeStreamTestNS, mtest.FirstBatch),
-			mtest.CreateCursorResponse(1, changeStreamTestNS, mtest.NextBatch),
-			mtest.CreateCursorResponse(1, changeStreamTestNS, mtest.NextBatch),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
 		assert.Nil(mt, m.lookupResumeToken(ctx, stream, longIDTokenData), "no answer, so a later sync asks again")
@@ -219,14 +212,36 @@ func TestLookupResumeToken(t *testing.T) {
 		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
-	mockMongo(t, "no events, stream is still before the token", func(mt *mtest.T, m *Mongo) {
+	mockMongo(t, "no events, stream is still before the token at the timeout", func(mt *mtest.T, m *Mongo) {
+		withLookupTimeout(mt, 0)
+		mt.AddMockResponses(
+			emptyBatchResponse(mtest.FirstBatch, longIDTokenData),
+			mtest.CreateSuccessResponse(), // killCursors on close
+		)
+		assert.Nil(mt, m.lookupResumeToken(ctx, stream, laterToken(longIDTokenData)))
+	})
+
+	mockMongo(t, "empty reads before the timeout are read again", func(mt *mtest.T, m *Mongo) {
+		wanted := laterToken(longIDTokenData)
 		mt.AddMockResponses(
 			emptyBatchResponse(mtest.FirstBatch, longIDTokenData),
 			emptyBatchResponse(mtest.NextBatch, longIDTokenData),
 			emptyBatchResponse(mtest.NextBatch, longIDTokenData),
+			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.NextBatch, changeEvent(wanted, longIDTypeBitsRaw)),
+		)
+		assert.Equal(mt, savedToken(wanted, true), m.lookupResumeToken(ctx, stream, wanted), "a third empty read is not the end")
+	})
+
+	mockMongo(t, "cancelled sync stops waiting", func(mt *mtest.T, m *Mongo) {
+		cancelled, cancel := context.WithCancel(ctx)
+		mt.AddMockResponses(
+			emptyBatchResponse(mtest.FirstBatch, longIDTokenData),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
-		assert.Nil(mt, m.lookupResumeToken(ctx, stream, laterToken(longIDTokenData)))
+		time.AfterFunc(50*time.Millisecond, cancel)
+		started := time.Now()
+		assert.Nil(mt, m.lookupResumeToken(cancelled, stream, laterToken(longIDTokenData)))
+		assert.Less(mt, time.Since(started), changeStreamRetryDelay)
 	})
 
 	mockMongo(t, "read fails after the stream opened", func(mt *mtest.T, m *Mongo) {
@@ -271,9 +286,12 @@ func cdcTestMongo(mt *mtest.T, m *Mongo, cursors map[string]any) *types.Configur
 
 // pendingCursors returns what PostCDC will write to state for the stream: its _data and its whole token.
 func pendingCursors(m *Mongo, stream *types.ConfiguredStream) (data, resumeToken any) {
-	data, _ = m.cdcCursor.Load(stream.ID())
-	resumeToken, _ = m.cdcCursor.Load(resumeTokenKey(stream.ID()))
-	return data, resumeToken
+	val, ok := m.cdcCursor.Load(stream.ID())
+	if !ok {
+		return nil, nil
+	}
+	position := val.(cdcPosition)
+	return position.data, position.resumeToken
 }
 
 func TestStreamChangesMetadataResumeToken(t *testing.T) {
