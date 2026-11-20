@@ -25,6 +25,10 @@ jobs:
         with:
           save: "true"
 
+      - name: Start containers for unit-test
+        timeout-minutes: 15
+        run: make -j --output-sync=target testutils.all.start
+
       - name: Run All Unit Tests
         run: make test.unit
 

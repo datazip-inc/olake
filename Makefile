@@ -196,6 +196,7 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 # are expanded, so list traits set here take effect.
 HELP_TARGETS :=
 -include drivers/*/driver.mk
+-include utils/testutils/testutils.mk
 
 # --- driver lists -------------------------------------------------------------
 # A driver is any drivers/ subdir with its own go.mod
@@ -471,6 +472,11 @@ help:
 	@printf "  %-44s %s\n" "olake.destination.all.refresh" "teardown then start (fresh stack)"
 	@printf "  %-44s %s\n" "olake.all.<verb>" "same verbs, sources + destination together"
 	@printf "  %-44s %s\n" "olake.all.up | olake.all.wait" "boot everything, then block on every probe (make -j)"
+	@echo ""
+	@echo "Unit-test containers (tests only connect; a test that finds one down names its target):"
+	@printf "  %-44s %s\n" "testutils.all.start" "start every container the unit tests use: $(TESTUTILS_SERVICES) + $(TESTUTILS_DRIVERS) stacks"
+	@$(foreach s,$(TESTUTILS_SERVICES),printf "  %-44s %s\n" "testutils.$(s).start" "start + wait for the unit tests' $(s)";)
+	@printf "  %-44s %s\n" "testutils.all.stop" "stop the unit-test containers (the driver stacks stay up)"
 	@echo ""
 	@echo "Dev builds:"
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "dev.$(d).build" "host binary at drivers/$(d)/olake";)
