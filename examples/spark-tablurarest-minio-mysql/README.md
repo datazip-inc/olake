@@ -148,7 +148,7 @@ docker compose up -d
 - Verify Iceberg REST catalog is responding: `http://localhost:8181/v1/namespaces`
 
 **MinIO access issues:**
-- Check MinIO credentials in docker-compose.yml match OLake destination config
+- Check MinIO credentials in docker-compose-v1.yml match OLake destination config
 - Verify bucket permissions in MinIO console
 
 ## Architecture

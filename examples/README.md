@@ -46,7 +46,7 @@ Each example’s `README.md` includes:
 - Naming: `(<query-engine>)-(<catalog>)-(<storage>)-(<source>)`
   - Example: `trino-lakekeeperest-minio-postgresql`
 - Include:
-  - `docker-compose.yml` using the external network `olake-network`
+  - `docker-compose-v1.yml` using the external network `olake-network`
   - `README.md` with:
     - Prerequisite base-stack command
     - Port availability section (list host ports)
