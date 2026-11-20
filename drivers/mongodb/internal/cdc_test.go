@@ -16,13 +16,21 @@ import (
 
 const (
 	// an insert event token whose _id is a long above the int32 range, and its type bits
-	longIDTokenData = "826AFECC2C00000B832B042C0100296E5A1004E70BAF1BFE604A458CA395D58242B1BC463C6F7065726174696F6E54797065003C696E736572740046646F63756D656E744B657900461E5F6964002F0411677236000004" //nolint:gosec // false positive: a change stream resume token, not a credential
-	// base64 of 0x82 0x00 0x01
-	longIDTypeBits     = "ggAB"
+	longIDTokenData    = "826AFECC2C00000B832B042C0100296E5A1004E70BAF1BFE604A458CA395D58242B1BC463C6F7065726174696F6E54797065003C696E736572740046646F63756D656E744B657900461E5F6964002F0411677236000004" //nolint:gosec // false positive: a change stream resume token, not a credential
 	changeStreamTestNS = "app.orders"
 )
 
 var longIDTypeBitsRaw = []byte{0x82, 0x00, 0x01}
+
+// savedToken is a resume token as state keeps it under _resume_token: extended JSON, with the
+// type bits of longIDTypeBitsRaw (base64 "ggAB") when asked for.
+func savedToken(data string, typeBits bool) map[string]any {
+	token := map[string]any{"_data": data}
+	if typeBits {
+		token["_typeBits"] = map[string]any{"$binary": map[string]any{"base64": "ggAB", "subType": "00"}}
+	}
+	return token
+}
 
 // eventToken is a resume token as the server issues it: _data, plus _typeBits when given.
 func eventToken(data string, typeBits []byte) bson.D {
@@ -33,7 +41,7 @@ func eventToken(data string, typeBits []byte) bson.D {
 	return token
 }
 
-// changeEvent is the part of a change event lookupTypeBits reads: its _id, the resume token.
+// changeEvent is the part of a change event lookupResumeToken reads: its _id, the resume token.
 func changeEvent(data string, typeBits []byte) bson.D {
 	return bson.D{{Key: "_id", Value: eventToken(data, typeBits)}}
 }
@@ -57,66 +65,66 @@ func laterToken(data string) string {
 	return data[:17] + "4" + data[18:]
 }
 
-func TestTypeBitsKey(t *testing.T) {
-	assert.Equal(t, typeBitsCursorKey("app.orders._typeBits"), typeBitsKey("app.orders"))
-	assert.NotEqual(t, typeBitsKey("app.orders"), typeBitsKey("app.customers"))
+func TestResumeTokenKey(t *testing.T) {
+	assert.NotEqual(t, resumeTokenKey("app.orders"), resumeTokenKey("app.customers"))
 
-	// a collection may be named "orders._typeBits": its stream ID is the same text as the type
-	// bits key of "app.orders", and the two entries must still be kept apart
+	// the key of the pending whole token has the text of the stream ID, which keys the pending
+	// _data: the type of the key is what keeps the two entries apart
 	var cursors sync.Map
-	cursors.Store("app.orders._typeBits", "resume token of the other stream")
-	cursors.Store(typeBitsKey("app.orders"), longIDTypeBits)
-	data, _ := cursors.Load("app.orders._typeBits")
-	typeBits, _ := cursors.Load(typeBitsKey("app.orders"))
-	assert.Equal(t, "resume token of the other stream", data)
-	assert.Equal(t, longIDTypeBits, typeBits)
+	cursors.Store("app.orders", longIDTokenData)
+	cursors.Store(resumeTokenKey("app.orders"), savedToken(longIDTokenData, true))
+	data, _ := cursors.Load("app.orders")
+	token, _ := cursors.Load(resumeTokenKey("app.orders"))
+	assert.Equal(t, longIDTokenData, data)
+	assert.Equal(t, savedToken(longIDTokenData, true), token)
 }
 
-func TestResumeTokenTypeBits(t *testing.T) {
+func TestSavedResumeToken(t *testing.T) {
 	marshal := func(doc bson.D) bson.Raw {
 		raw, err := bson.Marshal(doc)
 		require.NoError(t, err)
 		return raw
 	}
 
-	tests := []struct {
-		name  string
-		token bson.Raw
-		want  string
-	}{
-		{name: "token with type bits", token: marshal(eventToken(longIDTokenData, longIDTypeBitsRaw)), want: longIDTypeBits},
-		{name: "token without type bits", token: marshal(eventToken(longIDTokenData, nil)), want: ""},
-		{name: "type bits that are not binary", token: marshal(bson.D{{Key: "_data", Value: longIDTokenData}, {Key: "_typeBits", Value: "ggAB"}}), want: ""},
-		{name: "empty token", token: marshal(bson.D{}), want: ""},
-		{name: "nil token", token: nil, want: ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, resumeTokenTypeBits(tc.token))
-		})
-	}
+	assert.Equal(t, savedToken(longIDTokenData, true), savedResumeToken(marshal(eventToken(longIDTokenData, longIDTypeBitsRaw))), "token with type bits")
+	assert.Equal(t, savedToken(longIDTokenData, false), savedResumeToken(marshal(eventToken(longIDTokenData, nil))), "token without type bits")
+	// whatever the server puts next to _data is kept as it is
+	assert.Equal(t, map[string]any{"_data": longIDTokenData, "_typeBits": "ggAB"},
+		savedResumeToken(marshal(bson.D{{Key: "_data", Value: longIDTokenData}, {Key: "_typeBits", Value: "ggAB"}})), "field that is not binary")
+	assert.Empty(t, savedResumeToken(marshal(bson.D{})), "empty token")
+	assert.Empty(t, savedResumeToken(nil), "nil token")
 }
 
 func TestResumeAfterDocument(t *testing.T) {
 	dataOnly := bson.D{{Key: "_data", Value: longIDTokenData}}
+	whole := bson.D{
+		{Key: "_data", Value: longIDTokenData},
+		{Key: "_typeBits", Value: primitive.Binary{Subtype: bson.TypeBinaryGeneric, Data: longIDTypeBitsRaw}},
+	}
 
-	t.Run("type bits are sent back as generic binary", func(t *testing.T) {
-		want := bson.D{
-			{Key: "_data", Value: longIDTokenData},
-			{Key: "_typeBits", Value: primitive.Binary{Subtype: bson.TypeBinaryGeneric, Data: longIDTypeBitsRaw}},
-		}
-		assert.Equal(t, want, resumeAfterDocument(longIDTokenData, longIDTypeBits))
+	t.Run("whole token of the same _data is sent back, type bits as generic binary", func(t *testing.T) {
+		assert.Equal(t, whole, resumeAfterDocument(longIDTokenData, savedToken(longIDTokenData, true)))
 	})
 
-	// state written before type bits were kept, or a token that has none, resumes from _data alone
-	for name, typeBits := range map[string]any{
-		"key absent from state": nil,
-		"empty type bits":       "",
-		"not base64":            "not base64!",
-		"not a string":          7,
+	t.Run("whole token as read back from the state file", func(t *testing.T) {
+		encoded, err := json.Marshal(savedToken(longIDTokenData, true))
+		require.NoError(t, err)
+		var saved map[string]any
+		require.NoError(t, json.Unmarshal(encoded, &saved))
+		assert.Equal(t, whole, resumeAfterDocument(longIDTokenData, saved))
+	})
+
+	// no whole token (state written by a version that keeps _data alone, or the server gave no
+	// answer), a token that is whole with its _data, or one that cannot be decoded: all resume
+	// from _data alone. A whole token of another _data is the caller's check: TestIsResumeTokenOf.
+	for name, saved := range map[string]map[string]any{
+		"no whole token":       nil,
+		"empty document":       {},
+		"token of _data alone": savedToken(longIDTokenData, false),
+		"not extended JSON":    {"_data": longIDTokenData, "_typeBits": map[string]any{"$binary": "not base64!"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, dataOnly, resumeAfterDocument(longIDTokenData, typeBits))
+			assert.Equal(t, dataOnly, resumeAfterDocument(longIDTokenData, saved))
 		})
 	}
 
@@ -124,13 +132,22 @@ func TestResumeAfterDocument(t *testing.T) {
 		issued, err := bson.Marshal(eventToken(longIDTokenData, longIDTypeBitsRaw))
 		require.NoError(t, err)
 
-		rebuilt, err := bson.Marshal(resumeAfterDocument(longIDTokenData, resumeTokenTypeBits(issued)))
+		rebuilt, err := bson.Marshal(resumeAfterDocument(longIDTokenData, savedResumeToken(issued)))
 		require.NoError(t, err)
 		assert.Equal(t, bson.Raw(issued), bson.Raw(rebuilt))
 	})
 }
 
-func TestLookupTypeBits(t *testing.T) {
+func TestIsResumeTokenOf(t *testing.T) {
+	assert.True(t, isResumeTokenOf(savedToken(longIDTokenData, true), longIDTokenData))
+	assert.True(t, isResumeTokenOf(savedToken(longIDTokenData, false), longIDTokenData))
+	assert.False(t, isResumeTokenOf(savedToken(laterToken(longIDTokenData), true), longIDTokenData), "left behind by a version that moved _data")
+	assert.False(t, isResumeTokenOf(nil, longIDTokenData), "state has none")
+	assert.False(t, isResumeTokenOf(map[string]any(nil), longIDTokenData))
+	assert.False(t, isResumeTokenOf(longIDTokenData, longIDTokenData), "not a document")
+}
+
+func TestLookupResumeToken(t *testing.T) {
 	stream := types.NewStream("orders", "app", nil).Wrap(0)
 	ctx := context.Background()
 
@@ -138,7 +155,7 @@ func TestLookupTypeBits(t *testing.T) {
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.FirstBatch, changeEvent(longIDTokenData, longIDTypeBitsRaw)),
 		)
-		assert.Equal(mt, longIDTypeBits, m.lookupTypeBits(ctx, stream, longIDTokenData))
+		assert.Equal(mt, savedToken(longIDTokenData, true), m.lookupResumeToken(ctx, stream, longIDTokenData))
 
 		// the stream starts at the token's own cluster time, not at the token
 		started := mt.GetStartedEvent()
@@ -156,7 +173,7 @@ func TestLookupTypeBits(t *testing.T) {
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.FirstBatch, changeEvent(longIDTokenData, nil)),
 		)
-		assert.Equal(mt, "", m.lookupTypeBits(ctx, stream, longIDTokenData))
+		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
 	mockMongo(t, "earlier events are passed over", func(mt *mtest.T, m *Mongo) {
@@ -166,14 +183,14 @@ func TestLookupTypeBits(t *testing.T) {
 				changeEvent(longIDTokenData, nil),
 				changeEvent(wanted, longIDTypeBitsRaw)),
 		)
-		assert.Equal(mt, longIDTypeBits, m.lookupTypeBits(ctx, stream, wanted))
+		assert.Equal(mt, savedToken(wanted, true), m.lookupResumeToken(ctx, stream, wanted))
 	})
 
 	mockMongo(t, "stream is already past the token", func(mt *mtest.T, m *Mongo) {
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.FirstBatch, changeEvent(laterToken(longIDTokenData), longIDTypeBitsRaw)),
 		)
-		assert.Equal(mt, "", m.lookupTypeBits(ctx, stream, longIDTokenData))
+		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
 	mockMongo(t, "no events and no sign the token's position was reached", func(mt *mtest.T, m *Mongo) {
@@ -183,7 +200,7 @@ func TestLookupTypeBits(t *testing.T) {
 			mtest.CreateCursorResponse(1, changeStreamTestNS, mtest.NextBatch),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
-		assert.Nil(mt, m.lookupTypeBits(ctx, stream, longIDTokenData), "no answer, so a later sync asks again")
+		assert.Nil(mt, m.lookupResumeToken(ctx, stream, longIDTokenData), "no answer, so a later sync asks again")
 	})
 
 	mockMongo(t, "no events, stream has read past the token", func(mt *mtest.T, m *Mongo) {
@@ -191,7 +208,7 @@ func TestLookupTypeBits(t *testing.T) {
 			emptyBatchResponse(mtest.FirstBatch, laterToken(longIDTokenData)),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
-		assert.Equal(mt, "", m.lookupTypeBits(ctx, stream, longIDTokenData))
+		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
 	mockMongo(t, "no events, stream has read up to the token itself", func(mt *mtest.T, m *Mongo) {
@@ -199,7 +216,7 @@ func TestLookupTypeBits(t *testing.T) {
 			emptyBatchResponse(mtest.FirstBatch, longIDTokenData),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
-		assert.Equal(mt, "", m.lookupTypeBits(ctx, stream, longIDTokenData))
+		assert.Equal(mt, savedToken(longIDTokenData, false), m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
 	mockMongo(t, "no events, stream is still before the token", func(mt *mtest.T, m *Mongo) {
@@ -209,7 +226,7 @@ func TestLookupTypeBits(t *testing.T) {
 			emptyBatchResponse(mtest.NextBatch, longIDTokenData),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
-		assert.Nil(mt, m.lookupTypeBits(ctx, stream, laterToken(longIDTokenData)))
+		assert.Nil(mt, m.lookupResumeToken(ctx, stream, laterToken(longIDTokenData)))
 	})
 
 	mockMongo(t, "read fails after the stream opened", func(mt *mtest.T, m *Mongo) {
@@ -219,19 +236,19 @@ func TestLookupTypeBits(t *testing.T) {
 			mtest.CreateCommandErrorResponse(mtest.CommandError{Code: 286, Name: "ChangeStreamHistoryLost", Message: "resume point may no longer be in the oplog"}),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
-		assert.Nil(mt, m.lookupTypeBits(ctx, stream, longIDTokenData))
+		assert.Nil(mt, m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
 	mockMongo(t, "change stream cannot be opened", func(mt *mtest.T, m *Mongo) {
 		mt.AddMockResponses(
 			mtest.CreateCommandErrorResponse(mtest.CommandError{Code: 286, Name: "ChangeStreamHistoryLost", Message: "resume point may no longer be in the oplog"}),
 		)
-		assert.Nil(mt, m.lookupTypeBits(ctx, stream, longIDTokenData))
+		assert.Nil(mt, m.lookupResumeToken(ctx, stream, longIDTokenData))
 	})
 
 	mockMongo(t, "token that cannot be decoded asks the server nothing", func(mt *mtest.T, m *Mongo) {
 		for _, data := range []any{nil, "", "not hex", "82", 7} {
-			assert.Nil(mt, m.lookupTypeBits(ctx, stream, data))
+			assert.Nil(mt, m.lookupResumeToken(ctx, stream, data))
 		}
 		assert.Nil(mt, mt.GetStartedEvent(), "no command expected")
 	})
@@ -252,50 +269,81 @@ func cdcTestMongo(mt *mtest.T, m *Mongo, cursors map[string]any) *types.Configur
 	return stream
 }
 
-// pendingCursors returns what PostCDC will write to state for the stream: its _data and type bits.
-func pendingCursors(m *Mongo, stream *types.ConfiguredStream) (data, typeBits any) {
+// pendingCursors returns what PostCDC will write to state for the stream: its _data and its whole token.
+func pendingCursors(m *Mongo, stream *types.ConfiguredStream) (data, resumeToken any) {
 	data, _ = m.cdcCursor.Load(stream.ID())
-	typeBits, _ = m.cdcCursor.Load(typeBitsKey(stream.ID()))
-	return data, typeBits
+	resumeToken, _ = m.cdcCursor.Load(resumeTokenKey(stream.ID()))
+	return data, resumeToken
 }
 
-func TestStreamChangesMetadataTokenTypeBits(t *testing.T) {
+func TestStreamChangesMetadataResumeToken(t *testing.T) {
 	ctx := context.Background()
 	metadataToken := laterToken(longIDTokenData)
 
-	mockMongo(t, "type bits of the metadata token are stored with it", func(mt *mtest.T, m *Mongo) {
-		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcTypeBitsField: ""})
+	// what the destination keeps: the same two values as the state file
+	wholeMetadataDoc, err := json.Marshal(map[string]any{"_data": metadataToken, "_resume_token": savedToken(metadataToken, true)})
+	require.NoError(t, err)
+	wholeMetadata := string(wholeMetadataDoc)
+
+	mockMongo(t, "metadata of _data alone: the whole token is read back and stored with its _data", func(mt *mtest.T, m *Mongo) {
+		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken(longIDTokenData, false)})
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.FirstBatch, changeEvent(metadataToken, longIDTypeBitsRaw)),
 		)
-		_, err := m.StreamChanges(ctx, 0, map[string]any{stream.ID(): metadataToken}, nil)
+		returned, err := m.StreamChanges(ctx, 0, map[string]any{stream.ID(): metadataToken}, nil)
 		require.NoError(mt, err)
-		data, typeBits := pendingCursors(m, stream)
+		data, resumeToken := pendingCursors(m, stream)
 		assert.Equal(mt, metadataToken, data)
-		assert.Equal(mt, longIDTypeBits, typeBits)
+		assert.Equal(mt, savedToken(metadataToken, true), resumeToken)
+		assert.JSONEq(mt, wholeMetadata, returned.(string), "the destination gets what the state file gets")
 	})
 
-	mockMongo(t, "no answer from the server leaves the type bits unset, so the next sync asks again", func(mt *mtest.T, m *Mongo) {
-		// the state holds type bits of its own token: they must not survive next to another token
-		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcTypeBitsField: longIDTypeBits})
+	mockMongo(t, "metadata that holds the whole token asks the server nothing", func(mt *mtest.T, m *Mongo) {
+		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken(longIDTokenData, false)})
+		// the destination hands metadata back as the JSON text it stored
+		stored, err := types.SetMetadataState(wholeMetadata, "")
+		require.NoError(mt, err)
+		returned, err := m.StreamChanges(ctx, 0, map[string]any{stream.ID(): stored.State}, nil)
+		require.NoError(mt, err)
+		data, resumeToken := pendingCursors(m, stream)
+		assert.Equal(mt, metadataToken, data)
+		assert.Equal(mt, savedToken(metadataToken, true), resumeToken)
+		assert.JSONEq(mt, wholeMetadata, returned.(string))
+		assert.Nil(mt, mt.GetStartedEvent(), "no command expected")
+	})
+
+	mockMongo(t, "metadata behind the state is not used", func(mt *mtest.T, m *Mongo) {
+		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: laterToken(metadataToken), cdcResumeTokenField: savedToken(laterToken(metadataToken), false)})
+		stored, err := types.SetMetadataState(wholeMetadata, "")
+		require.NoError(mt, err)
+		// no mock responses: the stream goes on to read from the server, and fails there
+		_, err = m.StreamChanges(ctx, 0, map[string]any{stream.ID(): stored.State}, nil)
+		require.Error(mt, err)
+		data, _ := pendingCursors(m, stream)
+		assert.Nil(mt, data, "the metadata token must not become the pending _data")
+	})
+
+	mockMongo(t, "no answer from the server leaves the whole token unset, so the next sync asks again", func(mt *mtest.T, m *Mongo) {
+		// the state holds the whole token of its own _data: it must not survive next to another _data
+		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken(longIDTokenData, true)})
 		mt.AddMockResponses(
 			mtest.CreateCommandErrorResponse(mtest.CommandError{Code: 89, Name: "NetworkTimeout", Message: "connection timed out"}),
 		)
 		_, err := m.StreamChanges(ctx, 0, map[string]any{stream.ID(): metadataToken}, nil)
 		require.NoError(mt, err)
-		data, typeBits := pendingCursors(m, stream)
+		data, resumeToken := pendingCursors(m, stream)
 		assert.Equal(mt, metadataToken, data)
-		assert.Nil(mt, typeBits)
+		assert.Nil(mt, resumeToken)
 	})
 
-	mockMongo(t, "unset type bits read back from a state file as unset", func(mt *mtest.T, m *Mongo) {
-		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: metadataToken, cdcTypeBitsField: nil})
-		assert.Nil(mt, m.state.GetCursor(stream, cdcTypeBitsField), "nil is what makes the next sync look the type bits up")
+	mockMongo(t, "unset whole token reads back from a state file as unset", func(mt *mtest.T, m *Mongo) {
+		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: metadataToken, cdcResumeTokenField: map[string]any(nil)})
+		assert.Nil(mt, m.state.GetCursor(stream, cdcResumeTokenField), "nil is what makes the next sync look the whole token up")
 		assert.Equal(mt, metadataToken, m.state.GetCursor(stream, cdcCursorField))
 	})
 }
 
-func TestStreamChangesReadsBackTypeBitsOfOldState(t *testing.T) {
+func TestStreamChangesReadsBackResumeTokenOfOldState(t *testing.T) {
 	ctx := context.Background()
 	// what the stream reports once it has read past every event
 	caughtUp := emptyBatchResponse(mtest.FirstBatch, laterToken(longIDTokenData))
@@ -314,9 +362,9 @@ func TestStreamChangesReadsBackTypeBitsOfOldState(t *testing.T) {
 		return nil
 	}
 
-	mockMongo(t, "state without type bits", func(mt *mtest.T, m *Mongo) {
+	mockMongo(t, "state without the whole token", func(mt *mtest.T, m *Mongo) {
 		stream := cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData})
-		require.Nil(mt, m.state.GetCursor(stream, cdcTypeBitsField))
+		require.Nil(mt, m.state.GetCursor(stream, cdcResumeTokenField))
 		mt.AddMockResponses(
 			clusterTime,
 			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.FirstBatch, changeEvent(longIDTokenData, longIDTypeBitsRaw)), // lookup
@@ -331,12 +379,30 @@ func TestStreamChangesReadsBackTypeBitsOfOldState(t *testing.T) {
 		require.NoError(mt, err)
 		assert.Equal(mt, bson.Raw(want), resumeAfterOf(mt, 2), "the stream must resume from the whole token")
 
-		_, typeBits := pendingCursors(m, stream)
-		assert.NotNil(mt, typeBits, "PostCDC writes type bits to state, so the next sync does not look them up")
+		_, resumeToken := pendingCursors(m, stream)
+		assert.NotNil(mt, resumeToken, "PostCDC writes the whole token to state, so the next sync does not look it up")
 	})
 
-	mockMongo(t, "state that already has type bits asks the server nothing extra", func(mt *mtest.T, m *Mongo) {
-		cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcTypeBitsField: longIDTypeBits})
+	mockMongo(t, "whole token left behind by a version that moved _data", func(mt *mtest.T, m *Mongo) {
+		// upgrade, rollback, upgrade: the older version wrote a new _data and kept the old whole token
+		cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken("8200000001", true)})
+		mt.AddMockResponses(
+			clusterTime,
+			mtest.CreateCursorResponse(0, changeStreamTestNS, mtest.FirstBatch, changeEvent(longIDTokenData, longIDTypeBitsRaw)), // lookup
+			caughtUp, // the stream itself
+			emptyBatchResponse(mtest.NextBatch, laterToken(longIDTokenData)),
+			mtest.CreateSuccessResponse(), // killCursors on close
+		)
+		_, err := m.StreamChanges(ctx, 0, map[string]any{}, nil)
+		require.NoError(mt, err)
+
+		want, err := bson.Marshal(eventToken(longIDTokenData, longIDTypeBitsRaw))
+		require.NoError(mt, err)
+		assert.Equal(mt, bson.Raw(want), resumeAfterOf(mt, 2), "the stream must resume from the whole token of its own _data")
+	})
+
+	mockMongo(t, "state that already has the whole token asks the server nothing extra", func(mt *mtest.T, m *Mongo) {
+		cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken(longIDTokenData, true)})
 		mt.AddMockResponses(
 			clusterTime,
 			caughtUp,
@@ -351,8 +417,8 @@ func TestStreamChangesReadsBackTypeBitsOfOldState(t *testing.T) {
 		assert.Equal(mt, bson.Raw(want), resumeAfterOf(mt, 1))
 	})
 
-	mockMongo(t, "state with empty type bits is not looked up again", func(mt *mtest.T, m *Mongo) {
-		cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcTypeBitsField: ""})
+	mockMongo(t, "whole token of _data alone is not looked up again", func(mt *mtest.T, m *Mongo) {
+		cdcTestMongo(mt, m, map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken(longIDTokenData, false)})
 		mt.AddMockResponses(
 			clusterTime,
 			caughtUp,
@@ -368,9 +434,8 @@ func TestStreamChangesReadsBackTypeBitsOfOldState(t *testing.T) {
 	})
 }
 
-// A collection may be named after another one plus "._typeBits". The two streams then share a
-// text: the stream ID of one is the type bits key of the other. Each must keep its own values.
-func TestTypeBitsOfOneStreamDoNotReachAnother(t *testing.T) {
+// Two streams read in either order: each must keep its own _data and its own whole token.
+func TestResumeTokenOfOneStreamDoesNotReachAnother(t *testing.T) {
 	ctx := context.Background()
 	ordersToken := laterToken(longIDTokenData) // metadata token of "orders", has type bits
 	otherToken := laterToken(ordersToken)      // metadata token of "orders._typeBits", has none
@@ -379,13 +444,12 @@ func TestTypeBitsOfOneStreamDoNotReachAnother(t *testing.T) {
 		mockMongo(t, "stream read first: "+first, func(mt *mtest.T, m *Mongo) {
 			orders := types.NewStream("orders", "app", nil).Wrap(0)
 			other := types.NewStream("orders._typeBits", "app", nil).Wrap(0)
-			require.Equal(mt, other.ID(), string(typeBitsKey(orders.ID())), "the case under test: same text for both keys")
 
 			encoded, err := json.Marshal(map[string]any{
 				"type": types.StreamType,
 				"streams": []map[string]any{
-					{"stream": orders.Name(), "namespace": "app", "state": map[string]any{cdcCursorField: longIDTokenData, cdcTypeBitsField: ""}},
-					{"stream": other.Name(), "namespace": "app", "state": map[string]any{cdcCursorField: longIDTokenData, cdcTypeBitsField: ""}},
+					{"stream": orders.Name(), "namespace": "app", "state": map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken(longIDTokenData, false)}},
+					{"stream": other.Name(), "namespace": "app", "state": map[string]any{cdcCursorField: longIDTokenData, cdcResumeTokenField: savedToken(longIDTokenData, false)}},
 				},
 			})
 			require.NoError(mt, err)
@@ -412,12 +476,12 @@ func TestTypeBitsOfOneStreamDoNotReachAnother(t *testing.T) {
 				readOrders()
 			}
 
-			data, typeBits := pendingCursors(m, orders)
+			data, resumeToken := pendingCursors(m, orders)
 			assert.Equal(mt, ordersToken, data, "_data of orders")
-			assert.Equal(mt, longIDTypeBits, typeBits, "type bits of orders")
-			data, typeBits = pendingCursors(m, other)
+			assert.Equal(mt, savedToken(ordersToken, true), resumeToken, "whole token of orders")
+			data, resumeToken = pendingCursors(m, other)
 			assert.Equal(mt, otherToken, data, "_data of orders._typeBits")
-			assert.Equal(mt, "", typeBits, "type bits of orders._typeBits")
+			assert.Equal(mt, savedToken(otherToken, false), resumeToken, "whole token of orders._typeBits")
 		})
 	}
 }

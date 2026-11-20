@@ -2,9 +2,9 @@ package driver
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -60,8 +60,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 			}
 			if resumeToken != nil {
 				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-				prevTypeBits := resumeTokenTypeBits(*resumeToken)
-				m.state.SetCursor(stream.Self(), cdcTypeBitsField, prevTypeBits)
+				m.state.SetCursor(stream.Self(), cdcResumeTokenField, savedResumeToken(*resumeToken))
 				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
@@ -84,12 +83,15 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	//   state >= metadata →  state is current or ahead; read forward normally.
 	if mtState != nil {
 		// metadata is ahead: skip reading this sync and only advance state to the metadata resume token.
-		if typeutils.Compare(prevResumeToken, mtState) < 0 {
+		if mtData, mtResumeToken := parseMetadataState(mtState); typeutils.Compare(prevResumeToken, mtData) < 0 {
 			logger.Infof("Stream[%s] metadata ahead of state, using metadata resume token for recovery", stream.ID())
-			m.cdcCursor.Store(stream.ID(), mtState)
-			// the destination keeps only _data, so the type bits of this token come from the server
-			m.cdcCursor.Store(typeBitsKey(stream.ID()), m.lookupTypeBits(ctx, stream, mtState))
-			return mtState, nil
+			if !isResumeTokenOf(mtResumeToken, mtData) {
+				// metadata written by a version that keeps _data alone: the whole token comes from the server
+				mtResumeToken = m.lookupResumeToken(ctx, stream, mtData)
+			}
+			m.cdcCursor.Store(stream.ID(), mtData)
+			m.cdcCursor.Store(resumeTokenKey(stream.ID()), mtResumeToken)
+			return metadataState(mtData, mtResumeToken), nil
 		}
 	}
 
@@ -107,16 +109,19 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetFullDocumentBeforeChange(options.WhenAvailable).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	typeBits := m.state.GetCursor(stream.Self(), cdcTypeBitsField)
-	if typeBits == nil {
-		// State written before type bits were kept has only _data. The server still holds the
-		// other half of that token, so it is read back and the stream resumes from the whole token.
-		typeBits = m.lookupTypeBits(ctx, stream, prevResumeToken)
-		if found, _ := typeBits.(string); found != "" {
-			logger.Warnf("Stream[%s] state has no type bits for its resume token, read them back from the server", stream.ID())
+	resumeToken, _ := m.state.GetCursor(stream.Self(), cdcResumeTokenField).(map[string]any)
+	if !isResumeTokenOf(resumeToken, prevResumeToken) {
+		// State written by a version that keeps _data alone has no whole token, or one that such
+		// a version left behind when it moved _data. The server still holds the rest of the
+		// token, so it is read back and the stream resumes from the whole token.
+		resumeToken = m.lookupResumeToken(ctx, stream, prevResumeToken)
+		if len(resumeToken) > 1 {
+			logger.Warnf("Stream[%s] state has no whole resume token for its _data, read it back from the server", stream.ID())
+		} else if resumeToken == nil {
+			logger.Warnf("Stream[%s] could not read the whole resume token back from the server, resuming from _data alone", stream.ID())
 		}
 	}
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(resumeAfterDocument(prevResumeToken, typeBits))
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(resumeAfterDocument(prevResumeToken, resumeToken))
 	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
@@ -142,7 +147,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 			if errors.Is(err, ErrIdleTermination) {
 				// graceful termination requested by helper
 				logger.Infof("change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
-				return latestResumeToken, nil
+				return metadataState(latestResumeToken, savedResumeToken(cursor.ResumeToken())), nil
 			}
 			return nil, err
 		}
@@ -163,7 +168,7 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 
 	// check pointing post batch resume token
 	m.cdcCursor.Store(stream.ID(), token)
-	m.cdcCursor.Store(typeBitsKey(stream.ID()), resumeTokenTypeBits(cursor.ResumeToken()))
+	m.cdcCursor.Store(resumeTokenKey(stream.ID()), savedResumeToken(cursor.ResumeToken()))
 
 	streamOpTime, err := decodeResumeTokenOpTime(token)
 	if err != nil {
@@ -223,7 +228,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 
 	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
 		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
-		m.cdcCursor.Store(typeBitsKey(stream.ID()), resumeTokenTypeBits(resumeToken))
+		m.cdcCursor.Store(resumeTokenKey(stream.ID()), savedResumeToken(resumeToken))
 	}
 	return nil
 }
@@ -235,8 +240,8 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 	default:
 		val, ok := m.cdcCursor.Load(m.streams[streamIndex].ID())
 		if ok {
-			typeBits, _ := m.cdcCursor.Load(typeBitsKey(m.streams[streamIndex].ID()))
-			m.state.SetCursor(m.streams[streamIndex].Self(), cdcTypeBitsField, typeBits)
+			resumeToken, _ := m.cdcCursor.Load(resumeTokenKey(m.streams[streamIndex].ID()))
+			m.state.SetCursor(m.streams[streamIndex].Self(), cdcResumeTokenField, resumeToken)
 			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
 		} else {
 			logger.Warnf("no resume token found for stream: %s", m.streams[streamIndex].ID())
@@ -361,44 +366,89 @@ func cdcDocBytes(event bson.Raw, operationType string) int64 {
 	}
 }
 
-// typeBitsCursorKey is a key type of its own in Mongo.cdcCursor, so a stream's pending type bits
-// cannot land on the entry of another stream whose ID happens to end in "._typeBits".
-type typeBitsCursorKey string
+// resumeTokenCursorKey is a key type of its own in Mongo.cdcCursor, so a stream's pending whole
+// resume token cannot land on the entry of another stream, whatever that stream is named.
+type resumeTokenCursorKey string
 
-// typeBitsKey is where a stream's pending type bits sit in Mongo.cdcCursor until PostCDC.
-func typeBitsKey(streamID string) typeBitsCursorKey {
-	return typeBitsCursorKey(streamID + "." + cdcTypeBitsField)
+// resumeTokenKey is where a stream's pending whole resume token sits in Mongo.cdcCursor until PostCDC.
+func resumeTokenKey(streamID string) resumeTokenCursorKey {
+	return resumeTokenCursorKey(streamID)
 }
 
-// resumeTokenTypeBits returns the base64 of the token's _typeBits, or "" when it has none.
-func resumeTokenTypeBits(token bson.Raw) string {
-	_, typeBits, ok := token.Lookup(cdcTypeBitsField).BinaryOK()
+// savedResumeToken returns the whole token as state keeps it under _resume_token: every field
+// the server issued, in extended JSON, so a binary field next to _data comes back as it was.
+// It returns nil for a token that cannot be encoded.
+func savedResumeToken(token bson.Raw) map[string]any {
+	encoded, err := bson.MarshalExtJSON(token, true, false)
+	if err != nil {
+		return nil
+	}
+	var saved map[string]any
+	if json.Unmarshal(encoded, &saved) != nil {
+		return nil
+	}
+	return saved
+}
+
+// metadataState is what the destination keeps for a stream: the same two values as the state
+// file, _data and the whole token under _resume_token. It is JSON text, not a map: the caller
+// reads a map as one metadata state per stream ID.
+func metadataState(data, resumeToken any) any {
+	encoded, err := json.Marshal(map[string]any{cdcCursorField: data, cdcResumeTokenField: resumeToken})
+	if err != nil {
+		return data
+	}
+	return string(encoded)
+}
+
+// parseMetadataState splits what the destination kept into _data and the whole token. Metadata
+// written by a version that keeps _data alone is that bare string, and has no whole token.
+func parseMetadataState(mtState any) (data, resumeToken any) {
+	saved, ok := mtState.(map[string]any)
 	if !ok {
-		return ""
+		raw, isString := mtState.(string)
+		if !isString || json.Unmarshal([]byte(raw), &saved) != nil {
+			return mtState, nil
+		}
 	}
-	return base64.StdEncoding.EncodeToString(typeBits)
+	return saved[cdcCursorField], saved[cdcResumeTokenField]
 }
 
-// resumeAfterDocument rebuilds the token the server issued from the two halves kept in state.
-// State written before type bits were kept has none, and resumes from _data alone.
-func resumeAfterDocument(data, typeBits any) bson.D {
-	token := bson.D{{Key: cdcCursorField, Value: data}}
-	encoded, _ := typeBits.(string)
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil || len(decoded) == 0 {
-		return token
-	}
-	// the server issues _typeBits with the generic binary subtype, so state does not record one
-	return append(token, bson.E{Key: cdcTypeBitsField, Value: primitive.Binary{Subtype: bson.TypeBinaryGeneric, Data: decoded}})
+// isResumeTokenOf reports whether the whole token kept in state belongs to data. It does not when
+// state has none, or when a version that keeps _data alone moved _data and left it behind.
+func isResumeTokenOf(saved, data any) bool {
+	token, _ := saved.(map[string]any)
+	savedData, ok := token[cdcCursorField].(string)
+	return ok && savedData == data
 }
 
-// lookupTypeBits returns the type bits of a resume token known only by its _data: their base64,
-// or "" when the token has none. It reads the oplog from the token's cluster time until the
-// server hands the same token back, this time complete. It returns nil when the server gave no
-// answer (the stream could not be opened or read, or ended before the token's position), so the
-// caller stores nothing and a later sync asks again.
-func (m *Mongo) lookupTypeBits(ctx context.Context, stream types.StreamInterface, data any) any {
+// resumeAfterDocument rebuilds the token the server issued from saved, the whole token of data
+// (the caller checks that it is, with isResumeTokenOf). Without one, or with one that cannot be
+// decoded, the stream resumes from _data alone.
+func resumeAfterDocument(data any, saved map[string]any) bson.D {
+	dataOnly := bson.D{{Key: cdcCursorField, Value: data}}
+	if len(saved) == 0 {
+		return dataOnly
+	}
+	encoded, err := json.Marshal(saved)
+	if err != nil {
+		return dataOnly
+	}
+	var token bson.D
+	if bson.UnmarshalExtJSON(encoded, true, &token) != nil {
+		return dataOnly
+	}
+	return token
+}
+
+// lookupResumeToken returns the whole token of a resume token known only by its _data. It reads
+// the oplog from the token's cluster time until the server hands the same token back, this time
+// complete. A token that is not an event token is whole with its _data alone. It returns nil when
+// the server gave no answer (the stream could not be opened or read, or ended before the token's
+// position), so the caller stores nothing and a later sync asks again.
+func (m *Mongo) lookupResumeToken(ctx context.Context, stream types.StreamInterface, data any) map[string]any {
 	want, _ := data.(string)
+	dataOnly := map[string]any{cdcCursorField: want}
 	opTime, err := decodeResumeTokenOpTime(want)
 	if err != nil {
 		return nil
@@ -406,7 +456,7 @@ func (m *Mongo) lookupTypeBits(ctx context.Context, stream types.StreamInterface
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	cursor, err := collection.Watch(ctx, mongo.Pipeline{}, options.ChangeStream().SetStartAtOperationTime(&opTime).SetMaxAwaitTime(maxAwait))
 	if err != nil {
-		logger.Warnf("Stream[%s] could not read type bits of the resume token: %s", stream.ID(), err)
+		logger.Warnf("Stream[%s] could not read the whole resume token: %s", stream.ID(), err)
 		return nil
 	}
 	defer cursor.Close(ctx)
@@ -415,13 +465,13 @@ func (m *Mongo) lookupTypeBits(ctx context.Context, stream types.StreamInterface
 	for emptyReads := 0; emptyReads < 2; {
 		if !cursor.TryNext(ctx) {
 			if err := cursor.Err(); err != nil {
-				logger.Warnf("Stream[%s] could not read type bits of the resume token: %s", stream.ID(), err)
+				logger.Warnf("Stream[%s] could not read the whole resume token: %s", stream.ID(), err)
 				return nil
 			}
 			// the post batch token is how far the stream has read: at or past the wanted token
-			// with no such event seen means it is not an event token, and has no type bits
+			// with no such event seen means it is not an event token, and is whole as it is
 			if reached, ok := cursor.ResumeToken().Lookup(cdcCursorField).StringValueOK(); ok && reached >= want {
-				return ""
+				return dataOnly
 			}
 			emptyReads++
 			continue
@@ -431,9 +481,9 @@ func (m *Mongo) lookupTypeBits(ctx context.Context, stream types.StreamInterface
 		token := cursor.Current.Lookup("_id").Document()
 		// _data is built to sort in oplog order: past the wanted token means it is not an event token
 		if got := token.Lookup(cdcCursorField).StringValue(); got == want {
-			return resumeTokenTypeBits(token)
+			return savedResumeToken(token)
 		} else if got > want {
-			return ""
+			return dataOnly
 		}
 	}
 	return nil
