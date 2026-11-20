@@ -1904,6 +1904,13 @@ func TestReformatInt64(t *testing.T) {
 			expectedErr:  fmt.Errorf("failed to change %v (type:%T) to int64", []uint8("123"), []uint8("123")),
 			stateVersion: func(v int) *int { return &v }(5),
 		},
+		{
+			name:         "byte slice int legacy state remains unsupported globally",
+			v:            []uint8("8232"),
+			expected:     int64(0),
+			expectedErr:  fmt.Errorf("failed to change %v (type:%T) to int64", []uint8("8232"), []uint8("8232")),
+			stateVersion: func(v int) *int { return &v }(0),
+		},
 
 		// ===== unsupported =====
 		{

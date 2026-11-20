@@ -121,6 +121,43 @@ func TestTypeFromValue(t *testing.T) {
 	}
 }
 
+func TestTypeFromValueDateLikeMaterialCodes(t *testing.T) {
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+	constants.LoadedStateVersion = 0
+
+	for _, value := range []string{
+		"505-10-02527A",
+		"502-10-00338A",
+		"505-10-00041A",
+	} {
+		t.Run(value, func(t *testing.T) {
+			assert.Equal(t, types.String, TypeFromValue(value))
+		})
+	}
+
+	// Each separator used by DateTimeFormats remains eligible for inference,
+	// including timezone-bearing values and date-only values.
+	validDatetimes := []struct {
+		name     string
+		value    string
+		expected types.DataType
+	}{
+		{name: "date only", value: "2024-12-18", expected: types.Timestamp},
+		{name: "space and timezone", value: "2023-10-05 12:30:45 -07:00", expected: types.Timestamp},
+		{name: "hyphen datetime", value: "2023-10-05-12.30.45.000000", expected: types.Timestamp},
+		{name: "T timezone offset", value: "2023-10-05T12:30:45.123456789-07:00", expected: types.TimestampNano},
+	}
+	for _, tc := range validDatetimes {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, TypeFromValue(tc.value))
+		})
+	}
+
+	// The legacy epoch fallback remains for date-prefixed parse failures.
+	assert.Equal(t, types.Timestamp, TypeFromValue("2024-12-18 invalid"))
+}
+
 func TestTypeFromValueBytes(t *testing.T) {
 	testCases := []struct {
 		name         string

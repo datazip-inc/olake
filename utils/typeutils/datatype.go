@@ -30,9 +30,11 @@ func TypeFromValue(v interface{}) types.DataType {
 	case float64:
 		return types.Float64
 	case string:
-		t, err := ReformatDate(v, false)
-		if err == nil {
-			return detectTimestampPrecision(t)
+		if isDateTimeCandidate(val) {
+			t, err := ReformatDate(val, false)
+			if err == nil {
+				return detectTimestampPrecision(t)
+			}
 		}
 		return types.String
 	case []byte:
@@ -84,9 +86,11 @@ func TypeFromValue(v interface{}) types.DataType {
 		if val == nil {
 			return types.Null
 		}
-		t, err := ReformatDate(*val, false)
-		if err == nil {
-			return detectTimestampPrecision(t)
+		if isDateTimeCandidate(*val) {
+			t, err := ReformatDate(*val, false)
+			if err == nil {
+				return detectTimestampPrecision(t)
+			}
 		}
 		return types.String
 	case *time.Time:
@@ -97,6 +101,24 @@ func TypeFromValue(v interface{}) types.DataType {
 	}
 
 	return typeFromValueReflect(v)
+}
+
+// isDateTimeCandidate avoids parsing ordinary strings that only happen to begin
+// with a date-shaped prefix, such as material codes. The separator check mirrors
+// the date-only and datetime prefixes represented in DateTimeFormats.
+func isDateTimeCandidate(value string) bool {
+	if !startsWithDatePattern(value) {
+		return false
+	}
+
+	if len(value) > 10 {
+		switch value[10] {
+		case ' ', 'T', '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // typeFromValueReflect handles types that require reflection
@@ -140,9 +162,11 @@ func typeFromValueReflect(v interface{}) types.DataType {
 		return types.Float64
 	case reflect.String:
 		// NOTE: If the string is in correct datetime format, it will be detected as timestamp and returned as timestamp datatype
-		t, err := ReformatDate(v, false)
-		if err == nil {
-			return detectTimestampPrecision(t)
+		if isDateTimeCandidate(reflect.ValueOf(v).String()) {
+			t, err := ReformatDate(v, false)
+			if err == nil {
+				return detectTimestampPrecision(t)
+			}
 		}
 		return types.String
 	case reflect.Slice, reflect.Array:
