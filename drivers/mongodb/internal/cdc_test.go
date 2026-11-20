@@ -232,15 +232,15 @@ func TestLookupResumeToken(t *testing.T) {
 		assert.Equal(mt, savedToken(wanted, true), m.lookupResumeToken(ctx, stream, wanted), "a third empty read is not the end")
 	})
 
-	mockMongo(t, "cancelled sync stops waiting", func(mt *mtest.T, m *Mongo) {
-		cancelled, cancel := context.WithCancel(ctx)
+	mockMongo(t, "canceled sync stops waiting", func(mt *mtest.T, m *Mongo) {
+		canceled, cancel := context.WithCancel(ctx)
 		mt.AddMockResponses(
 			emptyBatchResponse(mtest.FirstBatch, longIDTokenData),
 			mtest.CreateSuccessResponse(), // killCursors on close
 		)
 		time.AfterFunc(50*time.Millisecond, cancel)
 		started := time.Now()
-		assert.Nil(mt, m.lookupResumeToken(cancelled, stream, laterToken(longIDTokenData)))
+		assert.Nil(mt, m.lookupResumeToken(canceled, stream, laterToken(longIDTokenData)))
 		assert.Less(mt, time.Since(started), changeStreamRetryDelay)
 	})
 
