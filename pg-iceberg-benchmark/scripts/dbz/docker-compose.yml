@@ -1,0 +1,37 @@
+name: bench-dbz
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    network_mode: host
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_HEAP_OPTS: -Xms4g -Xmx4g
+  connect:
+    image: ${DBZ_CONNECT_IMAGE:?source env.sh first}
+    network_mode: host
+    depends_on: [kafka]
+    volumes:
+      - ${ICEBERG_SINK_PLUGIN_DIR:?source env.sh first}:/kafka/connect/iceberg-sink
+    environment:
+      BOOTSTRAP_SERVERS: localhost:9092
+      GROUP_ID: bench-connect
+      CONFIG_STORAGE_TOPIC: bench_connect_configs
+      OFFSET_STORAGE_TOPIC: bench_connect_offsets
+      STATUS_STORAGE_TOPIC: bench_connect_statuses
+      OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_PRODUCER_COMPRESSION_TYPE: lz4
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
+      HEAP_OPTS: -Xms4g -Xmx${MEM_GB:?source env.sh first}g
+      AWS_REGION: ${AWS_REGION:?source env.sh first}
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      AWS_SESSION_TOKEN:
