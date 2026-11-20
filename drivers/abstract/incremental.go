@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -45,6 +46,9 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			if maxPrimaryCursorValue == nil {
 				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
 			}
+			if tracker, ok := a.driver.(CursorKeysTracker); ok {
+				a.state.SetCursor(stream.Self(), types.SeenKeysKey, tracker.KeysAtCursor(stream, maxPrimaryCursorValue))
+			}
 			if secondaryCursor != "" {
 				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
 				if maxSecondaryCursorValue == nil {
@@ -76,7 +80,8 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
 			defer incrementalCtxCancel()
 
-			threadID := generateThreadID(stream.ID(), fmt.Sprintf("%v_%v", maxPrimaryCursorValue, maxSecondaryCursorValue))
+			seenKeys := a.state.GetCursor(stream.Self(), types.SeenKeysKey)
+			threadID := generateThreadID(stream.ID(), incrementalThreadSuffix(maxPrimaryCursorValue, maxSecondaryCursorValue, seenKeys))
 			inserter, prevMetadataState, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
 			if err != nil {
 				return fmt.Errorf("failed to create new writer thread: %w", err)
@@ -88,14 +93,17 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				}
 				a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
 				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
+				if seenKeys != nil {
+					a.state.SetCursor(stream.Self(), types.SeenKeysKey, seenKeys)
+				}
 			}(incrementalCtx)
 
 			var mtState any
 			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, &mtState, nil)
 
-			// threadID is derived from the cursor, which moves only when records are read. Committing
-			// metadata state for a record-less sync would store state whose ID equals the next sync's
-			// threadID, which the recovery check below treats as a failed state update, stalling the stream.
+			// threadID is derived from the cursor and seen keys, which move only when records are read.
+			// Committing metadata state for a record-less sync would store state whose ID equals the next
+			// sync's threadID, which the recovery check below treats as a failed state update, stalling the stream.
 			recordsRead := false
 			defer func() {
 				if !recordsRead {
@@ -104,6 +112,10 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				mtStateMap := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}
 				if secondaryCursor != "" {
 					mtStateMap[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
+				}
+				if tracker, ok := a.driver.(CursorKeysTracker); ok {
+					seenKeys = tracker.KeysAtCursor(stream, a.FormatCursorValue(maxPrimaryCursorValue))
+					mtStateMap[types.SeenKeysKey] = seenKeys
 				}
 				mtState = mtStateMap
 			}()
@@ -134,6 +146,9 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				if secondaryCursor != "" {
 					maxSecondaryCursorValue = mtState[secondaryCursor]
 				}
+				if keys, ok := mtState[types.SeenKeysKey]; ok {
+					seenKeys = keys
+				}
 				return nil
 			}
 
@@ -162,6 +177,18 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 	}
 
 	return err
+}
+
+// incrementalThreadSuffix identifies a sync's read position. Reading a new object at the cursor's
+// value leaves the cursor unchanged, so the seen keys must be part of the position, otherwise the
+// next sync's threadID equals the committed one and recovery skips reading. Drivers without seen
+// keys keep their cursor-only suffix.
+func incrementalThreadSuffix(primaryCursor, secondaryCursor, seenKeys any) string {
+	suffix := fmt.Sprintf("%v_%v", primaryCursor, secondaryCursor)
+	if seenKeys == nil {
+		return suffix
+	}
+	return fmt.Sprintf("%s_%x", suffix, sha256.Sum256([]byte(fmt.Sprint(seenKeys))))
 }
 
 // RefomratCursorValue to parse the cursor value to the correct type

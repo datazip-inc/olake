@@ -261,7 +261,7 @@ func TestIncrementalSyncFiltering(t *testing.T) {
 			s := &S3{}
 
 			// Use filterFilesByCursor which is the actual implementation
-			filtered := s.filterFilesByCursor(tt.files, tt.cursorTimestamp)
+			filtered := s.filterFilesByCursor(tt.files, tt.cursorTimestamp, nil)
 
 			assert.Equal(t, tt.expectedCount, len(filtered), "filtered file count mismatch")
 
@@ -276,6 +276,51 @@ func TestIncrementalSyncFiltering(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSameSecondFiltering tests files that share the cursor's second
+func TestSameSecondFiltering(t *testing.T) {
+	const cursor = "2024-01-02T10:00:00Z"
+	files := []FileObject{
+		{FileKey: "older.csv", LastModified: "2024-01-02T09:59:59Z"},
+		{FileKey: "seen.csv", LastModified: cursor},
+		{FileKey: "unseen.csv", LastModified: cursor},
+		{FileKey: "newer.csv", LastModified: "2024-01-02T10:00:01Z"},
+	}
+
+	tests := []struct {
+		name     string
+		seenKeys []string
+		expected []string
+	}{
+		{"strictly newer and same second unseen are read", []string{"seen.csv"}, []string{"unseen.csv", "newer.csv"}},
+		{"same second seen is not read again", []string{"seen.csv", "unseen.csv"}, []string{"newer.csv"}},
+		{"legacy state without seen keys skips the cursor's second", nil, []string{"newer.csv"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var keys []string
+			for _, file := range (&S3{}).filterFilesByCursor(files, cursor, tt.seenKeys) {
+				keys = append(keys, file.FileKey)
+			}
+			assert.Equal(t, tt.expected, keys)
+		})
+	}
+}
+
+// TestKeysAtCursor tests the keys recorded as read at a cursor's second
+func TestKeysAtCursor(t *testing.T) {
+	const cursor = "2024-01-02T10:00:00Z"
+	s := &S3{discoveredFiles: map[string][]FileObject{"orders": {
+		{FileKey: "older.csv", LastModified: "2024-01-02T09:59:59Z"},
+		{FileKey: "a.csv", LastModified: cursor},
+		{FileKey: "b.csv", LastModified: cursor},
+	}}}
+	stream := types.NewStream("orders", "s3", nil)
+
+	assert.Equal(t, []string{"a.csv", "b.csv"}, s.KeysAtCursor(stream.Wrap(0), cursor))
+	assert.Nil(t, s.KeysAtCursor(stream.Wrap(0), "2024-01-03T00:00:00Z"))
 }
 
 // TestCursorTimestampComparison tests timestamp comparison logic
@@ -319,7 +364,7 @@ func TestCursorTimestampComparison(t *testing.T) {
 				{FileKey: "test.csv", LastModified: tt.fileTimestamp},
 			}
 
-			filtered := s.filterFilesByCursor(files, tt.cursorTimestamp)
+			filtered := s.filterFilesByCursor(files, tt.cursorTimestamp, nil)
 
 			if tt.shouldInclude {
 				assert.Len(t, filtered, 1, "file should be included")

@@ -288,6 +288,21 @@ func TestGenerateThreadID(t *testing.T) {
 	assert.NotEqual(t, first, second)
 }
 
+func TestIncrementalThreadSuffix(t *testing.T) {
+	const cursor = "2026-08-18T10:00:00Z"
+
+	// drivers without seen keys must keep the existing IDs, or recovery breaks across an upgrade
+	assert.Equal(t, cursor+"_<nil>", incrementalThreadSuffix(cursor, nil, nil))
+
+	// a same-second read keeps the cursor but must change the ID, or the next sync never reads
+	before := incrementalThreadSuffix(cursor, nil, []string{"seed.csv"})
+	after := incrementalThreadSuffix(cursor, nil, []string{"seed.csv", "insert.csv"})
+	assert.NotEqual(t, before, after)
+
+	// the state file reloads []string as []any; recovery depends on the ID staying the same
+	assert.Equal(t, after, incrementalThreadSuffix(cursor, nil, []any{"seed.csv", "insert.csv"}))
+}
+
 func TestSupportsCdcColumn(t *testing.T) {
 	testCases := []struct {
 		name         string

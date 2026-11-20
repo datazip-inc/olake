@@ -18,6 +18,13 @@ type SampledSchemaProducer interface {
 	ProduceSampledSchema(ctx context.Context, streamID types.StreamID, limit int) (*types.Stream, error)
 }
 
+// CursorKeysTracker is implemented by drivers whose cursor value can be shared by several source
+// objects, so a later object can land on a value that has already been read.
+type CursorKeysTracker interface {
+	// KeysAtCursor returns the keys of the discovered source objects at the given cursor value.
+	KeysAtCursor(stream types.StreamInterface, cursor any) []string
+}
+
 type BackfillMsgFn func(ctx context.Context, message map[string]any, sourceBytes int64) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 

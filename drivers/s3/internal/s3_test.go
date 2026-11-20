@@ -335,7 +335,7 @@ func TestFilterFilesByCursor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			filtered := s.filterFilesByCursor(files, tt.cursorTimestamp)
+			filtered := s.filterFilesByCursor(files, tt.cursorTimestamp, nil)
 
 			assert.Equal(t, tt.expectedCount, len(filtered), "filtered file count mismatch")
 
