@@ -35,7 +35,8 @@ type Connection struct {
 	readTimeout     time.Duration
 	ServerID        uint32
 	initialWaitTime time.Duration
-	changeFilter    ChangeFilter // Filter for processing binlog events
+	now             func() time.Time // injectable read clock; defaults to time.Now
+	changeFilter    ChangeFilter     // Filter for processing binlog events
 }
 
 // NewConnection creates a binlog connection from the saved checkpoint.
@@ -63,6 +64,7 @@ func NewConnection(ctx context.Context, config *Config, state Binlog, streams []
 		gtidSet:         gtidSet,
 		readTimeout:     2 * config.HeartbeatPeriod,
 		initialWaitTime: config.InitialWaitTime,
+		now:             time.Now,
 		changeFilter:    NewChangeFilter(config.SchemaClient, state, lowerCaseTableNames != 0, typeConverter, streams...),
 	}
 	c.initSyncer(ctx)
@@ -264,11 +266,10 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 			if run.target.GTIDSet != nil {
 				messageReceived = true
 			}
-			if e.OriginalCommitTimestamp > 0 {
-				c.changeFilter.lastGTIDEvent = time.UnixMicro(int64(e.OriginalCommitTimestamp)) // #nosec G115 - timestamp value is always within int64 range
-			}
+			c.observeTransactionTimestamp(ev)
 
-			// TODO: Investigate MariaDB GTID event structure for microsecond timestamp support.
+		case *replication.MariadbGTIDEvent:
+			c.observeTransactionTimestamp(ev)
 
 		case *replication.RowsEvent:
 			if !withinTarget {

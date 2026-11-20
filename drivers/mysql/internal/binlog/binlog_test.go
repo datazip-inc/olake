@@ -13,10 +13,45 @@ import (
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/go-mysql-org/go-mysql/server"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
+
+// This covers the event dispatch that the bug was about: a real MariadbGTIDEvent must
+// advance the filter timestamp, while MySQL keeps using the server's own commit time.
+func TestConnection_ObserveTransactionTimestamp(t *testing.T) {
+	const headerSeconds = 1795069800
+	readAt := time.Date(2026, 11, 19, 12, 0, 0, 123456789, time.UTC)
+	conn := &Connection{now: func() time.Time { return readAt }}
+
+	mariadbEvent := func(sequence uint64) *replication.BinlogEvent {
+		return &replication.BinlogEvent{
+			Header: &replication.EventHeader{Timestamp: headerSeconds},
+			Event: &replication.MariadbGTIDEvent{
+				GTID: mysql.MariadbGTID{DomainID: 1, ServerID: 1, SequenceNumber: sequence},
+			},
+		}
+	}
+
+	conn.observeTransactionTimestamp(mariadbEvent(7))
+	want := time.Unix(headerSeconds, 123456000).UTC()
+	require.Equal(t, want, conn.changeFilter.lastGTIDEvent)
+
+	// A read clock that crossed a wall second must not move the timestamp backwards.
+	conn.now = func() time.Time {
+		return readAt.Truncate(time.Second).Add(time.Second + 50*time.Millisecond)
+	}
+	conn.observeTransactionTimestamp(mariadbEvent(8))
+	require.True(t, conn.changeFilter.lastGTIDEvent.After(want))
+
+	conn.observeTransactionTimestamp(&replication.BinlogEvent{
+		Header: &replication.EventHeader{Timestamp: headerSeconds},
+		Event:  &replication.GTIDEvent{OriginalCommitTimestamp: 1795069800123456},
+	})
+	require.Equal(t, time.UnixMicro(1795069800123456), conn.changeFilter.lastGTIDEvent)
+}
 
 func TestNewConnection(t *testing.T) {
 	t.Run("cancellation interrupts replication handshake", func(t *testing.T) {
