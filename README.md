@@ -149,6 +149,20 @@
 
 ---
 
+### 🔄 Query Engine Interoperability
+
+OLake Go ensures that Iceberg tables are correctly readable by any query engine. Different engines support different Iceberg delete formats. OLake Go eliminates this complexity by auto-selecting the right delete format based on your selected target engines (`--target-query-engines`).
+
+#### Delete Format Support
+
+| Delete Format | OLake Go Support |
+|---|---|
+| Equality Deletes | ✅ |
+| Positional Deletes | ✅ |
+| Deletion Vectors | ✅ |
+
+---
+
 ### 🧪 Quickstart (UI + Docker)
 
 OLake UI is a web-based interface for managing OLake Go jobs, sources, destinations and configurations. You can run the entire OLake Go stack (UI, Backend, and all dependencies) using Docker Compose. This is the recommended way to get started.
@@ -230,11 +244,17 @@ Below are other different ways you can run OLake Go:
 
 ### 🧭 Roadmap Highlights
 
-- [x] Oracle Full Load Support
-- [x] Oracle Incremental
-- [x] Filters for Full Load and Incremental
-- [x] Interoperability
-- [x] Iceberg V3 Support
+#### Completed
+
+- [x] Interoperability (Positional & Deletion Vector Writes)
+- [x] ADLS Support
+- [x] Streams v2 (GitOps)
+
+#### Upcoming
+
+- [ ] Iceberg V3: Geo type, Variant type
+- [ ] Single Message Transform (SMT)
+- [ ] Continuous CDC Mode
 
 ---
 
