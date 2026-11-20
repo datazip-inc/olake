@@ -120,7 +120,7 @@
 
 | Destination    | Format    | Supported Catalogs                                            |
 |----------------|-----------|---------------------------------------------------------------|
-| Iceberg        | ✅         | Glue, Hive, JDBC, REST (Nessie, Polaris, Unity, Lakekeeper, AWS S3 tables)  |
+| Iceberg        | ✅         | Glue, Hive, JDBC, REST (Nessie, Polaris, Unity, Lakekeeper, SeaweedFS, AWS S3 tables)  |
 | Parquet        | ✅         | Filesystem                                                   |
 
 
@@ -132,6 +132,7 @@
        2. [REST Catalog](https://olake.io/docs/writers/iceberg/catalog/rest)
           - Generic
           - Lakekeeper
+          - SeaweedFS
           - Nessie
           - S3 Tables
           - Unity

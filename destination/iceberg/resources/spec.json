@@ -16,6 +16,7 @@
             "hive",
             "rest",
             "lakekeeper",
+            "seaweedfs",
             "nessie",
             "s3tables",
             "unity",
@@ -337,6 +338,120 @@
               "required": [
                 "rest_catalog_url",
                 "rest_auth_type"
+              ],
+              "dependencies": {
+                "rest_auth_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "rest_auth_type": {
+                          "const": "None"
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "rest_auth_type": {
+                          "const": "OAuth2"
+                        },
+                        "credential": {
+                          "type": "string",
+                          "title": "REST Credential",
+                          "description": "OAuth2 client credentials in client_id:client_secret format"
+                        },
+                        "oauth2_uri": {
+                          "type": "string",
+                          "title": "REST Auth URI",
+                          "description": "OAuth2 token endpoint URL for the OAuth2 authentication"
+                        },
+                        "scope": {
+                          "type": "string",
+                          "title": "REST Scope",
+                          "description": "OAuth2 access scopes (space separated for more than one)"
+                        }
+                      },
+                      "required": [
+                        "credential",
+                        "oauth2_uri"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "rest_auth_type": {
+                          "const": "Token"
+                        },
+                        "token": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "REST Token",
+                          "description": "Bearer token for REST catalog authentication"
+                        }
+                      },
+                      "required": [
+                        "token"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "catalog_type": {
+                  "const": "seaweedfs"
+                },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
+                },
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "Authentication Type",
+                  "enum": [
+                    "None",
+                    "OAuth2",
+                    "Token"
+                  ],
+                  "description": "Authentication types supported by the catalog"
+                },
+                "rest_catalog_url": {
+                  "type": "string",
+                  "title": "REST Catalog URI",
+                  "description": "Endpoint URL for the SeaweedFS Iceberg REST catalog, for example http://seaweedfs:8181"
+                },
+                "iceberg_s3_path": {
+                  "title": "SeaweedFS Table Bucket",
+                  "description": "Table bucket used as the Iceberg warehouse, for example s3://my-table-bucket"
+                },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "SeaweedFS S3 Endpoint",
+                  "description": "SeaweedFS S3 gateway endpoint, for example http://seaweedfs:8333"
+                },
+                "aws_access_key": {
+                  "type": "string",
+                  "format": "password",
+                  "title": "SeaweedFS Access Key",
+                  "description": "S3 access key configured in SeaweedFS"
+                },
+                "aws_secret_key": {
+                  "type": "string",
+                  "format": "password",
+                  "title": "SeaweedFS Secret Key",
+                  "description": "S3 secret key configured in SeaweedFS"
+                },
+                "aws_region": {
+                  "type": "string",
+                  "title": "AWS Region",
+                  "description": "Region sent with S3 requests; SeaweedFS accepts any value, for example us-east-1"
+                }
+              },
+              "required": [
+                "rest_catalog_url",
+                "rest_auth_type",
+                "s3_endpoint"
               ],
               "dependencies": {
                 "rest_auth_type": {
