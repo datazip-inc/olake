@@ -28,6 +28,7 @@ var _ destination.RowReader = (*Iceberg)(nil)
 func (i *Iceberg) ReadRows(ctx context.Context, rows []destination.RowRead, emit func(int, map[string]any) error) error {
 	request := &proto.ReadRowsRequest{ThreadId: i.options.ThreadID}
 	wanted := make(map[types.RowLocation]int, len(rows)) // a row Java sends back, by file and position, to its index in rows
+	var paths []string                                   // a file is named once per run of rows; repeats are harmless
 	for idx, row := range rows {
 		location, found, err := i.indexThread.Lookup(row.OlakeID)
 		if err != nil {
@@ -42,6 +43,7 @@ func (i *Iceberg) ReadRows(ctx context.Context, rows []destination.RowRead, emit
 		wanted[location] = idx
 		if last := len(request.Files) - 1; last < 0 || request.Files[last].GetFilePath() != location.FilePath {
 			request.Files = append(request.Files, &proto.ReadRowsRequest_FileRows{FilePath: location.FilePath})
+			paths = append(paths, location.FilePath)
 		}
 		file := request.Files[len(request.Files)-1]
 		file.Rows = append(file.Rows, &proto.ReadRowsRequest_Row{Position: location.Position, Columns: row.Columns})
@@ -53,10 +55,6 @@ func (i *Iceberg) ReadRows(ctx context.Context, rows []destination.RowRead, emit
 	// Rows written earlier in this sync may sit in a file the arrow writer still holds open; the legacy
 	// writer's open files are closed by Java inside ReadRows.
 	if withOpenFiles, ok := i.writer.(openFileWriter); ok {
-		paths := make([]string, len(request.Files)) // a file is named once per run of rows; repeats are harmless
-		for idx, file := range request.Files {
-			paths[idx] = file.GetFilePath()
-		}
 		if err := withOpenFiles.EnsureReadable(ctx, paths); err != nil {
 			return err
 		}

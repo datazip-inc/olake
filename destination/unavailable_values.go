@@ -3,7 +3,6 @@ package destination
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
@@ -16,18 +15,11 @@ type RowRead struct {
 	Columns []string
 }
 
-// RowReader is a Writer that can read back, from the destination table, values the source could not
-// send (Postgres unchanged TOAST). Recovery of those values (unavailable_values.go) is built on it and knows
-// nothing else about the destination.
+// RowReader is a destination that can read stored rows back. Recovering values the source could not
+// send (Postgres unchanged TOAST) is built on it.
 type RowReader interface {
-	// ReadRows finds the latest stored version of each row (this thread's pending writes first, then the
-	// committed table) and calls emit with the row's index in rows and the stored values
-	// by column name: once per row, or once per part of a row too large for one message. A nil values map
-	// means the table has no previous version of the row (a filtered row, or an UPDATE that changed the primary
-	// key). Inside the map a stored NULL, a column the file lacks and the columns of a soft-deleted row are nil.
-	// It first makes readable any file this thread still has open. It checks the bytes emitted between rows only, so the
-	// first row always comes whole, and stops after the row that takes them past its limit on one read (Iceberg: 1 GB,
-	// set in Java); the rest are asked for again later.
+	// ReadRows reads back the latest stored values of the given rows and passes each to emit with its index
+	// in rows; nil values means the row is not stored.
 	ReadRows(ctx context.Context, rows []RowRead, emit func(row int, values map[string]any) error) error
 }
 
@@ -86,17 +78,12 @@ func (f *destinationValuesFetcher) RecoverUnavailableValues(ctx context.Context,
 	return len(records), nil
 }
 
-// findUnavailableValues drops the unavailable columns the stream does not sync, adds the rest to the columns this
-// thread caches, and reports whether any record has one.
+// findUnavailableValues adds the records' unavailable columns to the columns this thread caches, and reports whether
+// any record has one.
 func (f *destinationValuesFetcher) findUnavailableValues(records []types.RawRecord) bool {
 	found := false
 	for idx := range records {
-		record := &records[idx]
-		record.UnavailableColumns = slices.DeleteFunc(record.UnavailableColumns, func(column string) bool {
-			_, selected := record.Data[column]
-			return !selected
-		})
-		for _, column := range record.UnavailableColumns {
+		for _, column := range records[idx].UnavailableColumns {
 			if len(f.unavailableColumns) == 0 {
 				cachingThreads.Add(1) // this thread starts caching, so it takes a share of the budget
 			}

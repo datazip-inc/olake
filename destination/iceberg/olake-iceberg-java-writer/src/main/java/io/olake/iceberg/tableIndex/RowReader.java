@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PrimitiveIterator;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
@@ -45,9 +46,10 @@ import io.olake.iceberg.rpc.RecordIngest.ReadRowsBatch;
 import io.olake.iceberg.rpc.RecordIngest.ReadRowsRequest;
 
 /**
- * Reads the requested columns of rows addressed by {@code (data file, row position)}, one row at a
- * time. A row costs the pages holding it when the file has a page index, else its whole row group
- * (correct, but more data). Open it for the rows of one file, {@link #read} each, close it.
+ * Reads the requested columns of rows addressed by {@code (data file, row position)}, in the order
+ * asked. Rows asked in rising position are read in one pass over the file, a row group at a time
+ * for all of them in it; a lower position starts the next pass. A row group costs the pages holding
+ * the pass's rows when the file has a page index, else all of it (correct, but more data).
  */
 public final class RowReader implements AutoCloseable {
   /**
@@ -62,6 +64,7 @@ public final class RowReader implements AutoCloseable {
 
   private final String filePath;
   private final ParquetFileReader reader;
+  private final List<ReadRowsRequest.Row> rows;
   private final List<BlockMetaData> blocks;
   private final long[] blockStarts; // file position of each row group's first row, ascending
   // the columns read are fixed when the reader opens: the parquet reader caches each row group's page
@@ -73,6 +76,7 @@ public final class RowReader implements AutoCloseable {
   /** Opens a data file to read the given rows of it, whose columns together fix the columns read. */
   public RowReader(Table table, String filePath, List<ReadRowsRequest.Row> rows) throws IOException {
     this.filePath = filePath;
+    this.rows = rows;
     // ParquetInput adapts Iceberg's file to Parquet's type, so the read keeps using the
     // table's FileIO and credentials.
     this.reader = ParquetFileReader.open(new ParquetInput(table.io().newInputFile(filePath)),
@@ -103,13 +107,56 @@ public final class RowReader implements AutoCloseable {
   }
 
   /**
-   * Reads one of the rows the reader was opened for and hands it to consumer with the values of
-   * its columns. A column the file does not carry comes back unset, as a stored NULL does: neither
-   * has a value to recover.
+   * Hands the rows the reader was opened for to consumer in the order asked, each with the values of
+   * its columns, until stop, asked after each row, says to. A column the file does not carry comes
+   * back unset, as a stored NULL does: neither has a value to recover.
    */
-  public void read(ReadRowsRequest.Row row, Consumer<ReadRowsBatch.Row> consumer) throws IOException {
-    int blockIndex = blockOf(row.getPosition());
-    emit(readPages(blockIndex, row.getPosition()), row, blockStarts[blockIndex], consumer);
+  public void read(Consumer<ReadRowsBatch.Row> consumer, BooleanSupplier stop) throws IOException {
+    int start = 0;
+    for (int end = 1; end <= rows.size(); end++) {
+      if (end == rows.size() || rows.get(end).getPosition() <= rows.get(end - 1).getPosition()) {
+        if (readPass(rows.subList(start, end), consumer, stop)) {
+          return;
+        }
+        start = end;
+      }
+    }
+  }
+
+  /**
+   * Reads rows asked in rising position in one pass over the file: each row group once, for all of
+   * them in it. Reports whether stop said to stop.
+   */
+  private boolean readPass(List<ReadRowsRequest.Row> pass, Consumer<ReadRowsBatch.Row> consumer, BooleanSupplier stop)
+      throws IOException {
+    int cursor = 0;
+    while (cursor < pass.size()) {
+      int blockIndex = blockOf(pass.get(cursor).getPosition());
+      int end = cursor;
+      while (end < pass.size() && blockOf(pass.get(end).getPosition()) == blockIndex) {
+        end++;
+      }
+      List<ReadRowsRequest.Row> wanted = pass.subList(cursor, end);
+
+      PageReadStore pages = readPages(blockIndex, wanted);
+      RecordReader<Group> records = columnIO.getRecordReader(pages, new GroupRecordConverter(projection), FilterCompat.NOOP);
+      // a whole row group read carries no row indexes: its rows come in order from 0
+      PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes()
+          .orElseGet(() -> LongStream.range(0, pages.getRowCount()).iterator());
+      // every wanted row is among the rows read, which come in position order
+      for (ReadRowsRequest.Row row : wanted) {
+        Group group;
+        do {
+          group = records.read();
+        } while (blockStarts[blockIndex] + rowIndexes.nextLong() != row.getPosition());
+        emit(group, row, consumer);
+        if (stop.getAsBoolean()) {
+          return true;
+        }
+      }
+      cursor = end;
+    }
+    return false;
   }
 
   /** The row group holding the row at position. */
@@ -119,13 +166,12 @@ public final class RowReader implements AutoCloseable {
   }
 
   /**
-   * Reads only the pages holding the row if the file has a page index, else its whole row group.
-   * Every column narrows the rows read, so _op_type's one big page does not pull in every page of
-   * a wide column.
+   * Reads only the pages holding the wanted rows if the file has a page index, else the whole row
+   * group. Every column narrows the rows read, so _op_type's one big page does not pull in every
+   * page of a wide column.
    */
-  private PageReadStore readPages(int blockIndex, long position) throws IOException {
+  private PageReadStore readPages(int blockIndex, List<ReadRowsRequest.Row> wanted) throws IOException {
     long rowsInBlock = blocks.get(blockIndex).getRowCount();
-    long rowInBlock = position - blockStarts[blockIndex];
     // The reader caches this store and readFilteredRowGroup reuses it, so each offset index is fetched from storage once.
     ColumnIndexStore indexes = reader.getColumnIndexStore(blockIndex);
     RowRanges ranges = RowRanges.createSingle(rowsInBlock);
@@ -136,38 +182,37 @@ public final class RowReader implements AutoCloseable {
       } catch (MissingOffsetIndexException e) {
         return reader.readRowGroup(blockIndex);
       }
-      int page = pageHolding(offsetIndex, rowInBlock, rowsInBlock);
-      ranges = RowRanges.intersection(ranges, RowRanges.create(rowsInBlock, IntStream.of(page).iterator(), offsetIndex));
+      RowRanges columnRanges = RowRanges.create(rowsInBlock,
+          pagesHolding(offsetIndex, wanted, blockStarts[blockIndex], rowsInBlock), offsetIndex);
+      ranges = RowRanges.intersection(ranges, columnRanges);
     }
 
     return reader.readFilteredRowGroup(blockIndex, ranges);
   }
 
-  /** Index, within one column chunk, of the page holding the row (given by its index within the row group). */
-  private static int pageHolding(OffsetIndex offsetIndex, long rowInBlock, long rowsInBlock) {
-    int page = 0;
-    while (rowInBlock > offsetIndex.getLastRowIndex(page, rowsInBlock)) {
-      page++;
+  /** Indexes, within one column chunk, of the pages holding the wanted rows. */
+  private static PrimitiveIterator.OfInt pagesHolding(OffsetIndex offsetIndex, List<ReadRowsRequest.Row> wanted,
+      long firstRowOfBlock, long rowsInBlock) {
+    IntStream.Builder pages = IntStream.builder();
+    int cursor = 0;
+    for (int page = 0; page < offsetIndex.getPageCount() && cursor < wanted.size(); page++) {
+      long lastRow = firstRowOfBlock + offsetIndex.getLastRowIndex(page, rowsInBlock);
+      if (wanted.get(cursor).getPosition() > lastRow) {
+        continue;
+      }
+      pages.add(page);
+      while (cursor < wanted.size() && wanted.get(cursor).getPosition() <= lastRow) {
+        cursor++;
+      }
     }
-    return page;
+    return pages.build().iterator();
   }
 
   /**
-   * Walks the rows read to the wanted one and emits it. A row whose values pass ROW_PART_BYTES goes
-   * out in parts, each with the same file and position and some of the columns; Go merges them.
+   * Emits a row read. A row whose values pass ROW_PART_BYTES goes out in parts, each with the same
+   * file and position and some of the columns; Go merges them.
    */
-  private void emit(PageReadStore pages, ReadRowsRequest.Row row, long firstRowOfBlock, Consumer<ReadRowsBatch.Row> consumer) {
-    RecordReader<Group> records = columnIO.getRecordReader(pages, new GroupRecordConverter(projection), FilterCompat.NOOP);
-    // a whole row group read carries no row indexes: its rows come in order from 0
-    PrimitiveIterator.OfLong rowIndexes = pages.getRowIndexes()
-        .orElseGet(() -> LongStream.range(0, pages.getRowCount()).iterator());
-
-    // the wanted row is among the rows read, which come in position order
-    Group group;
-    do {
-      group = records.read();
-    } while (firstRowOfBlock + rowIndexes.nextLong() != row.getPosition());
-
+  private void emit(Group group, ReadRowsRequest.Row row, Consumer<ReadRowsBatch.Row> consumer) {
     // a soft-deleted row has nothing to recover: every column except _op_type goes back unset. A
     // file written before olake took the table over has no _op_type, so its rows are live.
     Integer opTypeSlot = slots.get(OP_TYPE);

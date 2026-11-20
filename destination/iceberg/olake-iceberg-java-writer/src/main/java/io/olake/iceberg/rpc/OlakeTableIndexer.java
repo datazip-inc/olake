@@ -327,18 +327,21 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     /** Reads the files' rows, a file at a time, until the rows sent pass maxBytes. */
     private void read(Table table, List<ReadRowsRequest.FileRows> files) throws IOException {
       for (ReadRowsRequest.FileRows file : files) {
+        if (stop()) {
+          return; // the rows left are read by a later call
+        }
         try (RowReader reader = new RowReader(table, file.getFilePath(), file.getRowsList())) {
-          for (ReadRowsRequest.Row row : file.getRowsList()) {
-            if (outbound.cancelled()) {
-              throw new CallAbandoned();
-            }
-            reader.read(row, this::accept);
-            if (full) {
-              return; // the rows left are read by a later call
-            }
-          }
+          reader.read(this::accept, this::stop);
         }
       }
+    }
+
+    /** Whether to stop reading: the rows sent passed maxBytes. Unwinds the read once the caller is gone. */
+    private boolean stop() {
+      if (outbound.cancelled()) {
+        throw new CallAbandoned();
+      }
+      return full;
     }
 
     private void accept(ReadRowsBatch.Row row) {

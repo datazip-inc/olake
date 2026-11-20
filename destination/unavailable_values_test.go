@@ -468,15 +468,6 @@ func TestRecoverUnavailableValues(t *testing.T) {
 			expectedAsked:       1,
 			expectedUnrecovered: 2,
 		},
-		// the source marks the column, but the stream's selection dropped it from Data
-		{
-			name:  "a column left out of the stream selection is skipped",
-			table: testTable{"1": {"payload": "stored"}},
-			steps: []recoverStep{{
-				records:  []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1}, "payload")},
-				expected: []map[string]any{{"payload": nil}},
-			}},
-		},
 		// the previous version was written before this feature; there is nothing better to write
 		{
 			name:  "a stored placeholder is not counted as recovered",
@@ -1075,11 +1066,6 @@ func TestDestinationValuesFetcherCloseReleasesBudget(t *testing.T) {
 		{
 			name:    "a thread that never sees a marker takes no share",
 			records: []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": "value"})},
-		},
-		// the marked column is dropped before anything is cached
-		{
-			name:    "a marker on a column the stream does not sync takes no share",
-			records: []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1}, "payload")},
 		},
 	}
 
