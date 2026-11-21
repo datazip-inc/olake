@@ -3,12 +3,16 @@ name: Documentation Check
 on:
   pull_request:
     types: [ opened, edited, synchronize ]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
 jobs:
   validate-documentation:
+    # PR body does not exist in merge_group runs; skipped job reports success.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
     - name: Validate Documentation

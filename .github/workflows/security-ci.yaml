@@ -16,6 +16,8 @@ on:
     branches:
       - "*"
     paths: *security-paths
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       logLevel:
