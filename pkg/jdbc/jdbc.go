@@ -910,8 +910,8 @@ func MSSQLCDCCaptureJobConfigQuery() string {
 func MSSQLCDCGetChangesQuery(captureInstance string) string {
 	return fmt.Sprintf(`
 		SELECT *
-		FROM cdc.[fn_cdc_get_all_changes_%s](@p1, @p2, 'all')
-		ORDER BY [__$start_lsn], [__$seqval]
+		FROM cdc.[fn_cdc_get_all_changes_%s](@p1, @p2, 'all update old')
+		ORDER BY [__$start_lsn], [__$seqval], [__$operation]
 	`, captureInstance)
 }
 
