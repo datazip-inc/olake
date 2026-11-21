@@ -64,3 +64,9 @@ type UpdateTypeRestricter interface {
 type WriteModeRestricter interface {
 	SupportedWriteModes() []types.WriteMode
 }
+
+// NormalizationDefaulter is implemented by a driver that chooses the normalization default from its
+// own config, e.g. S3 turns it on for CSV and Parquet. Discover calls it after the config is loaded.
+type NormalizationDefaulter interface {
+	DefaultNormalization() bool
+}
