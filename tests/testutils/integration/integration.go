@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
@@ -63,7 +64,92 @@ func (th *TestHandler) resetCatalog(t *testing.T) {
 	require.NoError(t, os.RemoveAll(th.tableIndexHostDir()), "failed to clear table index")
 }
 
-// runSyncAndVerify executes a sync command and verifies the results in Iceberg
+func (th *TestHandler) defaultRowCount(opSymbol, operation string) *int {
+	if opSymbol == "d" {
+		return nil
+	}
+
+	if th.Driver == string(constants.S3) {
+		if operation == "" {
+			return ptr(6)
+		}
+		if operation == "insert" {
+			return ptr(3)
+		}
+		if operation == "update" {
+			if th.SkipSchemaEvolution {
+				return ptr(3)
+			}
+			return ptr(6)
+		}
+		return ptr(3)
+	}
+
+	if th.Driver == string(constants.Kafka) {
+		if len(th.DedupKeys) > 0 || th.DataFormat == "avro" {
+			return ptr(1)
+		}
+		if operation == "" {
+			return ptr(5)
+		}
+		return ptr(1)
+	}
+
+	// Relational databases (MySQL, Postgres, DB2, Mongo, MSSQL, Oracle)
+	if len(th.DedupKeys) > 0 || th.isFilterInclusive() {
+		return ptr(1)
+	}
+	if operation == "" {
+		return ptr(5)
+	}
+	return ptr(1)
+}
+
+func (th *TestHandler) isFilterInclusive() bool {
+	if th.ExpectedData != nil {
+		if v, ok := th.ExpectedData["id_bigint"]; ok && v == int64(111111111111111) {
+			return true
+		}
+		if v, ok := th.ExpectedData["col_bigint"]; ok && v == int64(111111111111111) {
+			return true
+		}
+		if v, ok := th.ExpectedData["col_decimal"]; ok && (v == testutils.Decimal("239835.89") || v == "239835.89") {
+			return true
+		}
+	}
+	return false
+}
+
+// ExpectedRowsFor constructs an ExpectedRows instance for the given operation and schema.
+// If explicitCount is supplied, it overrides driver-derived defaults.
+func (th *TestHandler) ExpectedRowsFor(
+	opSymbol, operation string,
+	schema map[string]interface{},
+	isCDC bool,
+	explicitCount ...*int,
+) ExpectedRows {
+	keyCol := "id"
+	if th.PrimaryKey != "" {
+		keyCol = th.PrimaryKey
+	}
+
+	var count *int
+	if len(explicitCount) > 0 {
+		count = explicitCount[0]
+	} else {
+		count = th.defaultRowCount(opSymbol, operation)
+	}
+
+	return ExpectedRows{
+		KeyColumn:               keyCol,
+		FallbackTemplate:        schema,
+		Count:                   count,
+		DefaultCDCColumnsSchema: th.DefaultCDCColumnsSchema,
+		IsCDC:                   isCDC,
+	}
+}
+
+// runSyncAndVerify executes a sync command and verifies the results in Iceberg or Parquet
 func (th *TestHandler) runSyncAndVerify(
 	ctx context.Context,
 	t *testing.T,
@@ -74,6 +160,7 @@ func (th *TestHandler) runSyncAndVerify(
 	opSymbol string,
 	schema map[string]interface{},
 	isCDC bool,
+	explicitCount ...*int,
 ) error {
 	// Execute operation before sync if needed
 	if useState && operation != "" {
@@ -95,14 +182,16 @@ func (th *TestHandler) runSyncAndVerify(
 	// sync wall-clock; time it as its own phase.
 	defer testutils.TrackPhaseTiming(t, th.TestConfig.Driver, destinationType+" verify")()
 
+	expectedRows := th.ExpectedRowsFor(opSymbol, operation, schema, isCDC, explicitCount...)
+
 	switch destinationType {
 	case "iceberg":
 		{
+			datatypeSchema := th.DestinationDataTypeSchema
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
-			} else {
-				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.TypeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				datatypeSchema = th.UpdatedDestinationDataTypeSchema
 			}
+			VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, datatypeSchema, th.TypeMapping, expectedRows, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, th.TestConfig.ColumnToExclude)
 		}
 	case "parquet":
 		{
@@ -110,11 +199,11 @@ func (th *TestHandler) runSyncAndVerify(
 			if th.ParquetTypeMapping != nil {
 				typeMapping = th.ParquetTypeMapping
 			}
+			datatypeSchema := th.DestinationDataTypeSchema
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
-			} else {
-				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, typeMapping, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
+				datatypeSchema = th.UpdatedDestinationDataTypeSchema
 			}
+			VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, datatypeSchema, typeMapping, expectedRows, opSymbol, th.TestConfig.Driver, th.TestConfig.ColumnToExclude)
 		}
 	}
 
@@ -161,9 +250,21 @@ type syncTestCase struct {
 	useState                 bool
 	opSymbol                 string
 	expected                 map[string]interface{}
+	expectedRowCount         *int                                // when set, overrides expected row count for verifySyncedRows
+	skipRowCount             bool                                // when true, skips exact cardinality assertion in verifySyncedRows
 	preSetup                 []func(*testutils.TestConfig) error // host-side actions executed before the sync
 	verifyNoDuplicates       bool                                // if true, assert COUNT(*) == COUNT(DISTINCT _olake_id) after sync
 	expectedRowCountByOpType int64                               // when > 0, assert COUNT(DISTINCT _olake_id) == this value (catches over-sync and under-sync)
+}
+
+func (tc syncTestCase) countOverride() []*int {
+	if tc.skipRowCount {
+		return []*int{nil}
+	}
+	if tc.expectedRowCount != nil {
+		return []*int{tc.expectedRowCount}
+	}
+	return nil
 }
 
 // updateStreamConfig sets sync_mode and cursor_field for the stream identified by namespace+name:
