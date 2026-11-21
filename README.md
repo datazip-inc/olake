@@ -7,6 +7,10 @@
 </h1>
 
 <p align="center">
+    <a href="https://trendshift.io/repositories/21893?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-21893" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/21893" alt="datazip-inc%2Folake-go | Trendshift" width="250" height="55"/></a>
+</p>
+
+<p align="center">
   <strong>OLake Go</strong> is a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
   <strong>Apache Iceberg</strong> (or plain Parquet).
   <br/>
