@@ -141,3 +141,64 @@ func TestFlushWritesRecoveredPrefixesInOrder(t *testing.T) {
 		})
 	}
 }
+
+type closeMockWriter struct {
+	Writer
+	closeCalled bool
+	closeErr    error
+	writeErr    error
+}
+
+func (m *closeMockWriter) FlattenAndCleanData(_ context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+	return false, records, nil, nil
+}
+
+func (m *closeMockWriter) Write(_ context.Context, _ []types.RawRecord) error {
+	return m.writeErr
+}
+
+func (m *closeMockWriter) Close(_ context.Context, _ any) error {
+	m.closeCalled = true
+	return m.closeErr
+}
+
+func TestWriterThreadCloseCanceledContextDecrementsThreadCount(t *testing.T) {
+	mock := &closeMockWriter{}
+	stats := &Stats{}
+	stats.ThreadCount.Store(1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel context
+
+	thread := &WriterThread{
+		writer: mock,
+		stats:  stats,
+	}
+
+	err := thread.Close(ctx, nil)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.True(t, mock.closeCalled, "writer.Close should have been called")
+	assert.Equal(t, int64(0), stats.ThreadCount.Load(), "ThreadCount must be decremented on canceled close")
+}
+
+func TestWriterThreadClosePreservesFlushErrorRootCause(t *testing.T) {
+	rootErr := errors.New("s3 connection reset")
+	mock := &closeMockWriter{writeErr: rootErr}
+	stats := &Stats{}
+	stats.ThreadCount.Store(1)
+
+	thread := &WriterThread{
+		writer:    mock,
+		stats:     stats,
+		buffer:    []types.RawRecord{{Data: map[string]any{"id": 1}}},
+		batchSize: 10,
+	}
+
+	err := thread.Close(context.Background(), nil)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, rootErr, "original flush root cause must be preserved")
+	assert.False(t, errors.Is(err, context.Canceled), "flush error must not be masked as context.Canceled")
+	assert.Equal(t, int64(0), stats.ThreadCount.Load(), "ThreadCount must be decremented on failure")
+}
