@@ -1,4 +1,4 @@
-package iceberg
+package destination
 
 import (
 	"cmp"
@@ -122,52 +122,6 @@ func (c *cachedValues) trim(share int64) int {
 // size is the memory the row counts for: its id, a fixed cost per row and per value, and its values' bytes.
 func (row *cachedRow) size(olakeID string) int64 {
 	return int64(len(olakeID)) + cachedRowOverhead + dataSize(row.values) + int64(len(row.values))*cachedValueOverhead
-}
-
-// tableValues holds the values read from the table (the placeholder for a row the table has no value for) until
-// fillRecord moves them into their records. Unlike the cached values they are never trimmed, so no row is read twice;
-// reads keep them within the maxBytes RecoverUnavailableValues is given, plus one row.
-type tableValues struct {
-	rows  map[string]map[string]any // olake id -> column -> value
-	bytes int64
-}
-
-func newTableValues() *tableValues {
-	return &tableValues{rows: make(map[string]map[string]any)}
-}
-
-// value is the value read for the row's column.
-func (t *tableValues) value(olakeID, column string) (any, bool) {
-	value, found := t.rows[olakeID][column]
-	return value, found
-}
-
-// put keeps a value read for a row. A value can come twice when two source columns share one destination column
-// (Foo and foo), so it replaces the old one.
-func (t *tableValues) put(olakeID, column string, value any) {
-	values := t.rows[olakeID]
-	if values == nil {
-		values = make(map[string]any)
-		t.rows[olakeID] = values
-	}
-	t.bytes += valueSize(value) - valueSize(values[column])
-	values[column] = value
-}
-
-// hasAll reports whether a value has arrived for every one of the row's columns.
-func (t *tableValues) hasAll(olakeID string, columns []string) bool {
-	for _, column := range columns {
-		if _, found := t.rows[olakeID][column]; !found {
-			return false
-		}
-	}
-	return true
-}
-
-// release drops what was read for a row once fillRecord has moved it into the row's record.
-func (t *tableValues) release(olakeID string) {
-	t.bytes -= dataSize(t.rows[olakeID])
-	delete(t.rows, olakeID)
 }
 
 func dataSize(data map[string]any) int64 {

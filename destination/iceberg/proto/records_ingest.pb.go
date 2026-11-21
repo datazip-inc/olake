@@ -758,12 +758,9 @@ func (x *MigrateEqualityDeletesResponse) GetPositionalDeletesWritten() int64 {
 }
 
 type ReadRowsRequest struct {
-	state    protoimpl.MessageState      `protogen:"open.v1"`
-	ThreadId string                      `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
-	Files    []*ReadRowsRequest_FileRows `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
-	// Java stops after the row (or row part) that takes the bytes it has sent past this, and ends
-	// the stream normally; the rows left are read by a later call. 0 means no limit.
-	MaxBytes      int64 `protobuf:"varint,3,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	ThreadId      string                      `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	Files         []*ReadRowsRequest_FileRows `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -810,13 +807,6 @@ func (x *ReadRowsRequest) GetFiles() []*ReadRowsRequest_FileRows {
 		return x.Files
 	}
 	return nil
-}
-
-func (x *ReadRowsRequest) GetMaxBytes() int64 {
-	if x != nil {
-		return x.MaxBytes
-	}
-	return 0
 }
 
 type ReadRowsBatch struct {
@@ -2026,9 +2016,8 @@ func (x *ReadRowsRequest_Row) GetColumns() []string {
 }
 
 type ReadRowsRequest_FileRows struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	FilePath string                 `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
-	// Rows to read, in ascending position order.
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FilePath      string                 `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
 	Rows          []*ReadRowsRequest_Row `protobuf:"bytes,2,rep,name=rows,proto3" json:"rows,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2304,11 +2293,10 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\vsnapshot_id\x18\x01 \x01(\x03R\n" +
 	"snapshotId\x124\n" +
 	"\x16rewritten_delete_files\x18\x02 \x01(\x03R\x14rewrittenDeleteFiles\x12<\n" +
-	"\x1apositional_deletes_written\x18\x03 \x01(\x03R\x18positionalDeletesWritten\"\xb6\x02\n" +
+	"\x1apositional_deletes_written\x18\x03 \x01(\x03R\x18positionalDeletesWritten\"\x99\x02\n" +
 	"\x0fReadRowsRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12D\n" +
-	"\x05files\x18\x02 \x03(\v2..io.olake.iceberg.rpc.ReadRowsRequest.FileRowsR\x05files\x12\x1b\n" +
-	"\tmax_bytes\x18\x03 \x01(\x03R\bmaxBytes\x1a;\n" +
+	"\x05files\x18\x02 \x03(\v2..io.olake.iceberg.rpc.ReadRowsRequest.FileRowsR\x05files\x1a;\n" +
 	"\x03Row\x12\x1a\n" +
 	"\bposition\x18\x01 \x01(\x03R\bposition\x12\x18\n" +
 	"\acolumns\x18\x02 \x03(\tR\acolumns\x1af\n" +

@@ -33,8 +33,7 @@ type Iceberg struct {
 	server        *serverInstance          // shared Java server instance (per-process singleton)
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
-	// unavailableValues recovers values the source could not send; nil unless the stream keeps a row index (pos or dv)
-	unavailableValues *unavailableValuesResolver
+	indexThread   *types.StreamIndexThread // this thread's view of the stream's row index; nil in equality mode
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
 	// It defines when to complete the Java writer and when schema evolution is required.
@@ -146,21 +145,15 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	}
 
 	// nil in equality mode; shared by the writer, which buffers this thread's row locations
-	// in it, and the unavailable values resolver, which looks rows up in it
-	indexThread := types.NewStreamIndexThread(options.TableIndex)
+	// in it, and ReadRows (read_rows.go), which looks rows up in it
+	i.indexThread = types.NewStreamIndexThread(options.TableIndex)
 	if i.config.UseArrowWrites {
-		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode, indexThread)
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode, i.indexThread)
 		if err != nil {
 			return nil, nil, destination.WriteFailure(fmt.Errorf("failed to create arrow writer: %w", err))
 		}
 	} else {
-		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode, indexThread)
-	}
-
-	// Recovery needs the row's previous location, which only a thread with a stream index
-	// has. Equality mode keeps the placeholder; backfill records never carry one.
-	if indexThread != nil {
-		i.unavailableValues = newUnavailableValuesResolver(options.ThreadID, i.stream, i.writer, indexThread, i.server.tableIndexClient)
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode, i.indexThread)
 	}
 
 	return schema, &metadataState, nil
@@ -168,16 +161,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
-}
-
-// RecoverUnavailableValues fills the values the source could not send into a prefix of records
-// whose values stay within MaxDestinationBatchBytes, so no write exceeds the 2 GB message limit
-// and recovered values are written before more are read.
-func (i *Iceberg) RecoverUnavailableValues(ctx context.Context, records []types.RawRecord) (int, error) {
-	if i.unavailableValues == nil {
-		return len(records), nil
-	}
-	return i.unavailableValues.RecoverUnavailableValues(ctx, records, constants.MaxDestinationBatchBytes)
 }
 
 func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error) {
@@ -200,10 +183,6 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error)
 			}
 		}
 	}()
-
-	if i.unavailableValues != nil {
-		i.unavailableValues.Close()
-	}
 
 	select {
 	case <-ctx.Done():

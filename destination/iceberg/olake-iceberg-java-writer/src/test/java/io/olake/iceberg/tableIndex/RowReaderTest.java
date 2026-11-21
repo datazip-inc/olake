@@ -6,12 +6,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import org.apache.hadoop.conf.Configuration;
@@ -25,6 +31,10 @@ import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.FileAppender;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.SeekableInputStream;
 import org.apache.iceberg.types.Types;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.hadoop.ParquetFileReader;
@@ -164,15 +174,18 @@ class RowReaderTest {
         }
         positions = positions.stream().distinct().sorted().toList();
 
-        // each row asks for its own columns
+        // even positions ask for payload, odd ones for amt; asked from the file's last row back to its first
         List<ReadRowsRequest.Row> rows = new ArrayList<>();
         for (long position : positions) {
             List<String> columns = position % 2 == 0 ? List.of("_op_type", "payload") : List.of("_op_type", "amt");
             rows.add(ReadRowsRequest.Row.newBuilder().setPosition(position).addAllColumns(columns).build());
         }
+        Collections.reverse(rows);
 
         Map<Long, ReadRowsBatch.Row> read = read(rows);
 
+        assertEquals(rows.stream().map(ReadRowsRequest.Row::getPosition).toList(), new ArrayList<>(read.keySet()),
+                "rows come back in the order asked");
         assertEquals(positions, read.keySet().stream().sorted().toList());
         for (long position : positions) {
             Map<String, FieldValue> values = read.get(position).getValuesMap();
@@ -197,6 +210,27 @@ class RowReaderTest {
                         "payload of " + position);
             }
         }
+    }
+
+    static Stream<Arguments> passCases() {
+        return Stream.of(
+                // rows 10 to 13 sit on one page of every column
+                Arguments.of("rows asked in rising position on one page fetch it once",
+                        List.of(10L, 11L, 12L, 13L), true),
+                Arguments.of("each lower position fetches the page again", List.of(13L, 12L, 11L, 10L), false));
+    }
+
+    // a row at a time fetches a page again for every row on it; rows asked in rising position share
+    // one pass, which fetches each page once
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("passCases")
+    @DisplayName("rows asked in rising position are read in one pass, a lower position starts the next")
+    void readsRisingRowsInOnePass(String name, List<Long> positions, boolean onePass) throws Exception {
+        long oneRow = bytesFetched(List.of(10L));
+
+        long fetched = bytesFetched(positions);
+
+        assertEquals(onePass, fetched == oneRow, "fetched " + fetched + " bytes, " + oneRow + " for one row");
     }
 
     static Stream<Arguments> columnCases() {
@@ -273,7 +307,7 @@ class RowReaderTest {
 
         List<ReadRowsBatch.Row> parts = new ArrayList<>();
         List<String> columns = List.of("_op_type", "payload", "big doc", "a.b");
-        RowReader.read(table, path, List.of(
+        readRows(path, List.of(
                 ReadRowsRequest.Row.newBuilder().setPosition(0).addAllColumns(columns).build(),
                 ReadRowsRequest.Row.newBuilder().setPosition(1).addAllColumns(columns).build()), parts::add);
 
@@ -296,11 +330,106 @@ class RowReaderTest {
         return FieldValue.newBuilder().setStringValue(value).build();
     }
 
-    /** Reads the rows, keyed by position; a position emitted twice fails the test. */
+    /** Reads the rows, keyed by position in the order emitted; a position emitted twice fails the test. */
     private Map<Long, ReadRowsBatch.Row> read(List<ReadRowsRequest.Row> rows) throws Exception {
-        Map<Long, ReadRowsBatch.Row> read = new HashMap<>();
-        RowReader.read(table, filePath, rows, row -> assertNull(read.put(row.getPosition(), row)));
+        Map<Long, ReadRowsBatch.Row> read = new LinkedHashMap<>();
+        readRows(filePath, rows, row -> assertNull(read.put(row.getPosition(), row)));
         return read;
+    }
+
+    /** Opens the file for the rows, reads them all and closes it, as RowEmitter does. */
+    private void readRows(String path, List<ReadRowsRequest.Row> rows, Consumer<ReadRowsBatch.Row> consumer)
+            throws Exception {
+        try (RowReader reader = new RowReader(table, path, rows)) {
+            reader.read(consumer, () -> false);
+        }
+    }
+
+    /** The bytes read from storage to read the rows, each asking for _op_type and payload, in the order asked. */
+    private long bytesFetched(List<Long> positions) throws Exception {
+        AtomicLong fetched = new AtomicLong();
+        FileIO counting = new FileIO() {
+            @Override
+            public InputFile newInputFile(String path) {
+                return new CountingInputFile(table.io().newInputFile(path), fetched);
+            }
+
+            @Override
+            public OutputFile newOutputFile(String path) {
+                return table.io().newOutputFile(path);
+            }
+
+            @Override
+            public void deleteFile(String path) {
+                table.io().deleteFile(path);
+            }
+        };
+        Table countingTable = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> method.getName().equals("io") ? counting : method.invoke(table, args));
+        List<ReadRowsRequest.Row> rows = positions.stream()
+                .map(position -> ReadRowsRequest.Row.newBuilder().setPosition(position)
+                        .addColumns("_op_type").addColumns("payload").build())
+                .toList();
+        List<Long> sent = new ArrayList<>();
+
+        try (RowReader reader = new RowReader(countingTable, filePath, rows)) {
+            reader.read(row -> sent.add(row.getPosition()), () -> false);
+        }
+        assertEquals(positions, sent, "rows come back in the order asked");
+        return fetched.get();
+    }
+
+    /** An input file that counts the bytes read from it. */
+    private record CountingInputFile(InputFile file, AtomicLong fetched) implements InputFile {
+        @Override
+        public long getLength() {
+            return file.getLength();
+        }
+
+        @Override
+        public SeekableInputStream newStream() {
+            SeekableInputStream stream = file.newStream();
+            return new SeekableInputStream() {
+                @Override
+                public long getPos() throws IOException {
+                    return stream.getPos();
+                }
+
+                @Override
+                public void seek(long newPos) throws IOException {
+                    stream.seek(newPos);
+                }
+
+                @Override
+                public int read() throws IOException {
+                    int value = stream.read();
+                    fetched.addAndGet(value < 0 ? 0 : 1);
+                    return value;
+                }
+
+                @Override
+                public int read(byte[] buffer, int offset, int length) throws IOException {
+                    int read = stream.read(buffer, offset, length);
+                    fetched.addAndGet(Math.max(read, 0));
+                    return read;
+                }
+
+                @Override
+                public void close() throws IOException {
+                    stream.close();
+                }
+            };
+        }
+
+        @Override
+        public String location() {
+            return file.location();
+        }
+
+        @Override
+        public boolean exists() {
+            return file.exists();
+        }
     }
 
     private ParquetFileReader openFile() throws Exception {

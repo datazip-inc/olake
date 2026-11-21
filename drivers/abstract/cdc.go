@@ -158,8 +158,13 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 			filterDataBySelectedColumnsFns[change.Stream.ID()] = filterDataBySelectedColumnsFn
 		}
 		filteredData := filterDataBySelectedColumnsFn(change.Data)
+		// drop the unavailable columns the stream does not sync: the ones the column selection removed from data
+		unavailableColumns := slices.DeleteFunc(change.UnavailableColumns, func(column string) bool {
+			_, selected := filteredData[column]
+			return !selected
+		})
 
-		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns, change.UnavailableColumns), change.Bytes)
+		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns, unavailableColumns), change.Bytes)
 	})
 
 	return err
