@@ -32,13 +32,18 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 	logger.Debugf("Starting backfill from %v to %v with filter: %s", chunk.Min, chunk.Max, filter)
 
-	// check for _id type
-	ObjectIDPresent, err := isObjectID(ctx, collection)
+	// hex string bounds are ObjectIDs only when the collection holds ObjectIDs
+	objectIDPresent, err := isObjectID(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("failed to check if _id is ObjectID: %w", err)
 	}
 
-	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, ObjectIDPresent), opts)
+	chunkFilter, err := buildChunkFilter(decodeChunkBound(chunk.Min, objectIDPresent), decodeChunkBound(chunk.Max, objectIDPresent))
+	if err != nil {
+		return fmt.Errorf("failed to build filter for chunk min[%v] max[%v]: %w", chunk.Min, chunk.Max, err)
+	}
+
+	cursor, err := collection.Aggregate(ctx, generatePipeline(chunkFilter, filter), opts)
 	if err != nil {
 		return fmt.Errorf("failed to create cursor: %w", err)
 	}
@@ -91,7 +96,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, stream types.StreamInterface, storageSize float64) ([]types.Chunk, error) {
 	splitVectorStrategy := func() ([]types.Chunk, error) {
-		// NOTE: split-vector only syncs docs with objectID based _id (even when multiple types _id exist)
+		// NOTE: split-vector runs only when every _id is an ObjectID (see isObjectIDOnly)
 		// splitVector is designed to compute chunk boundaries based on the internal format of BSON ObjectIDs
 		// (embeds a timestamp and provide monotonically increasing values, useful in sharded clusters).
 		// Other _id types (e.g., strings, integers) do not guarantee this ordering or timestamp metadata,
@@ -162,18 +167,21 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		logger.Debugf("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		numberOfBuckets := int(math.Ceil(storageSize / float64(constants.EffectiveParquetSize)))
+		// NOTE: chunk min and max can be of different _id types, and this is intended.
+		// Buckets follow BSON sort order across all _id types, so a bucket can start in one
+		// type and end in another, e.g. {min: 1357415547, max: "62a1c5577146a407536dbd74"},
+		// and such chunks are saved to state as they are. buildChunkFilter reads them correctly.
+		// A nil max on the last chunk means "to the end of every _id type", not just the min's type.
+		// Chunking each _id type on its own would keep min and max the same type, but it needs
+		// typed bounds in state: without them, a nil max can not tell "end of this type" from
+		// "end of every type", and states written before this change rely on the second meaning.
 		pipeline := mongo.Pipeline{
 			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
+			{{Key: "$bucketAuto", Value: bson.D{
+				{Key: "groupBy", Value: "$_id"},
+				{Key: "buckets", Value: numberOfBuckets},
+			}}},
 		}
-		// chunk only ObjectID type _id when multiple types are detected
-		if hasMultipleType(stream) {
-			logger.Warnf("Caution: collection %s contains multiple _id types. Only documents with ObjectID _id will be synced; other types are skipped, which could result in data loss.", stream.ID())
-			pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}}})
-		}
-		pipeline = append(pipeline, bson.D{{Key: "$bucketAuto", Value: bson.D{
-			{Key: "groupBy", Value: "$_id"},
-			{Key: "buckets", Value: numberOfBuckets},
-		}}})
 
 		opts := options.Aggregate().SetAllowDiskUse(true)
 		cursor, err := collection.Aggregate(ctx, pipeline, opts)
@@ -253,31 +261,31 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 
+	// splitVector and timestamp chunks cover only ObjectID _id values
+	objectIDOnly, err := isObjectIDOnly(ctx, collection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check _id types: %w", err)
+	}
+	if !objectIDOnly {
+		logger.Infof("stream %s has _id values that are not ObjectID, using bucket-auto strategy", stream.ID())
+		return bucketAutoStrategy(storageSize)
+	}
+
 	//  compare case-insensitively
 	switch strings.ToLower(strings.TrimSpace(m.config.ChunkingStrategy)) {
 	case "timestamp":
 		return timestampStrategy()
 	default:
-		// check for _id type
-		ObjectIDPresent, err := isObjectID(ctx, collection)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check if _id is ObjectID: %w", err)
+		chunks, err := splitVectorStrategy()
+		// fallback to bucket-auto strategy if authorization error occurs,
+		// or on sharded collections where mongos rejects splitVector with IllegalOperation
+		if err != nil && (strings.Contains(err.Error(), "not authorized") ||
+			strings.Contains(err.Error(), "CMD_NOT_ALLOWED") ||
+			strings.Contains(err.Error(), "IllegalOperation")) {
+			logger.Warnf("failed to get chunks via split vector strategy: %s", err)
+			return bucketAutoStrategy(storageSize)
 		}
-
-		if ObjectIDPresent {
-			chunks, err := splitVectorStrategy()
-			// fallback to bucket-auto strategy if authorization error occurs,
-			// or on sharded collections where mongos rejects splitVector with IllegalOperation
-			if err != nil && (strings.Contains(err.Error(), "not authorized") ||
-				strings.Contains(err.Error(), "CMD_NOT_ALLOWED") ||
-				strings.Contains(err.Error(), "IllegalOperation")) {
-				logger.Warnf("failed to get chunks via split vector strategy: %s", err)
-				return bucketAutoStrategy(storageSize)
-			}
-			return chunks, err
-		}
-		logger.Warn("_id is not ObjectID, falling back to bucket-auto strategy")
-		return bucketAutoStrategy(storageSize)
+		return chunks, err
 	}
 }
 
@@ -337,51 +345,101 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection)
 	return start, end, nil
 }
 
-func generatePipeline(start, end any, filter bson.D, ObjectIDPresent bool) mongo.Pipeline {
-	var andOperation []bson.D
-	if ObjectIDPresent {
-		// convert to primitive.ObjectID
-		start, _ = primitive.ObjectIDFromHex(start.(string))
-		if end != nil {
-			end, _ = primitive.ObjectIDFromHex(end.(string))
-		}
-
-		andOperation = append(andOperation,
-			bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}},
-		)
-	}
-
-	andOperation = append(andOperation,
-		bson.D{{Key: "_id", Value: bson.D{{Key: "$gte", Value: start}}}},
-	)
-	if end != nil {
-		// Changed from $lte to $lt to remove collision between boundaries
-		andOperation = append(andOperation,
-			bson.D{{Key: "_id", Value: bson.D{{Key: "$lt", Value: end}}}},
-		)
-	}
-
+// generatePipeline matches the chunk filter and the user filter, sorted by _id.
+func generatePipeline(chunkFilter, filter bson.D) mongo.Pipeline {
+	andOperation := []bson.D{chunkFilter}
 	if len(filter) > 0 {
 		andOperation = append(andOperation, filter)
 	}
 
-	// Define the aggregation pipeline
 	return mongo.Pipeline{
-		{
-			{
-				Key: "$match",
-				Value: bson.D{
-					{
-						Key:   "$and",
-						Value: andOperation,
-					},
-				}},
-		},
-		bson.D{
-			{Key: "$sort",
-				Value: bson.D{{Key: "_id", Value: 1}}},
-		},
+		{{Key: "$match", Value: bson.D{{Key: "$and", Value: andOperation}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 	}
+}
+
+// idTypeBrackets lists the BSON type brackets an _id value can sort into, in BSON sort order.
+// Values in one bracket compare by value. A bracket always sorts before the brackets after it.
+// Each entry is a $type alias. "number" covers int, long, double and decimal.
+// See https://www.mongodb.com/docs/manual/reference/bson-type-comparison-order/
+var idTypeBrackets = []any{"null", "number", bson.A{"string", "symbol"}, "object", "binData", "objectId", "bool", "date", "timestamp"}
+
+// idTypeBracket returns the index in idTypeBrackets of the bracket that v sorts into.
+func idTypeBracket(v any) (int, error) {
+	switch v.(type) {
+	case nil, primitive.Null:
+		return 0, nil
+	case int, int32, int64, float32, float64, primitive.Decimal128:
+		return 1, nil
+	case string, primitive.Symbol:
+		return 2, nil
+	case bson.M, bson.D, map[string]any:
+		return 3, nil
+	case primitive.Binary:
+		return 4, nil
+	case primitive.ObjectID:
+		return 5, nil
+	case bool:
+		return 6, nil
+	case primitive.DateTime, time.Time:
+		return 7, nil
+	case primitive.Timestamp:
+		return 8, nil
+	default:
+		return -1, fmt.Errorf("unsupported _id type %T", v)
+	}
+}
+
+// decodeChunkBound turns a chunk bound read from state back into the value to query with.
+// ObjectIDs are stored as hex strings, so a valid hex string becomes an ObjectID when the
+// collection holds ObjectIDs. Every other value is used as is.
+// TODO: check if we can adopt typed chunk values in state.
+func decodeChunkBound(v any, objectIDPresent bool) any {
+	if s, ok := v.(string); ok && objectIDPresent {
+		if oid, err := primitive.ObjectIDFromHex(s); err == nil {
+			return oid
+		}
+	}
+	return v
+}
+
+// buildChunkFilter matches every _id from min (inclusive) to max (exclusive) in BSON sort order.
+// A nil max means no upper bound.
+// MongoDB comparison operators only match values in the bracket of the operand, so a range whose
+// bounds sit in different brackets is split into one clause per bracket, each served by the _id index:
+// the rest of the min bracket, every bracket in between, and the part of the max bracket below max.
+func buildChunkFilter(minVal, maxVal any) (bson.D, error) {
+	minBracket, err := idTypeBracket(minVal)
+	if err != nil {
+		return nil, fmt.Errorf("chunk min: %w", err)
+	}
+
+	maxBracket := len(idTypeBrackets)
+	if maxVal != nil {
+		if maxBracket, err = idTypeBracket(maxVal); err != nil {
+			return nil, fmt.Errorf("chunk max: %w", err)
+		}
+		if maxBracket < minBracket {
+			return nil, fmt.Errorf("chunk max %v sorts before min %v", maxVal, minVal)
+		}
+		// same bracket
+		if maxBracket == minBracket {
+			return bson.D{{Key: "_id", Value: bson.D{{Key: "$gte", Value: minVal}, {Key: "$lt", Value: maxVal}}}}, nil
+		}
+	}
+
+	// values of the min type that are greater than or equal to min
+	clauses := bson.A{bson.D{{Key: "_id", Value: bson.D{{Key: "$gte", Value: minVal}}}}}
+	// every value of each type that sorts between the min type and the max type
+	for _, bracket := range idTypeBrackets[minBracket+1 : maxBracket] {
+		clauses = append(clauses, bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: bracket}}}})
+	}
+	// values of the max type that are less than max (skipped for the last chunk, which has no max)
+	if maxVal != nil {
+		clauses = append(clauses, bson.D{{Key: "_id", Value: bson.D{{Key: "$lt", Value: maxVal}}}})
+	}
+	// a document is in the chunk if it matches any one of the clauses
+	return bson.D{{Key: "$or", Value: clauses}}, nil
 }
 
 // function to generate ObjectID with the minimum value for a given time
@@ -528,10 +586,22 @@ func isObjectID(ctx context.Context, collection *mongo.Collection) (bool, error)
 	return true, nil
 }
 
-func hasMultipleType(stream types.StreamInterface) bool {
-	_, idProperty := stream.Schema().GetProperty("_id")
-	if idProperty == nil {
-		return false
+// isObjectIDOnly reports whether every _id in the collection is an ObjectID.
+// ObjectID is one bracket in BSON sort order, so this holds when the smallest and the
+// largest _id are both ObjectIDs. Both lookups use the _id index.
+func isObjectIDOnly(ctx context.Context, collection *mongo.Collection) (bool, error) {
+	for _, order := range []int{1, -1} {
+		var doc bson.M
+		opts := options.FindOne().SetSort(bson.D{{Key: "_id", Value: order}}).SetProjection(bson.D{{Key: "_id", Value: 1}})
+		if err := collection.FindOne(ctx, bson.D{}, opts).Decode(&doc); err != nil {
+			if err == mongo.ErrNoDocuments {
+				return false, nil
+			}
+			return false, err
+		}
+		if _, ok := doc["_id"].(primitive.ObjectID); !ok {
+			return false, nil
+		}
 	}
-	return idProperty.Type.Len() > 1
+	return true, nil
 }
